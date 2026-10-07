@@ -55,7 +55,7 @@ export default function Overview() {
         </div>
         <div className="col">
           <div className="panel">
-            <div className="ph"><h2>Awaiting pickup</h2><span className="sub">{A.length ? A.length + " at destinations" : ""}</span></div>
+            <div className="ph"><h2>Awaiting pickup</h2><button className="link" onClick={() => ui.go("arrivals")}>Arrivals →</button></div>
             {A.slice(0, 6).map((s) => {
               const d = Math.floor((Date.now() - new Date(s.arrived_at || s.received_at).getTime()) / 864e5);
               return (

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
-import { BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
+import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
 import { METHODS, STATUS, TSTATUS, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 export function ShipmentSheet({ id }: { id: string }) {
@@ -93,6 +93,7 @@ export function TripSheet({ id }: { id: string }) {
   const { tripById, tripShips, shipments, can, patch, patchMany, remove, me, toast } = useStore();
   const ui = useUi();
   const [confirm, setConfirm] = useState<"" | "depart" | "arrive" | "del">("");
+  const arriveTrip = useArriveTrip();
   const t = tripById(id);
   const [target, setTarget] = useState(String(t?.target || ""));
   if (!t) return <div className="sheet-h"><p className="sub">This trip no longer exists.</p><button className="btn sm" onClick={ui.close}>Close</button></div>;
@@ -113,14 +114,7 @@ export function TripSheet({ id }: { id: string }) {
       toast(`${t.plate} departed. Send the departure notices.`);
     }
   };
-  const arrive = async () => {
-    setConfirm("");
-    const at = now();
-    if (await patch<Trip>("trips", t.id, { status: "arrived", arrived_at: at, arrived_by: me.full_name })) {
-      await patchMany("shipments", list.filter((s) => s.status === "transit").map((s) => s.id), { status: "arrived", arrived_at: at });
-      toast(`${t.plate} arrived. Send the arrival notices.`);
-    }
-  };
+  const arrive = async () => { setConfirm(""); await arriveTrip(t); };
 
   return (
     <>

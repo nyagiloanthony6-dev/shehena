@@ -12,6 +12,20 @@ export const PayPill = ({ paid, long }: { paid: boolean; long?: boolean }) => (
 );
 export const Example = () => null;
 
+/** Mark a truck arrived: the trip and every consignment still in transit on it. */
+export function useArriveTrip() {
+  const { patch, patchMany, tripShips, me, toast } = useStore();
+  return async (t: Trip) => {
+    const at = new Date().toISOString();
+    if (await patch<Trip>("trips", t.id, { status: "arrived", arrived_at: at, arrived_by: me.full_name })) {
+      await patchMany("shipments", tripShips(t).filter((s) => s.status === "transit").map((s) => s.id), { status: "arrived", arrived_at: at });
+      toast(`${t.plate} arrived. Send the arrival notices.`);
+      return true;
+    }
+    return false;
+  };
+}
+
 export function tripTotals(list: Shipment[]) {
   const billed = list.reduce((a, x) => a + Number(x.charge || 0), 0);
   const paid = list.filter((x) => x.pay === "paid").reduce((a, x) => a + Number(x.charge || 0), 0);

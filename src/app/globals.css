@@ -365,3 +365,4 @@ details.panel[open]>summary{margin-bottom:10px}
 .loading-screen{min-height:100%;display:grid;place-items:center;color:var(--muted)}
 .toast.err{background:var(--bad);color:#fff}
 .pwrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.panel > .nrow:first-child{border-top:0;padding-top:0}

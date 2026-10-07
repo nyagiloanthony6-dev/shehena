@@ -7,17 +7,19 @@ import Overview from "./views/Overview";
 import Consignments from "./views/Consignments";
 import Receive from "./views/Receive";
 import Loading from "./views/Loading";
+import Arrivals from "./views/Arrivals";
 import Reports from "./views/Reports";
 import Settings from "./views/Settings";
 import { signOut } from "@/app/login/actions";
 import { initials, ROLES, SYSTEM, type Company, type Perm, type Profile } from "@/lib/domain";
 
-export type View = "home" | "list" | "new" | "trips" | "reports" | "set";
+export type View = "home" | "list" | "new" | "trips" | "arrivals" | "reports" | "set";
 const TABS: [View, string, Perm | null, string][] = [
   ["home", "Overview", null, "Home"],
   ["list", "Consignments", null, "Cargo"],
   ["new", "Receive goods", "receive", "Receive"],
   ["trips", "Loading bay", null, "Loading"],
+  ["arrivals", "Arrivals", null, "Arrivals"],
   ["reports", "Reports", "reports", "Reports"],
   ["set", "Settings", "settings", "Settings"],
 ];
@@ -93,10 +95,11 @@ function Shell() {
     listPay, setListPay, tripFormOpen, setTripFormOpen,
   };
   const loadingN = st.trips.filter((t) => t.status === "loading").length;
+  const roadN = st.trips.filter((t) => t.status === "departed").length;
   const items = TABS.filter(([, , need]) => !need || st.can(need));
   const navBtn = (k: View, label: string) => (
     <button key={k} onClick={() => go(k)} aria-current={view === k ? "page" : undefined}>
-      <Icon name={k} /><span>{label}</span>{k === "trips" && loadingN > 0 && <span className="nbadge">{loadingN}</span>}
+      <Icon name={k} /><span>{label}</span>{k === "trips" && loadingN > 0 && <span className="nbadge">{loadingN}</span>}{k === "arrivals" && roadN > 0 && <span className="nbadge">{roadN}</span>}
     </button>
   );
   const needsSetup = st.can("settings") && (!st.company.phone || !st.company.branch);
@@ -140,6 +143,7 @@ function Shell() {
                 {view === "list" && <Consignments />}
                 {view === "new" && <Receive />}
                 {view === "trips" && <Loading />}
+                {view === "arrivals" && <Arrivals />}
                 {view === "reports" && <Reports />}
                 {view === "set" && <Settings />}
               </>

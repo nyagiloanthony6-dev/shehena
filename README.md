@@ -81,6 +81,8 @@ payments, delete records or edit settings; the CEO can only set targets; disable
 signed-out visitors see nothing.
 
 ## Arrival and payment
+The **Arrivals** menu is the destination desk: trucks on the road (mark them arrived), goods waiting
+for customers (notify, take payment and release), and what was released today.
 When a truck is marked **arrived**, the trip shows arrival notices with unpaid receivers first.
 Unpaid receivers are told the amount and how to pay (from **Settings → How customers pay**), then to
 come with ID to collect. Goods can't be released until paid — the database refuses it. Unpaid goods
