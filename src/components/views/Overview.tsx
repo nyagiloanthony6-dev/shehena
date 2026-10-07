@@ -61,7 +61,7 @@ export default function Overview() {
               return (
                 <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
                   <div><b>{s.r_name}</b><div className="sub">{s.item} · {regShort(s.dest)}</div></div>
-                  <div className="r"><div className="sub">{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</div>{s.pay !== "paid" && <div className="sub" style={{ color: "var(--bad)" }}>TZS {tzs(s.charge)} due</div>}</div>
+                  <div className="r"><div className="sub">{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</div>{s.pay !== "paid" && <div className="sub" style={{ color: "var(--bad)" }}>TZS {tzs(s.charge)} due{d >= 2 && !(s.notices || []).some((n) => n.kind === "reminder" && Date.now() - new Date(n.at).getTime() < 2 * 864e5) ? " · send reminder" : ""}</div>}</div>
                 </button>
               );
             })}

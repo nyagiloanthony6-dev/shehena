@@ -23,7 +23,8 @@ These rules are enforced **in the database**, not just hidden in the screens.
 
 ### 1. Create the Supabase project
 1. Go to <https://supabase.com> → **New project**. Pick a region close to Tanzania (e.g. *Frankfurt* or *Cape Town*).
-2. Open **SQL Editor** → **New query**, paste everything in `supabase/migrations/0001_init.sql`, press **Run**.
+2. Open **SQL Editor** → **New query**, paste the *contents* of `supabase/migrations/0001_init.sql`, press **Run**.
+   Then do the same for each later file in `supabase/migrations/` in number order (`0002_…`, `0003_…`).
 3. **Authentication → Providers → Email**: keep *Email* enabled. *Confirm email* can stay on —
    staff accounts created by the Admin are confirmed automatically.
 4. **Authentication → URL Configuration**: set *Site URL* to your live address
@@ -78,6 +79,12 @@ psql -d test -f supabase/tests/rls_test.sql
 Covers: companies can't see or change each other's data; cashiers can't change targets, undo
 payments, delete records or edit settings; the CEO can only set targets; disabled staff and
 signed-out visitors see nothing.
+
+## Arrival and payment
+When a truck is marked **arrived**, the trip shows arrival notices with unpaid receivers first.
+Unpaid receivers are told the amount and how to pay (from **Settings → How customers pay**), then to
+come with ID to collect. Goods can't be released until paid — the database refuses it. Unpaid goods
+waiting 2+ days are flagged on the Overview, and each one has a **Payment reminder** message.
 
 ## Customer messages
 SMS and WhatsApp buttons open the staff member's phone with the message ready to send, and the

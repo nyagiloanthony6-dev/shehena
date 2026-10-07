@@ -50,7 +50,7 @@ const DEFAULTS = {
   vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null },
   trips: { driver: "", driver_phone: "", target: 0, target_set_by: null, status: "loading", departed_at: null, departed_by: null, arrived_at: null, arrived_by: null },
   shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [] },
-  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw" },
+  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "" },
   profiles: { active: true },
 };
 
@@ -129,6 +129,8 @@ http.createServer(async (req, res) => {
         if (role === "ceo" && Object.keys(b).some((k) => !["target", "target_set_by", "target_set_at"].includes(k))) return send(res, 400, { message: "The CEO can only change targets" });
       }
       const rows = applyFilters(visible(c, table, db[table]), url.searchParams);
+      if (table === "shipments" && rows.some((r) => ({ ...r, ...b }).status === "collected" && ({ ...r, ...b }).pay !== "paid"))
+        return send(res, 400, { message: "Record the payment before releasing the goods" });
       rows.forEach((r) => Object.assign(r, b));
       return wantRows || single ? out(rows) : send(res, 204);
     }

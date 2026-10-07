@@ -3,7 +3,7 @@
 export type Role = "admin" | "cashier" | "ceo";
 export type ShipStatus = "received" | "loaded" | "transit" | "arrived" | "collected";
 export type TripStatus = "loading" | "departed" | "arrived";
-export type NoticeKind = "received" | "departed" | "arrived";
+export type NoticeKind = "received" | "departed" | "arrived" | "reminder";
 export type NoticeTo = "sender" | "receiver";
 
 export interface Company {
@@ -13,6 +13,7 @@ export interface Company {
   phone: string;
   default_origin: string;
   message_lang: "sw" | "en";
+  payment_instructions: string;
 }
 export interface Profile {
   id: string;
@@ -156,7 +157,7 @@ export const initials = (name: string) =>
 export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Company, plate = "") {
   const sw = company.message_lang !== "en";
   const co = company.name || SYSTEM;
-  const ph = company.phone || "-";
+  const ph = company.phone?.trim() || "";
   const items = `${s.item}, ${sw ? "vifurushi" : "packages"} ${s.pkgs}`;
   const payLine = s.pay === "paid"
     ? (sw ? "Malipo: IMELIPWA." : "Payment: PAID.")
@@ -164,20 +165,28 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   const O = regShort(s.origin), D = regShort(s.dest);
   const day = fmtDay(s.transit_at || new Date().toISOString());
   if (kind === "received" && to === "sender") return sw
-    ? `Habari ${s.s_name}, tumepokea mzigo wako (${items}) kwenda kwa ${s.r_name}, ${D}. Namba ya risiti: ${s.no}. ${payLine} Asante kwa kutumia ${co}. Simu: ${ph}`
-    : `Hello ${s.s_name}, we have received your goods (${items}) for ${s.r_name}, ${D}. Receipt no: ${s.no}. ${payLine} Thank you for using ${co}. Tel: ${ph}`;
+    ? `Habari ${s.s_name}, tumepokea mzigo wako (${items}) kwenda kwa ${s.r_name}, ${D}. Namba ya risiti: ${s.no}. ${payLine} Asante kwa kutumia ${co}.${ph ? " Simu: " + ph : ""}`
+    : `Hello ${s.s_name}, we have received your goods (${items}) for ${s.r_name}, ${D}. Receipt no: ${s.no}. ${payLine} Thank you for using ${co}.${ph ? " Tel: " + ph : ""}`;
   if (kind === "received") return sw
-    ? `Habari ${s.r_name}, mzigo wako (${items}) kutoka kwa ${s.s_name} umepokelewa ${O} na utasafirishwa kwenda ${D}. Namba ya mzigo: ${s.no}. ${payLine} ${co}, simu: ${ph}`
-    : `Hello ${s.r_name}, your goods (${items}) from ${s.s_name} have been received in ${O} and will be sent to ${D}. Waybill no: ${s.no}. ${payLine} ${co}, tel: ${ph}`;
+    ? `Habari ${s.r_name}, mzigo wako (${items}) kutoka kwa ${s.s_name} umepokelewa ${O} na utasafirishwa kwenda ${D}. Namba ya mzigo: ${s.no}. ${payLine} ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods (${items}) from ${s.s_name} have been received in ${O} and will be sent to ${D}. Waybill no: ${s.no}. ${payLine} ${co}${ph ? ", tel: " + ph : ""}`;
   if (kind === "departed") return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umepakiwa kwenye gari ${plate} na umeondoka ${O} ${day} kuelekea ${D}. Tutakujulisha ukifika. ${co}, simu: ${ph}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), are loaded on vehicle ${plate} and left ${O} on ${day} for ${D}. We will notify you on arrival. ${co}, tel: ${ph}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umepakiwa kwenye gari ${plate} na umeondoka ${O} ${day} kuelekea ${D}. Tutakujulisha ukifika. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), are loaded on vehicle ${plate} and left ${O} on ${day} for ${D}. We will notify you on arrival. ${co}${ph ? ", tel: " + ph : ""}`;
   if (kind === "arrived" && to === "sender") return sw
-    ? `Habari ${s.s_name}, mzigo namba ${s.no} (${items}) uliotuma kwa ${s.r_name} umefika ${D}. ${co}, simu: ${ph}`
-    : `Hello ${s.s_name}, waybill ${s.no} (${items}) you sent to ${s.r_name} has arrived in ${D}. ${co}, tel: ${ph}`;
+    ? `Habari ${s.s_name}, mzigo namba ${s.no} (${items}) uliotuma kwa ${s.r_name} umefika ${D}. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.s_name}, waybill ${s.no} (${items}) you sent to ${s.r_name} has arrived in ${D}. ${co}${ph ? ", tel: " + ph : ""}`;
+  const due = `TZS ${tzs(s.charge)}`;
+  const how = company.payment_instructions?.trim();
+  if (kind === "reminder") return sw
+    ? `Kumbusho: Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) upo ofisini ${D} tangu ${fmtDay(s.arrived_at)}. Kiasi cha kulipa ni ${due}.${how ? ` Lipa kupitia: ${how}.` : ""} Baada ya kulipa, fika na kitambulisho kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Reminder: Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have been waiting at our ${D} office since ${fmtDay(s.arrived_at)}. Amount due: ${due}.${how ? ` Pay via: ${how}.` : ""} After paying, come with ID to collect. ${co}${ph ? ", tel: " + ph : ""}`;
+  if (s.pay !== "paid") return sw
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? " kwa gari " + plate : ""}. Kiasi cha kulipa ni ${due}.${how ? ` Tafadhali lipia kupitia: ${how}.` : " Tafadhali lipia ofisini."} Baada ya kulipa, fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? " on vehicle " + plate : ""}. Amount due: ${due}.${how ? ` Please pay via: ${how}.` : " Please pay at our office."} Once paid, come to our office with ID and this waybill number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
   return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? " kwa gari " + plate : ""}. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${payLine} ${co}, simu: ${ph}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? " on vehicle " + plate : ""}. Please come to our office with ID and this number to collect. ${payLine} ${co}, tel: ${ph}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? " kwa gari " + plate : ""}. Malipo yamekamilika. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? " on vehicle " + plate : ""}. Payment is complete. Please come to our office with ID and this number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
 }
 
 export function niceStep(max: number) {

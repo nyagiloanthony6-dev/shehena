@@ -6,13 +6,13 @@ import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/a
 
 function CompanyForm() {
   const { company, patchCompany, toast } = useStore();
-  const [f, setF] = useState({ name: company.name, branch: company.branch, phone: company.phone, default_origin: company.default_origin, message_lang: company.message_lang });
+  const [f, setF] = useState({ name: company.name, branch: company.branch, phone: company.phone, default_origin: company.default_origin, message_lang: company.message_lang, payment_instructions: company.payment_instructions || "" });
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   return (
     <form onSubmit={async (e) => {
       e.preventDefault();
       if (!f.name.trim()) return toast("Enter your company name.", true);
-      if (await patchCompany({ ...f, name: f.name.trim(), branch: f.branch.trim(), phone: f.phone.trim() } as never)) toast("Company details saved");
+      if (await patchCompany({ ...f, name: f.name.trim(), branch: f.branch.trim(), phone: f.phone.trim(), payment_instructions: f.payment_instructions.trim() } as never)) toast("Company details saved");
     }} style={{ maxWidth: 760 }}>
       <fieldset><legend>Company on receipts and messages</legend>
         <div className="fields">
@@ -21,6 +21,8 @@ function CompanyForm() {
           <label className="f">Office phone<input value={f.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" /></label>
           <label className="f">Default origin<select value={f.default_origin} onChange={(e) => set("default_origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
           <label className="f">Message language<select value={f.message_lang} onChange={(e) => set("message_lang", e.target.value)}><option value="sw">Kiswahili</option><option value="en">English</option></select></label>
+          <label className="f full">How customers pay <small>sent to receivers who still owe money</small>
+            <textarea rows={2} value={f.payment_instructions} onChange={(e) => set("payment_instructions", e.target.value)} placeholder="e.g. M-Pesa Lipa Namba 123456 (Kilimanjaro Express Cargo) au CRDB A/C 0150XXXXXXX" /></label>
         </div>
         <div className="actions"><button className="btn primary" type="submit">Save company details</button></div>
       </fieldset>

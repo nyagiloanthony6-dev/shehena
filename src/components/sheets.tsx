@@ -30,7 +30,14 @@ export function ShipmentSheet({ id }: { id: string }) {
         {t && <p className="note">Vehicle <b className="mono">{t.plate}</b> · trip <a href="#" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.no}</a> · driver {t.driver || "—"}</p>}
         <div className="actions">
           {s.status === "received" && can("load") && <button className="btn" onClick={() => ui.go("trips")}>Load onto a vehicle</button>}
-          {s.status === "arrived" && can("dispatch") && <button className="btn primary" onClick={async () => { if (await P({ status: "collected", collected_at: now(), collected_by: me.full_name })) toast("Marked as collected"); }}>Mark as collected</button>}
+          {s.status === "arrived" && can("dispatch") && s.pay === "paid" && <button className="btn primary" onClick={async () => { if (await P({ status: "collected", collected_at: now(), collected_by: me.full_name })) toast("Goods released to the customer"); }}>Release goods to customer</button>}
+          {s.status === "arrived" && can("pay") && s.pay !== "paid" && (
+            <div className="confirm go" style={{ width: "100%" }}>
+              <span><b>TZS {tzs(s.charge)} unpaid.</b> Take payment before releasing the goods.</span>
+              <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: "auto" }} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
+              <button className="btn sm primary" onClick={async () => { const at = now(); if (await P({ pay: "paid", method, paid_at: at, paid_by: me.full_name, status: "collected", collected_at: at, collected_by: me.full_name })) toast("Payment recorded and goods released"); }}>Record payment &amp; release</button>
+            </div>
+          )}
           {s.status === "collected" && can("undo") && <button className="btn sm" onClick={() => P({ status: "arrived", collected_at: null, collected_by: null })}>Undo collected</button>}
         </div>
         {s.status === "collected" && <p className="note">Collected {fmtDate(s.collected_at)}{s.collected_by ? " · released by " + s.collected_by : ""}</p>}
@@ -53,6 +60,12 @@ export function ShipmentSheet({ id }: { id: string }) {
         </div>
       </div>
 
+      {s.status === "arrived" && s.pay !== "paid" && (
+        <div className="card"><h3>Payment reminder</h3>
+          <p className="note" style={{ marginTop: 0 }}>Waiting since {fmtDate(s.arrived_at)}. Send this if the customer hasn&apos;t come to pay and collect.</p>
+          <NotifyBlock s={s} kind="reminder" to="receiver" />
+        </div>
+      )}
       {(s.status === "arrived" || s.status === "collected") && (
         <div className="card"><h3>Arrival notice</h3><NotifyBlock s={s} kind="arrived" to="receiver" />
           <details style={{ marginTop: 10 }}><summary className="sub" style={{ cursor: "pointer" }}>Also tell the sender</summary><NotifyBlock s={s} kind="arrived" to="sender" /></details>

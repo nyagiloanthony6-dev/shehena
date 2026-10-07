@@ -180,11 +180,16 @@ export function NotifyBlock({ s, kind, to }: { s: Shipment; kind: NoticeKind; to
 
 export function BulkNotices({ trip, kind }: { trip: Trip; kind: "departed" | "arrived" }) {
   const { tripShips, can, toast } = useStore();
-  const list = tripShips(trip);
+  const list = [...tripShips(trip)].sort((a, b) => (a.pay === "paid" ? 1 : 0) - (b.pay === "paid" ? 1 : 0));
   const done = list.filter((s) => sentLog(s, kind, "receiver").length).length;
+  const unpaid = list.filter((s) => s.pay !== "paid");
+  const unpaidAmt = unpaid.reduce((a, s) => a + Number(s.charge || 0), 0);
   return (
     <div className="card">
       <h3>{kind === "departed" ? "Departure notices" : "Arrival notices"} · <span className="num">{done} of {list.length}</span> sent</h3>
+      {kind === "arrived" && unpaid.length > 0 && (
+        <p style={{ margin: "0 0 8px", color: "var(--bad)" }}><b>{unpaid.length} receiver{unpaid.length === 1 ? " still owes" : "s still owe"} TZS {tzs(unpaidAmt)}.</b> Their message tells them the amount and how to pay before collecting.</p>
+      )}
       <p className="note" style={{ marginTop: 0 }}>Tap WhatsApp or SMS for each receiver. The message opens ready to send.</p>
       {list.map((s) => {
         const l = sentLog(s, kind, "receiver");
@@ -192,7 +197,7 @@ export function BulkNotices({ trip, kind }: { trip: Trip; kind: "departed" | "ar
           <div className="nrow" key={s.id}>
             <div style={{ minWidth: 0 }}>
               <b>{s.r_name}</b> <span className="mono sub">{prettyPhone(s.r_phone)}</span>
-              <div className="sub"><span className="mono">{s.no}</span> · {s.item} · {s.pkgs} pkg</div>
+              <div className="sub"><span className="mono">{s.no}</span> · {s.item} · {s.pkgs} pkg{kind === "arrived" && <> · {s.pay === "paid" ? <span style={{ color: "var(--good)" }}>Paid</span> : <span style={{ color: "var(--bad)" }}>Owes TZS {tzs(s.charge)}</span>}</>}</div>
               {l.length ? <span className="tick">✓ Sent via {l[l.length - 1].channel}</span> : <span className="pending">Not sent</span>}
             </div>
             <div className="actions" style={{ margin: 0 }}><SendButtons s={s} kind={kind} to="receiver" /></div>
