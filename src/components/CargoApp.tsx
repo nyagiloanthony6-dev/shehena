@@ -42,16 +42,21 @@ export const useUi = () => {
   return u;
 };
 
-export default function CargoApp({ me, initialCompany }: { me: Profile; initialCompany: Company }) {
-  return <StoreProvider me={me} initialCompany={initialCompany}><Shell /></StoreProvider>;
+export default function CargoApp({ me, initialCompany, isOwner = false, announcement = "", status = "active" }: {
+  me: Profile; initialCompany: Company; isOwner?: boolean; announcement?: string; status?: string;
+}) {
+  return <StoreProvider me={me} initialCompany={initialCompany}><Shell isOwner={isOwner} announcement={announcement} status={status} /></StoreProvider>;
 }
 
-function Shell() {
+function Shell({ isOwner, announcement, status }: { isOwner: boolean; announcement: string; status: string }) {
   const st = useStore();
   const [view, setView] = useState<View>("home");
   const [sheet, setSheet] = useState<{ type: "ship" | "trip"; id: string } | null>(null);
   const [listPay, setListPay] = useState<"" | "paid" | "unpaid">("");
   const [tripFormOpen, setTripFormOpen] = useState(false);
+  const [hiddenNote, setHiddenNote] = useState("");
+  useEffect(() => { try { setHiddenNote(localStorage.getItem("shehena.note") || ""); } catch { /* private mode */ } }, []);
+  const hideNote = () => { setHiddenNote(announcement); try { localStorage.setItem("shehena.note", announcement); } catch { /* private mode */ } };
 
   const allowed = useCallback((v: View) => {
     const t = TABS.find((x) => x[0] === v);
@@ -114,6 +119,7 @@ function Shell() {
             <div className="br">{st.company.branch}</div>
           </div>
           <nav className="side-nav" aria-label="Main">{items.map(([k, l]) => navBtn(k, l))}</nav>
+          {isOwner && <a className="side-owner" href="/owner">Owner console →</a>}
           <div className="side-user">
             <div className="avatar">{initials(st.me.full_name)}</div>
             <div style={{ minWidth: 0 }}><div className="nm">{st.me.full_name}</div><span className="role">{ROLES[st.me.role]}</span></div>
@@ -131,6 +137,15 @@ function Shell() {
             </div>
           </header>
           <main className="wrap">
+            {announcement && hiddenNote !== announcement && (
+              <div className="notice" role="status"><span><b>Serengeti Labs:</b> {announcement}</span><button className="btn sm" onClick={hideNote}>Dismiss</button></div>
+            )}
+            {status === "overdue" && st.can("settings") && (
+              <div className="notice warn" role="status"><span><b>Your Shehena subscription is overdue.</b> Please pay Serengeti Labs to avoid interruption.</span></div>
+            )}
+            {status === "trial" && st.can("settings") && (
+              <div className="notice" role="status"><span><b>You&apos;re on a free trial of Shehena.</b> Contact Serengeti Labs to activate your account.</span></div>
+            )}
             {needsSetup && view !== "set" && (
               <div className="banner" style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", background: "var(--accent-soft)", color: "var(--fg)" }}>
                 <span><b>Finish your company details.</b> Add your branch and office phone. They appear on receipts and customer messages.</span>

@@ -44,10 +44,20 @@ Add cashiers, the CEO and vehicles under **Settings**.
 ### 3. Deploy on Vercel
 1. Push this folder to GitHub, then **Import** the repo at <https://vercel.com/new>.
 2. Add the same environment variables (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-   `SUPABASE_SERVICE_ROLE_KEY`, `ALLOW_COMPANY_SIGNUP`).
+   `SUPABASE_SERVICE_ROLE_KEY`, `ALLOW_COMPANY_SIGNUP`, `OWNER_EMAILS`).
 3. Deploy, then point your domain at it and update the Supabase *Site URL* (step 1.4).
 
 Set `ALLOW_COMPANY_SIGNUP=false` if you want to onboard companies yourself instead of letting them sign up.
+
+## Owner console (Serengeti Labs)
+Open **/owner** while signed in with an email listed in `OWNER_EMAILS`. From there you can:
+- see every client company with staff, trucks, this month's consignments and money, and last activity
+- add a company yourself (with a temporary Admin password) and close open self sign-up
+- mark a company Trial, Active, Overdue or **Suspended** (suspended staff lose access; data is kept)
+- reset any staff member's password, keep private notes, and post an announcement to all clients
+- review the owner activity log
+
+Requires migration `0003_client_accounts.sql` and the `OWNER_EMAILS` environment variable.
 
 ## How it fits together
 

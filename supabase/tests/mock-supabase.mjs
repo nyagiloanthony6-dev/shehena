@@ -3,7 +3,10 @@
 import http from "node:http";
 import crypto from "node:crypto";
 
-const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [] };
+const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null }] };
+const SERVICE_ONLY = ["company_accounts", "owner_audit"];
+const PK = { company_accounts: "company_id", platform_settings: "id" };
+const suspended = (cid) => db.company_accounts.find((a) => a.company_id === cid)?.status === "suspended";
 const users = []; // {id,email,password,banned}
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
 const jwt = (sub) => `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub, role: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600, aud: "authenticated" })}.sig`;
@@ -21,7 +24,7 @@ function caller(req) {
   if (tok === SERVICE) return { service: true };
   const uid = sessions.get(tok);
   if (!uid) return null;
-  const p = db.profiles.find((x) => x.id === uid && x.active);
+  const p = db.profiles.find((x) => x.id === uid && x.active && !suspended(x.company_id));
   return { uid, profile: p };
 }
 const send = (res, code, body, headers = {}) => {
@@ -44,7 +47,7 @@ function applyFilters(rows, params) {
   return out;
 }
 // Row visibility = same company (mirrors the RLS policies).
-const visible = (c, table, rows) => c.service ? rows : !c.profile ? [] :
+const visible = (c, table, rows) => c.service ? rows : SERVICE_ONLY.includes(table) ? [] : table === "platform_settings" ? rows : !c.profile ? [] :
   rows.filter((r) => (table === "companies" ? r.id : r.company_id) === c.profile.company_id);
 const DEFAULTS = {
   vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null },
@@ -98,6 +101,19 @@ http.createServer(async (req, res) => {
     if (b.ban_duration) u.banned = b.ban_duration !== "none";
     return send(res, 200, userObj(u));
   }
+  // ---------------- rpc
+  if (p === "/rest/v1/rpc/owner_company_stats") {
+    if (!caller(req)?.service) return send(res, 401, { message: "permission denied" });
+    const m0 = new Date(); m0.setDate(1); m0.setHours(0, 0, 0, 0); const inM = (d) => d && new Date(d) >= m0;
+    return send(res, 200, db.companies.map((c) => {
+      const S = db.shipments.filter((x) => x.company_id === c.id), T = db.trips.filter((x) => x.company_id === c.id), P = db.profiles.filter((x) => x.company_id === c.id);
+      return { company_id: c.id, staff: P.length, active_staff: P.filter((x) => x.active).length, vehicles: db.vehicles.filter((x) => x.company_id === c.id).length,
+        trips_month: T.filter((x) => inM(x.created_at)).length, ship_month: S.filter((x) => inM(x.received_at)).length,
+        billed_month: S.filter((x) => inM(x.received_at)).reduce((a, x) => a + Number(x.charge || 0), 0),
+        paid_month: S.filter((x) => x.pay === "paid" && inM(x.paid_at)).reduce((a, x) => a + Number(x.charge || 0), 0),
+        ship_total: S.length, last_activity: [...S.map((x) => x.received_at), ...T.map((x) => x.created_at), c.created_at].sort().pop() };
+    }));
+  }
   // ---------------- rest
   const t = p.match(/^\/rest\/v1\/(\w+)$/);
   if (t && db[t[1]]) {
@@ -112,18 +128,26 @@ http.createServer(async (req, res) => {
     if (req.method === "POST") {
       const b = await readBody(req);
       const list = (Array.isArray(b) ? b : [b]).map((r) => ({ id: crypto.randomUUID(), created_at: new Date().toISOString(), ...DEFAULTS[table], ...r }));
+      if (SERVICE_ONLY.includes(table) && !c.service) return send(res, 403, { message: "permission denied" });
+      if ((req.headers.prefer || "").includes("merge-duplicates") && PK[table]) {
+        const out2 = list.map((r) => { const ex = db[table].find((x) => x[PK[table]] === r[PK[table]]); if (ex) { Object.assign(ex, r); return ex; } db[table].push(r); return r; });
+        return wantRows || single ? out(out2) : send(res, 201);
+      }
       if (!c.service) {
         const allowed = { shipments: ["admin", "cashier"], trips: ["admin", "cashier"], vehicles: ["admin"] }[table] || [];
         if (!allowed.includes(role) || list.some((r) => r.company_id !== c.profile.company_id)) return send(res, 403, { message: "new row violates row-level security policy" });
         if (table === "trips" && role === "cashier") list.forEach((r) => { const v = db.vehicles.find((x) => x.company_id === r.company_id && x.plate === r.plate); r.target = v?.target || 0; });
       }
       db[table].push(...list);
+      if (table === "companies") list.forEach((co) => db.company_accounts.push({ company_id: co.id, status: "active", notes: "", status_changed_at: new Date().toISOString(), created_at: new Date().toISOString() }));
+      if (table === "owner_audit") list.forEach((r, i) => { r.id = db.owner_audit.length + i; r.at = new Date().toISOString(); });
       return wantRows || single ? out(list) : send(res, 201);
     }
     if (req.method === "PATCH") {
       const b = await readBody(req);
       if (!c.service) {
         const allowed = { shipments: ["admin", "cashier"], trips: ["admin", "cashier", "ceo"], vehicles: ["admin", "ceo"], companies: ["admin"] }[table] || [];
+        if (SERVICE_ONLY.includes(table) || table === "platform_settings") return send(res, 403, { message: "permission denied" });
         if (!allowed.includes(role)) return out([]);
         if (role === "cashier" && "target" in b) return send(res, 400, { message: "Only the Admin or CEO can change a target" });
         if (role === "ceo" && Object.keys(b).some((k) => !["target", "target_set_by", "target_set_at"].includes(k))) return send(res, 400, { message: "The CEO can only change targets" });

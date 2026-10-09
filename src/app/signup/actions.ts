@@ -6,7 +6,8 @@ import type { FormState } from "../login/actions";
 
 /** Registers a new cargo company and its first Admin account. */
 export async function signUpCompany(_: FormState, fd: FormData): Promise<FormState> {
-  if (process.env.ALLOW_COMPANY_SIGNUP === "false") return { error: "New registrations are closed. Contact Serengeti Labs." };
+  const { data: ps } = await supabaseAdmin().from("platform_settings").select("signup_open").eq("id", 1).maybeSingle();
+  if (process.env.ALLOW_COMPANY_SIGNUP === "false" || ps?.signup_open === false) return { error: "New registrations are closed. Contact Serengeti Labs to get an account." };
   const company = String(fd.get("company") || "").trim();
   const fullName = String(fd.get("full_name") || "").trim();
   const email = String(fd.get("email") || "").trim().toLowerCase();

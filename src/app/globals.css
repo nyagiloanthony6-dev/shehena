@@ -366,3 +366,18 @@ details.panel[open]>summary{margin-bottom:10px}
 .toast.err{background:var(--bad);color:#fff}
 .pwrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .panel > .nrow:first-child{border-top:0;padding-top:0}
+/* ===== owner console ===== */
+.otop{position:sticky;top:env(safe-area-inset-top,0px);z-index:25;background:var(--nav-bg);color:var(--nav-fg);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 20px}
+.otop .sys{font-family:var(--f-display);font-stretch:78%;font-weight:800;text-transform:uppercase;letter-spacing:.16em;font-size:12px;color:var(--tape)}
+.otop .otitle{font-family:var(--f-display);font-stretch:82%;font-weight:700;font-size:19px;line-height:1.1}
+.otop .btn{background:transparent;color:var(--nav-fg);border-color:rgba(255,255,255,.25)}
+.otop .btn:hover{background:rgba(255,255,255,.08)}
+.owner .wrap{padding-block:0 60px}
+.acc-trial{background:var(--info-soft);color:var(--info)}
+.acc-active{background:var(--good-soft);color:var(--good)}
+.acc-overdue{background:var(--amber-soft);color:var(--amber)}
+.acc-suspended{background:var(--bad-soft);color:var(--bad)}
+.notice{display:flex;gap:10px;align-items:start;justify-content:space-between;margin-top:14px;padding:10px 14px;border-radius:var(--r);background:var(--accent-soft);color:var(--fg);font-size:13.5px}
+.notice.warn{background:var(--amber-soft)}
+.side-owner{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;color:var(--tape);text-decoration:none;font-weight:600;font-size:13.5px;border:1px dashed rgba(240,178,90,.4)}
+.side-owner:hover{background:rgba(255,255,255,.05)}

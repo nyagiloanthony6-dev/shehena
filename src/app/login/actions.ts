@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { supabaseServer } from "@/lib/supabase/server";
+import { accountFor, isOwnerEmail } from "@/lib/owner";
 
 export type FormState = { error?: string; ok?: string };
 
@@ -15,11 +16,13 @@ export async function signIn(_: FormState, fd: FormData): Promise<FormState> {
     if (/banned/i.test(error.message)) return { error: "This account has been disabled. Ask your Admin." };
     return { error: "Wrong email or password." };
   }
-  const { data: profile } = await sb.from("profiles").select("active").eq("id", data.user.id).maybeSingle();
+  const { profile } = await accountFor(data.user.id);
+  if (!profile && isOwnerEmail(data.user.email)) redirect("/owner");
   if (!profile || !profile.active) {
     await sb.auth.signOut();
     return { error: "This account has been disabled. Ask your Admin." };
   }
+  // A suspended company still signs in; /app explains the suspension.
   redirect("/app");
 }
 
