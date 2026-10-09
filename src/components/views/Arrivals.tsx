@@ -43,7 +43,8 @@ function WaitingRow({ s }: { s: Shipment }) {
   const [paying, setPaying] = useState(false);
   const d = daysSince(s.arrived_at);
   const notified = sentLog(s, "arrived", "receiver").length > 0;
-  const lastReminder = sentLog(s, "reminder", "receiver").at(-1);
+  const reminders = sentLog(s, "reminder", "receiver");
+  const lastReminder = reminders.length ? reminders[reminders.length - 1] : undefined;
   const reminderDue = s.pay !== "paid" && notified && d >= 2 && (!lastReminder || daysSince(lastReminder.at) >= 2);
   const t = tripById(s.trip_id);
   const at = () => new Date().toISOString();
