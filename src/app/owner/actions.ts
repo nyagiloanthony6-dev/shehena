@@ -106,3 +106,16 @@ export async function setAnnouncement(text: string): Promise<Result> {
     return { ok: announcement ? "Announcement shown to all clients." : "Announcement removed." };
   } catch (e) { return fail(e); }
 }
+
+const LEAD_STATUSES = ["new", "contacted", "demo", "won", "lost"];
+export async function setLeadStatus(id: number, status: string): Promise<Result> {
+  try {
+    const by = await owner();
+    if (!LEAD_STATUSES.includes(status)) return { error: "Unknown status." };
+    const { error } = await supabaseAdmin().from("leads").update({ status }).eq("id", id);
+    if (error) return { error: "Could not update the request." };
+    await audit(by, "lead.status", null, { lead: id, status });
+    revalidatePath("/owner");
+    return { ok: "Request updated." };
+  } catch (e) { return fail(e); }
+}

@@ -9,6 +9,7 @@ import "@fontsource/ibm-plex-mono/600.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://www.shehenacargo.co.tz"),
   title: "Shehena Cargo",
   description: "Cargo management for road transport between Tanzanian regions. Developed by Serengeti Labs.",
 };

@@ -2,7 +2,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mark } from "./Icon";
-import { createCompany, resetStaffPassword, setAnnouncement, setCompanyNotes, setCompanyStatus, setSignupOpen } from "@/app/owner/actions";
+import { createCompany, resetStaffPassword, setAnnouncement, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen } from "@/app/owner/actions";
 import { signOut } from "@/app/login/actions";
 import { ROLES, fmtDate, tzs, type Role } from "@/lib/domain";
 
@@ -11,10 +11,11 @@ type Company = { id: string; name: string; branch: string; phone: string; create
 type Account = { company_id: string; status: Status; notes: string; status_changed_at: string };
 type Stat = { company_id: string; staff: number; active_staff: number; vehicles: number; trips_month: number; ship_month: number; billed_month: number; paid_month: number; ship_total: number; last_activity: string | null };
 type Staff = { id: string; company_id: string; full_name: string; email: string; role: Role; active: boolean; created_at: string };
+type Lead = { id: number; created_at: string; name: string; company: string; phone: string; email: string; region: string; trucks: string; message: string; source: string; status: string };
 type Audit = { id: number; at: string; owner_email: string; company_id: string | null; action: string; detail: Record<string, unknown> };
 export interface OwnerData {
   me: string; hasCompany: boolean; error: string;
-  companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[];
+  companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[]; leads: Lead[]; siteUrl: string;
   settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null };
 }
 type Row = Company & { acc: Account; st: Stat; admins: Staff[]; people: Staff[] };
@@ -23,7 +24,7 @@ const STATUS_LABEL: Record<Status, string> = { trial: "Trial", active: "Active",
 const ACTIONS: Record<string, string> = {
   "company.create": "Created company", "company.status": "Changed status", "company.notes": "Updated notes",
   "staff.password_reset": "Reset a password", "signup.open": "Opened self sign-up", "signup.close": "Closed self sign-up",
-  "announcement.set": "Posted announcement", "announcement.clear": "Removed announcement",
+  "announcement.set": "Posted announcement", "announcement.clear": "Removed announcement", "lead.status": "Updated a demo request",
 };
 const daysAgo = (iso?: string | null) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : null);
 const ago = (iso?: string | null) => { const d = daysAgo(iso); return d === null ? "—" : d < 1 ? "Today" : d === 1 ? "Yesterday" : `${d} days ago`; };
@@ -138,6 +139,8 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
           {!rows.length && <div className="empty"><h3>No client companies yet</h3><p>Add your first company, or open self sign-up so companies can register.</p></div>}
           {rows.length > 0 && !shown.length && <div className="empty"><p>No companies match.</p></div>}
         </div>
+
+        <Leads leads={data.leads} siteUrl={data.siteUrl} busy={pending} run={run} />
 
         <div className="panel" style={{ marginTop: 22 }}>
           <h2>Owner activity</h2><div className="sub">Everything done from this console, newest first.</div>
@@ -290,5 +293,76 @@ function CompanySheet({ r, audit, busy, run, close }: {
         <AuditList items={audit} companies={[r]} />
       </div>
     </>
+  );
+}
+
+const LEAD_LABEL: Record<string, string> = { new: "New", contacted: "Contacted", demo: "Demo done", won: "Won", lost: "Lost" };
+function Leads({ leads, siteUrl, busy, run }: {
+  leads: Lead[]; siteUrl: string; busy: boolean;
+  run: (fn: () => Promise<{ ok?: string; error?: string }>, after?: () => void) => void;
+}) {
+  const [ref, setRef] = useState("whatsapp");
+  const [show, setShow] = useState<"open" | "all">("open");
+  const [copied, setCopied] = useState(false);
+  const slug = ref.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
+  const link = `${siteUrl.replace(/\/$/, "")}/${slug ? `?ref=${slug}` : ""}`;
+  const sources = Object.entries(leads.reduce<Record<string, { n: number; won: number }>>((a, l) => {
+    const k = l.source || "direct"; a[k] = a[k] || { n: 0, won: 0 }; a[k].n++; if (l.status === "won") a[k].won++; return a;
+  }, {})).sort((a, b) => b[1].n - a[1].n);
+  const list = leads.filter((l) => show === "all" || !["won", "lost"].includes(l.status));
+  const newN = leads.filter((l) => l.status === "new").length;
+  const intl = (p: string) => { let d = p.replace(/\D/g, ""); if (d.startsWith("0")) d = "255" + d.slice(1); return d; };
+  return (
+    <div className="rgrid" style={{ gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr)", marginTop: 22 }}>
+      <div className="panel">
+        <div className="ph" style={{ flexWrap: "wrap" }}>
+          <div><h2>Demo requests {newN > 0 && <span className="nbadge" style={{ marginLeft: 6 }}>{newN} new</span>}</h2><div className="sub">From the form on your marketing page.</div></div>
+          <div className="chips">
+            <button className="chip" aria-pressed={show === "open"} onClick={() => setShow("open")}>Open</button>
+            <button className="chip" aria-pressed={show === "all"} onClick={() => setShow("all")}>All · {leads.length}</button>
+          </div>
+        </div>
+        {list.map((l) => (
+          <div className="nrow" key={l.id} style={{ alignItems: "start" }}>
+            <div style={{ minWidth: 0 }}>
+              <b>{l.name}</b>{l.company && <> · {l.company}</>}
+              <div className="sub"><span className="mono">{l.phone}</span>{l.email && <> · {l.email}</>}{l.region && <> · {l.region}</>}{l.trucks && <> · {l.trucks} trucks</>}</div>
+              {l.message && <div className="sub" style={{ marginTop: 3 }}>&ldquo;{l.message}&rdquo;</div>}
+              <div className="sub" style={{ marginTop: 3 }}>{fmtDate(l.created_at)} · from <b>{l.source || "direct"}</b></div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "end" }}>
+              <div className="actions" style={{ margin: 0 }}>
+                <a className="btn sm" href={`tel:+${intl(l.phone)}`}>Call</a>
+                <a className="btn wa sm" href={`https://wa.me/${intl(l.phone)}?text=${encodeURIComponent(`Habari ${l.name}, asante kwa kuomba maonyesho ya Shehena. Ni lini tunaweza kukutembelea au kukupigia?`)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>
+              </div>
+              <select value={l.status} disabled={busy} onChange={(e) => run(() => setLeadStatus(l.id, e.target.value))} style={{ width: "auto" }} aria-label={`Status of ${l.name}`}>
+                {Object.entries(LEAD_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+          </div>
+        ))}
+        {!list.length && <p className="quiet">{leads.length ? "No open requests." : "No requests yet. Share your marketing link to get some."}</p>}
+      </div>
+      <div className="panel">
+        <h2>Marketing links</h2>
+        <p className="sub" style={{ marginTop: 4 }}>Make a separate link for each place you share it. Requests show where they came from.</p>
+        <label className="f" style={{ marginTop: 10 }}>Where will you share it?
+          <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="facebook, flyer-kariakoo, radio…" /></label>
+        <div className="msg mono" style={{ marginTop: 8, fontSize: 13 }}>{link}</div>
+        <div className="actions">
+          <button className="btn sm primary" onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* select manually */ } }}>{copied ? "Copied" : "Copy link"}</button>
+          <a className="btn sm" href={link} target="_blank" rel="noopener noreferrer">Open page</a>
+        </div>
+        <div className="chips" style={{ marginTop: 10 }}>
+          {["whatsapp", "facebook", "instagram", "flyer", "referral"].map((x) => <button key={x} className="chip" aria-pressed={slug === x} onClick={() => setRef(x)}>{x}</button>)}
+        </div>
+        {sources.length > 0 && (
+          <div className="ledger" style={{ marginTop: 12, border: 0 }}><table className="small" style={{ minWidth: 0 }}>
+            <thead><tr><th>Source</th><th className="r">Requests</th><th className="r">Won</th></tr></thead>
+            <tbody>{sources.map(([k, v]) => <tr key={k}><td>{k}</td><td className="r num">{v.n}</td><td className="r num">{v.won}</td></tr>)}</tbody>
+          </table></div>
+        )}
+      </div>
+    </div>
   );
 }

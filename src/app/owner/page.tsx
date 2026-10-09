@@ -26,7 +26,7 @@ export default async function OwnerPage() {
     );
   }
   const admin = supabaseAdmin();
-  const [companies, accounts, stats, staff, settings, audit, own] = await Promise.all([
+  const [companies, accounts, stats, staff, settings, audit, own, leads] = await Promise.all([
     admin.from("companies").select("id, name, branch, phone, created_at").order("created_at", { ascending: false }),
     admin.from("company_accounts").select("*"),
     admin.rpc("owner_company_stats"),
@@ -34,6 +34,7 @@ export default async function OwnerPage() {
     admin.from("platform_settings").select("*").eq("id", 1).maybeSingle(),
     admin.from("owner_audit").select("*").order("at", { ascending: false }).limit(60),
     admin.from("profiles").select("id").eq("id", user.id).maybeSingle(),
+    admin.from("leads").select("*").order("created_at", { ascending: false }).limit(300),
   ]);
   const data: OwnerData = {
     me: user.email!,
@@ -44,6 +45,8 @@ export default async function OwnerPage() {
     staff: staff.data || [],
     settings: settings.data || { signup_open: true, announcement: "", announcement_updated_at: null },
     audit: audit.data || [],
+    leads: leads.data || [],
+    siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "https://www.shehenacargo.co.tz",
     error: [companies, accounts, stats, staff].some((r) => r.error) ? "Some figures couldn't load. Check that migration 0003 has been run in Supabase." : "",
   };
   return <OwnerConsole data={data} />;

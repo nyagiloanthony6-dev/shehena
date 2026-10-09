@@ -3,8 +3,8 @@
 import http from "node:http";
 import crypto from "node:crypto";
 
-const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null }] };
-const SERVICE_ONLY = ["company_accounts", "owner_audit"];
+const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null }] };
+const SERVICE_ONLY = ["company_accounts", "owner_audit", "leads"];
 const PK = { company_accounts: "company_id", platform_settings: "id" };
 const suspended = (cid) => db.company_accounts.find((a) => a.company_id === cid)?.status === "suspended";
 const users = []; // {id,email,password,banned}
@@ -140,6 +140,7 @@ http.createServer(async (req, res) => {
       }
       db[table].push(...list);
       if (table === "companies") list.forEach((co) => db.company_accounts.push({ company_id: co.id, status: "active", notes: "", status_changed_at: new Date().toISOString(), created_at: new Date().toISOString() }));
+      if (table === "leads") list.forEach((r, i) => { r.id = db.leads.length + i; r.created_at = new Date().toISOString(); r.status = r.status || "new"; });
       if (table === "owner_audit") list.forEach((r, i) => { r.id = db.owner_audit.length + i; r.at = new Date().toISOString(); });
       return wantRows || single ? out(list) : send(res, 201);
     }

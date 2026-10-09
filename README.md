@@ -49,6 +49,12 @@ Add cashiers, the CEO and vehicles under **Settings**.
 
 Set `ALLOW_COMPANY_SIGNUP=false` if you want to onboard companies yourself instead of letting them sign up.
 
+## Marketing page
+The home page (`/`) is a public page in Kiswahili and English with a **Request a demo** form.
+Requests appear in the owner console under **Demo requests**. Add `?ref=something` to the link
+(e.g. `/?ref=facebook`) to see which channel each request came from — the console has a link maker.
+Requires migration `0004_leads.sql`. Optional: `NEXT_PUBLIC_SALES_WHATSAPP` shows a WhatsApp button.
+
 ## Owner console (Serengeti Labs)
 Open **/owner** while signed in with an email listed in `OWNER_EMAILS`. From there you can:
 - see every client company with staff, trucks, this month's consignments and money, and last activity
