@@ -4,7 +4,7 @@ import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { StatusPill, TripCard } from "../parts";
 import { YearPanel } from "../charts";
-import { regShort, stLabel, tzs } from "@/lib/domain";
+import { goodsLabel, regShort, stLabel, tzs } from "@/lib/domain";
 
 export function Stats() {
   const { shipments } = useStore();
@@ -60,7 +60,7 @@ export default function Overview() {
               const d = Math.floor((Date.now() - new Date(s.arrived_at || s.received_at).getTime()) / 864e5);
               return (
                 <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
-                  <div><b>{s.r_name}</b><div className="sub">{s.item} · {regShort(s.dest)}</div></div>
+                  <div><b>{s.r_name}</b><div className="sub">{goodsLabel(s)} · {regShort(s.dest)}</div></div>
                   <div className="r"><div className="sub">{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</div>{s.pay !== "paid" && <div className="sub" style={{ color: "var(--bad)" }}>TZS {tzs(s.charge)} due{d >= 2 && !(s.notices || []).some((n) => n.kind === "reminder" && Date.now() - new Date(n.at).getTime() < 2 * 864e5) ? " · send reminder" : ""}</div>}</div>
                 </button>
               );
@@ -71,7 +71,7 @@ export default function Overview() {
             <div className="ph"><h2>Unpaid</h2><button className="link" onClick={() => { ui.setListPay("unpaid"); ui.go("list"); }}>See all →</button></div>
             {U.slice(0, 5).map((s) => (
               <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
-                <div><b>{s.s_name}</b><div className="sub">{s.item} → {regShort(s.dest)} · {stLabel(s.status)}</div></div>
+                <div><b>{s.s_name}</b><div className="sub">{goodsLabel(s)} → {regShort(s.dest)} · {stLabel(s.status)}</div></div>
                 <div className="r"><b style={{ color: "var(--bad)" }}>{tzs(s.charge)}</b><div className="sub">TZS</div></div>
               </button>
             ))}
@@ -83,7 +83,7 @@ export default function Overview() {
         <div className="ph"><h2>Recent consignments</h2><button className="link" onClick={() => ui.go("list")}>All consignments →</button></div>
         {R.map((s) => (
           <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
-            <div><b>{s.item}</b> <span className="sub">· {s.pkgs} pkg</span><div className="sub"><span className="mono">{s.no}</span> · {s.s_name} → {s.r_name}</div></div>
+            <div><b>{goodsLabel(s)}</b> <span className="sub">· {s.pkgs} pkg</span><div className="sub"><span className="mono">{s.no}</span> · {s.s_name} → {s.r_name}</div></div>
             <div className="r"><StatusPill s={s.status} /></div>
           </button>
         ))}

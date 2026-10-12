@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
-import { METHODS, STATUS, TSTATUS, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { METHODS, STATUS, TSTATUS, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 export function ShipmentSheet({ id }: { id: string }) {
   const { shipById, tripById, can, patch, remove, me, company, toast } = useStore();
@@ -173,7 +173,7 @@ export function TripSheet({ id }: { id: string }) {
           <div className="card"><h3>On this vehicle · {list.length}</h3>
             {list.map((s) => (
               <div className="lrow" key={s.id}>
-                <div><span className="mono">{s.no}</span> · <b>{s.item}</b> · {s.pkgs} pkg · TZS {tzs(s.charge)}
+                <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} pkg · TZS {tzs(s.charge)}
                   <div className="sub">{s.r_name} · {regShort(s.dest)}{s.dest !== t.dest && <span style={{ color: "var(--amber)" }}> · drop on the way</span>}</div>
                 </div>
                 {can("load") && <button className="btn sm" onClick={() => patch<Shipment>("shipments", s.id, { status: "received", trip_id: null, loaded_at: null })}>Unload</button>}
@@ -185,7 +185,7 @@ export function TripSheet({ id }: { id: string }) {
             <div className="card"><h3>Waiting at {regShort(t.origin)} · {waiting.length}</h3>
               {waiting.map((s) => (
                 <div className="lrow" key={s.id}>
-                  <div><span className="mono">{s.no}</span> · <b>{s.item}</b> · {s.pkgs} pkg · TZS {tzs(s.charge)}
+                  <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} pkg · TZS {tzs(s.charge)}
                     <div className="sub">{s.r_name} · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {s.pay === "paid" ? "Paid" : "Not paid"}</div>
                   </div>
                   <button className="btn sm primary" onClick={() => patch<Shipment>("shipments", s.id, { status: "loaded", trip_id: t.id, loaded_at: now() })}>Load</button>
@@ -200,7 +200,7 @@ export function TripSheet({ id }: { id: string }) {
         <div className="card"><h3>Manifest · {list.length} consignments, {n} packages</h3>
           {list.map((s) => (
             <div className="lrow" key={s.id}>
-              <div><a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openShip(s.id); }}>{s.no}</a> · {s.item} · {s.pkgs} pkg<div className="sub">{s.r_name} · {regShort(s.dest)}</div></div>
+              <div><a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openShip(s.id); }}>{s.no}</a> · {goodsLabel(s)} · {s.pkgs} pkg<div className="sub">{s.r_name} · {regShort(s.dest)}</div></div>
               <StatusPill s={s.status} />
             </div>
           ))}

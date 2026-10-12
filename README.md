@@ -104,6 +104,13 @@ Unpaid receivers are told the amount and how to pay (from **Settings → How cus
 come with ID to collect. Goods can't be released until paid — the database refuses it. Unpaid goods
 waiting 2+ days are flagged on the Overview, and each one has a **Payment reminder** message.
 
+## Several items in one consignment
+A sender can bring different goods in one visit (e.g. 10 cartons of oil, 2 mattresses, a spare tyre),
+each with its own charge. **Receive goods** has one line per kind of goods — enter a price per package
+and the charge is worked out, or type the charge directly. It is still one waybill, one receipt and one
+payment; the receipt lists every line. The database recomputes the totals from the lines, so truck,
+report and receipt figures always agree. Requires migration `0005_multi_item.sql`.
+
 ## Customer messages
 SMS and WhatsApp buttons open the staff member's phone with the message ready to send, and the
 app records who sent what. Fully automatic sending needs an SMS gateway (e.g. Beem Africa,

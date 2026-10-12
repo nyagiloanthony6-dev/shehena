@@ -1,7 +1,7 @@
 "use client";
 import { useStore } from "./store";
 import {
-  fmtDate, fmtDay, intlPhone, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
+  fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
   type Company, type NoticeKind, type NoticeTo, type Shipment, type Trip,
 } from "@/lib/domain";
 
@@ -96,6 +96,7 @@ export function TripSummary({ trip }: { trip: Trip }) {
 export function Slip({ s, company, servedBy }: { s: Partial<Shipment>; company: Company; servedBy?: string }) {
   const paid = s.pay === "paid";
   const head = [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ");
+  const lines = itemsOf(s);
   return (
     <div className="slip">
       <div className="co">{company.name || "Your company"}</div>
@@ -109,14 +110,20 @@ export function Slip({ s, company, servedBy }: { s: Partial<Shipment>; company: 
         <dt>Route</dt><dd>{regName(s.origin || "")} → {regName(s.dest || "")}</dd>
       </dl>
       <hr />
+      {lines.length > 1 ? (
+        <table className="slip-items">
+          <thead><tr><th>Item</th><th className="num">Pkgs</th><th className="num">TZS</th></tr></thead>
+          <tbody>{lines.map((l, i) => <tr key={i}><td>{l.name || "—"}</td><td className="num">{l.pkgs}</td><td className="num">{tzs(l.charge)}</td></tr>)}</tbody>
+        </table>
+      ) : null}
       <dl>
-        <dt>Item</dt><dd>{s.item || "—"}</dd>
-        <dt>Packages</dt><dd className="num">{s.pkgs || "—"}</dd>
+        {lines.length > 1 ? null : <><dt>Item</dt><dd>{s.item || "—"}</dd></>}
+        <dt>{lines.length > 1 ? "Total packages" : "Packages"}</dt><dd className="num">{s.pkgs || "—"}</dd>
         {s.kg ? <><dt>Weight</dt><dd className="num">{s.kg} kg</dd></> : null}
         {s.notes ? <><dt>Notes</dt><dd>{s.notes}</dd></> : null}
       </dl>
       <hr />
-      <div className="big"><span>Charge</span><b>TZS {tzs(s.charge)}</b></div>
+      <div className="big"><span>{lines.length > 1 ? "Total charge" : "Charge"}</span><b>TZS {tzs(s.charge)}</b></div>
       <div className="big" style={{ marginTop: 6 }}><span>Payment</span>
         <span className={`pill pay-${paid ? "paid" : "unpaid"}`}>{paid ? "Paid" + (s.method ? " · " + s.method : "") : "Not paid – due on collection"}</span>
       </div>
@@ -127,7 +134,7 @@ export function Slip({ s, company, servedBy }: { s: Partial<Shipment>; company: 
 
 export async function downloadReceipt(s: Shipment, company: Company) {
   const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ unit: "mm", format: [80, 160] });
+  const doc = new jsPDF({ unit: "mm", format: [80, 160 + Math.max(0, itemsOf(s).length - 1) * 6] });
   let y = 10;
   const L = 6, W = 68;
   const line = (t: string, sz = 9, b = false) => {
@@ -144,8 +151,19 @@ export async function downloadReceipt(s: Shipment, company: Company) {
   line("CARGO RECEIPT", 8, true); line(s.no, 12, true); y += 1;
   pair("Date", fmtDate(s.received_at)); pair("Sender", `${s.s_name}, ${prettyPhone(s.s_phone)}`);
   pair("Receiver", `${s.r_name}, ${prettyPhone(s.r_phone)}`); pair("Route", `${regName(s.origin)} to ${regName(s.dest)}`); dash();
-  pair("Item", s.item); pair("Packages", String(s.pkgs)); if (s.kg) pair("Weight", s.kg + " kg"); if (s.notes) pair("Notes", s.notes); dash();
-  pair("Charge", "TZS " + tzs(s.charge)); pair("Payment", s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : "NOT PAID - due on collection");
+  const lines = itemsOf(s);
+  if (lines.length > 1) {
+    doc.setFontSize(8); doc.setFont("helvetica", "bold");
+    doc.text("Item", L, y); doc.text("Pkgs", L + 46, y, { align: "right" }); doc.text("TZS", L + W, y, { align: "right" }); y += 4;
+    doc.setFont("helvetica", "normal");
+    for (const l of lines) {
+      const w = doc.splitTextToSize(l.name, 38); doc.text(w, L, y);
+      doc.text(String(l.pkgs), L + 46, y, { align: "right" }); doc.text(tzs(l.charge), L + W, y, { align: "right" });
+      y += w.length * 3.6 + 1;
+    }
+    y += 1.5; pair("Total packages", String(s.pkgs));
+  } else { pair("Item", s.item); pair("Packages", String(s.pkgs)); } if (s.kg) pair("Weight", s.kg + " kg"); if (s.notes) pair("Notes", s.notes); dash();
+  pair(lines.length > 1 ? "Total charge" : "Charge", "TZS " + tzs(s.charge)); pair("Payment", s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : "NOT PAID - due on collection");
   pair("Served by", s.created_by_name || "-"); dash();
   line("Keep this receipt. The receiver collects with ID and the waybill number.", 7.5);
   doc.save(`Receipt-${s.no}.pdf`);
@@ -211,7 +229,7 @@ export function BulkNotices({ trip, kind }: { trip: Trip; kind: "departed" | "ar
           <div className="nrow" key={s.id}>
             <div style={{ minWidth: 0 }}>
               <b>{s.r_name}</b> <span className="mono sub">{prettyPhone(s.r_phone)}</span>
-              <div className="sub"><span className="mono">{s.no}</span> · {s.item} · {s.pkgs} pkg{kind === "arrived" && <> · {s.pay === "paid" ? <span style={{ color: "var(--good)" }}>Paid</span> : <span style={{ color: "var(--bad)" }}>Owes TZS {tzs(s.charge)}</span>}</>}</div>
+              <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg{kind === "arrived" && <> · {s.pay === "paid" ? <span style={{ color: "var(--good)" }}>Paid</span> : <span style={{ color: "var(--bad)" }}>Owes TZS {tzs(s.charge)}</span>}</>}</div>
               {l.length ? <span className="tick">✓ Sent via {l[l.length - 1].channel}</span> : <span className="pending">Not sent</span>}
             </div>
             <div className="actions" style={{ margin: 0 }}><SendButtons s={s} kind={kind} to="receiver" /></div>

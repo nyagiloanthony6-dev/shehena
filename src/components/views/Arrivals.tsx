@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { PayPill, SendButtons, sentLog, useArriveTrip } from "../parts";
-import { METHODS, REGIONS, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { METHODS, REGIONS, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
 
@@ -53,7 +53,7 @@ function WaitingRow({ s }: { s: Shipment }) {
       <div style={{ minWidth: 0 }}>
         <button className="link" style={{ fontSize: 14.5, color: "var(--fg)" }} onClick={() => ui.openShip(s.id)}><b>{s.r_name}</b></button>{" "}
         <span className="mono sub">{prettyPhone(s.r_phone)}</span>
-        <div className="sub"><span className="mono">{s.no}</span> · {s.item} · {s.pkgs} pkg · {regShort(s.dest)}{t ? ` · ${t.plate}` : ""}</div>
+        <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg · {regShort(s.dest)}{t ? ` · ${t.plate}` : ""}</div>
         <div className="sub" style={{ marginTop: 2, display: "flex", gap: "4px 10px", flexWrap: "wrap", alignItems: "center" }}>
           <PayPill paid={s.pay === "paid"} />
           {s.pay !== "paid" && <b style={{ color: "var(--bad)" }}>TZS {tzs(s.charge)} due</b>}
@@ -103,7 +103,7 @@ export default function Arrivals() {
   const waiting = waitingAll.filter((s) =>
     (show === "all" || (show === "unpaid" ? s.pay !== "paid" : show === "paid" ? s.pay === "paid" : !sentLog(s, "arrived", "receiver").length)) &&
     (!dest || s.dest === dest) &&
-    (!ql || [s.no, s.r_name, s.r_phone, s.s_name, s.item].join(" ").toLowerCase().includes(ql)));
+    (!ql || [s.no, s.r_name, s.r_phone, s.s_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql)));
 
   return (
     <section>
@@ -146,7 +146,7 @@ export default function Arrivals() {
           <div className="panel">
             {collectedToday.map((s) => (
               <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
-                <div><b>{s.r_name}</b><div className="sub"><span className="mono">{s.no}</span> · {s.item} · released by {s.collected_by || "—"}</div></div>
+                <div><b>{s.r_name}</b><div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · released by {s.collected_by || "—"}</div></div>
                 <div className="r"><b>{tzs(s.charge)}</b><div className="sub">{s.method || "Paid"} · {fmtDate(s.collected_at).slice(-5)}</div></div>
               </button>
             ))}

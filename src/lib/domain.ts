@@ -54,6 +54,14 @@ export interface Trip {
   arrived_at: string | null;
   arrived_by: string | null;
 }
+/** One line of a consignment. `unit` is an optional price per package (charge = unit × pkgs). */
+export interface Item {
+  name: string;
+  pkgs: number;
+  kg?: number | null;
+  unit?: number | null;
+  charge: number;
+}
 export interface Notice {
   kind: NoticeKind;
   to: NoticeTo;
@@ -89,6 +97,7 @@ export interface Shipment {
   collected_at: string | null;
   collected_by: string | null;
   notices: Notice[];
+  items?: Item[];
   created_by: string | null;
   created_by_name: string | null;
 }
@@ -148,6 +157,14 @@ export function ymd() {
   const t = new Date();
   return String(t.getFullYear()).slice(2) + String(t.getMonth() + 1).padStart(2, "0") + String(t.getDate()).padStart(2, "0");
 }
+/** The item lines of a consignment; older single-item consignments become one line. */
+export const itemsOf = (s: Partial<Shipment>): Item[] =>
+  s.items && s.items.length ? s.items : [{ name: s.item || "", pkgs: Number(s.pkgs || 0), kg: s.kg ?? null, charge: Number(s.charge || 0) }];
+/** Short goods description for lists: "Cartons of cooking oil +2 more". */
+export function goodsLabel(s: Partial<Shipment>) {
+  const L = itemsOf(s);
+  return L.length > 1 ? `${L[0].name} +${L.length - 1} more` : L[0]?.name || s.item || "";
+}
 export const pkgsOf = (list: Shipment[]) => list.reduce((a, s) => a + Number(s.pkgs || 0), 0);
 export const sumCharge = (list: Shipment[]) => list.reduce((a, s) => a + Number(s.charge || 0), 0);
 export const initials = (name: string) =>
@@ -158,7 +175,10 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   const sw = company.message_lang !== "en";
   const co = company.name || SYSTEM;
   const ph = company.phone?.trim() || "";
-  const items = `${s.item}, ${sw ? "vifurushi" : "packages"} ${s.pkgs}`;
+  const lines = itemsOf(s);
+  const items = lines.length > 1
+    ? `${lines.map((l) => `${l.name} (${l.pkgs})`).join(", ")}; ${sw ? "jumla vifurushi" : "total packages"} ${s.pkgs}`
+    : `${s.item}, ${sw ? "vifurushi" : "packages"} ${s.pkgs}`;
   const payLine = s.pay === "paid"
     ? (sw ? "Malipo: IMELIPWA." : "Payment: PAID.")
     : (sw ? `Malipo: HAIJALIPWA - TZS ${tzs(s.charge)} ilipwe wakati wa kuchukua.` : `Payment: NOT PAID - TZS ${tzs(s.charge)} due on collection.`);

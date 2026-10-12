@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { PayPill, StatusPill } from "../parts";
-import { REGIONS, STATUS, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
+import { REGIONS, STATUS, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
 
 export default function Consignments() {
   const { shipments, tripById, can } = useStore();
@@ -19,7 +19,7 @@ export default function Consignments() {
     const qd = ql.replace(/\D/g, "").replace(/^0/, "");
     return shipments.filter((s) =>
       (!dest || s.dest === dest) && (!status || s.status === status) && (!pay || s.pay === pay) &&
-      (!ql || [s.no, s.s_name, s.r_name, s.item].join(" ").toLowerCase().includes(ql) ||
+      (!ql || [s.no, s.s_name, s.r_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql) ||
         (qd.length >= 4 && (intlPhone(s.s_phone).includes(qd) || intlPhone(s.r_phone).includes(qd)))));
   }, [shipments, q, dest, status, pay]);
   const paid = list.filter((x) => x.pay === "paid");
@@ -53,7 +53,7 @@ export default function Consignments() {
             return (
               <tr className="row" key={s.id} tabIndex={0} onClick={() => ui.openShip(s.id)} onKeyDown={(e) => e.key === "Enter" && ui.openShip(s.id)}>
                 <td><span className="mono wb">{s.no}</span><div className="sub">{fmtDate(s.received_at)}</div></td>
-                <td><b style={{ fontWeight: 600 }}>{s.item}</b><div className="sub">{s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}{s.kg ? ` · ${s.kg} kg` : ""}</div></td>
+                <td><b style={{ fontWeight: 600 }}>{goodsLabel(s)}</b><div className="sub">{s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}{s.kg ? ` · ${s.kg} kg` : ""}</div></td>
                 <td>{s.s_name}<div className="sub">to {s.r_name}</div></td>
                 <td className="route">{regShort(s.origin)}<i>→</i>{regShort(s.dest)}</td>
                 <td className="r"><span className="num amt">{tzs(s.charge)}</span><div style={{ marginTop: 3 }}><PayPill paid={s.pay === "paid"} /></div></td>
@@ -66,7 +66,7 @@ export default function Consignments() {
       <div className="cards">{list.map((s) => (
         <button className="ccard" key={s.id} onClick={() => ui.openShip(s.id)}>
           <div className="ctop"><span className="mono wb sub">{s.no}</span><StatusPill s={s.status} /></div>
-          <div><b>{s.item}</b> · {s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}</div>
+          <div><b>{goodsLabel(s)}</b> · {s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}</div>
           <div className="sub">{s.s_name} → {s.r_name} · {regShort(s.dest)}</div>
           <div className="cbot"><b>TZS {tzs(s.charge)}</b><PayPill paid={s.pay === "paid"} /></div>
         </button>

@@ -458,3 +458,15 @@ details.panel[open]>summary{margin-bottom:10px}
 .mk-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
 .mk-ok{align-self:center;background:var(--good-soft);color:var(--good);border-radius:10px;padding:18px;font-weight:600;font-size:16px}
 .mk-foot{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:22px max(16px,calc((100% - 1160px)/2));border-top:1px solid var(--line);background:var(--surface)}
+/* ===== multi-item lines ===== */
+.ilines{display:grid;gap:10px}
+.iline{display:grid;grid-template-columns:22px minmax(140px,1fr) 66px 86px 100px 58px 34px;gap:8px;align-items:end;padding-bottom:10px;border-bottom:1px dashed var(--line)}
+.inum{align-self:center;margin-top:20px;width:22px;height:22px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:12px;font-weight:700}
+.iline input[readonly]{background:var(--sunk);font-family:var(--f-mono)}
+.iremove{height:38px;padding:0 10px}
+.itotal{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+@media (max-width:760px){.iline{grid-template-columns:22px repeat(2,minmax(0,1fr)) 34px}.iline .iname{grid-column:2/4}.iline>label:not(.iname){grid-column:auto}.inum{margin-top:0}}
+.slip-items{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px;min-width:0}
+.slip-items th{padding:4px 0;font-size:10.5px;border-bottom:1px solid var(--line)}
+.slip-items td{padding:4px 0;border-bottom:1px dashed var(--line);vertical-align:top}
+.slip-items tr:last-child td{border-bottom:0}
