@@ -2,13 +2,21 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mark } from "./Icon";
-import { createCompany, resetStaffPassword, setAnnouncement, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen } from "@/app/owner/actions";
+import {
+  createCompany, deletePayment, recordPayment, resetStaffPassword, saveBands, saveBillingSettings, setAccountBilling, setAnnouncement,
+  setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen,
+} from "@/app/owner/actions";
+import {
+  PAY_METHODS, bandFor, bandLabel, dayLabel, feeFor, periodEnd, sortBands, statusFor, today, addDays,
+  type Band, type BillingPayment, type BillingSettings,
+} from "@/lib/billing";
+import { downloadSubscriptionReceipt } from "./billingPdf";
 import { signOut } from "@/app/login/actions";
 import { ROLES, fmtDate, tzs, type Role } from "@/lib/domain";
 
 type Status = "trial" | "active" | "overdue" | "suspended";
 type Company = { id: string; name: string; branch: string; phone: string; created_at: string };
-type Account = { company_id: string; status: Status; notes: string; status_changed_at: string };
+type Account = { company_id: string; status: Status; notes: string; status_changed_at: string; trial_ends: string | null; paid_until: string | null; custom_fee: number | null; auto_status: boolean };
 type Stat = { company_id: string; staff: number; active_staff: number; vehicles: number; trips_month: number; ship_month: number; billed_month: number; paid_month: number; ship_total: number; last_activity: string | null };
 type Staff = { id: string; company_id: string; full_name: string; email: string; role: Role; active: boolean; created_at: string };
 type Lead = { id: number; created_at: string; name: string; company: string; phone: string; email: string; region: string; trucks: string; message: string; source: string; status: string };
@@ -16,15 +24,20 @@ type Audit = { id: number; at: string; owner_email: string; company_id: string |
 export interface OwnerData {
   me: string; hasCompany: boolean; error: string;
   companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[]; leads: Lead[]; siteUrl: string;
-  settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null };
+  settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null } & BillingSettings;
+  bands: Band[]; payments: BillingPayment[];
 }
-type Row = Company & { acc: Account; st: Stat; admins: Staff[]; people: Staff[] };
+type Bill = { band: string; fee: number; due: string | null; suspend_on: string | null; pays: BillingPayment[] };
+type Row = Company & { acc: Account; st: Stat; admins: Staff[]; people: Staff[]; bill: Bill };
+type Run = (fn: () => Promise<{ ok?: string; error?: string }>, after?: () => void) => void;
 
 const STATUS_LABEL: Record<Status, string> = { trial: "Trial", active: "Active", overdue: "Overdue", suspended: "Suspended" };
 const ACTIONS: Record<string, string> = {
   "company.create": "Created company", "company.status": "Changed status", "company.notes": "Updated notes",
   "staff.password_reset": "Reset a password", "signup.open": "Opened self sign-up", "signup.close": "Closed self sign-up",
   "announcement.set": "Posted announcement", "announcement.clear": "Removed announcement", "lead.status": "Updated a demo request",
+  "billing.payment": "Recorded a payment", "billing.payment_removed": "Removed a payment", "billing.account": "Changed billing details",
+  "billing.auto": "Switched to automatic status", "billing.bands": "Changed price bands", "billing.settings": "Changed billing settings",
 };
 const daysAgo = (iso?: string | null) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : null);
 const ago = (iso?: string | null) => { const d = daysAgo(iso); return d === null ? "—" : d < 1 ? "Today" : d === 1 ? "Yesterday" : `${d} days ago`; };
@@ -34,6 +47,16 @@ function tempPassword() {
   return "Shehena-" + Array.from(r, (n) => a[n % a.length]).join("");
 }
 const StatusPill = ({ s }: { s: Status }) => <span className={`pill acc-${s}`}>{STATUS_LABEL[s]}</span>;
+/** One line under the status: when it's paid to, when the trial ends, or since when it's overdue. */
+function dueText(r: Row) {
+  const a = r.acc;
+  if (!a.auto_status) return "set by hand";
+  if (!r.bill.due) return "no payment yet";
+  if (a.status === "trial") return `trial to ${dayLabel(r.bill.due)}`;
+  if (a.status === "active") return `paid to ${dayLabel(r.bill.due)}`;
+  if (a.status === "overdue") return `due ${dayLabel(r.bill.due)}${r.bill.suspend_on ? ` · off ${dayLabel(r.bill.suspend_on)}` : ""}`;
+  return `due since ${dayLabel(r.bill.due)}`;
+}
 
 export default function OwnerConsole({ data }: { data: OwnerData }) {
   const router = useRouter();
@@ -53,12 +76,14 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
 
   const rows: Row[] = useMemo(() => data.companies.map((c) => {
     const people = data.staff.filter((s) => s.company_id === c.id);
+    const acc: Account = data.accounts.find((a) => a.company_id === c.id) || { company_id: c.id, status: "active", notes: "", status_changed_at: c.created_at, trial_ends: null, paid_until: null, custom_fee: null, auto_status: true };
+    const st = data.stats.find((s) => s.company_id === c.id) || { company_id: c.id, staff: people.length, active_staff: 0, vehicles: 0, trips_month: 0, ship_month: 0, billed_month: 0, paid_month: 0, ship_total: 0, last_activity: c.created_at };
+    const { due, suspend_on } = statusFor(acc, data.settings);
     return {
-      ...c,
-      acc: data.accounts.find((a) => a.company_id === c.id) || { company_id: c.id, status: "active", notes: "", status_changed_at: c.created_at },
-      st: data.stats.find((s) => s.company_id === c.id) || { company_id: c.id, staff: people.length, active_staff: 0, vehicles: 0, trips_month: 0, ship_month: 0, billed_month: 0, paid_month: 0, ship_total: 0, last_activity: c.created_at },
+      ...c, acc, st,
       admins: people.filter((p) => p.role === "admin"),
       people,
+      bill: { band: bandLabel(bandFor(data.bands, st.vehicles)), fee: feeFor(acc, data.bands, st.vehicles), due, suspend_on: acc.auto_status ? suspend_on : null, pays: data.payments.filter((p) => p.company_id === c.id) },
     };
   }), [data]);
   const count = (s: Status) => rows.filter((r) => r.acc.status === s).length;
@@ -69,6 +94,10 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
     (!ql || [r.name, r.branch, r.phone, ...r.people.map((p) => p.email + " " + p.full_name)].join(" ").toLowerCase().includes(ql)));
   const open = rows.find((r) => r.id === openId) || null;
   const sum = (k: keyof Stat) => rows.reduce((a, r) => a + Number(r.st[k] || 0), 0);
+  const month = today().slice(0, 7);
+  const mrr = rows.filter((r) => r.acc.status === "active").reduce((a, r) => a + r.bill.fee, 0);
+  const received = data.payments.filter((p) => p.paid_on.startsWith(month)).reduce((a, p) => a + p.amount, 0);
+  const owed = rows.filter((r) => r.acc.status === "overdue").reduce((a, r) => a + r.bill.fee, 0);
 
   return (
     <div className="owner">
@@ -88,10 +117,10 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
         <div className="stats six">
           <div className="stat"><div className="lbl">Clients</div><div className="v">{rows.length}</div><div className="s">{sum("active_staff")} active staff</div></div>
           <div className="stat"><div className="lbl">Active</div><div className="v">{count("active")}</div><div className="s">{count("trial")} on trial</div></div>
-          <div className={`stat${count("overdue") ? " warn" : ""}`}><div className="lbl">Overdue</div><div className="v">{count("overdue")}</div><div className="s">need to pay</div></div>
+          <div className={`stat${count("overdue") ? " warn" : ""}`}><div className="lbl">Overdue</div><div className="v">{count("overdue")}</div><div className="s">{owed ? `TZS ${tzs(owed)} a month due` : "need to pay"}</div></div>
           <div className="stat"><div className="lbl">Suspended</div><div className="v">{count("suspended")}</div><div className="s">no access</div></div>
-          <div className="stat"><div className="lbl">This month</div><div className="v">{tzs(sum("ship_month"))}</div><div className="s">consignments, all clients</div></div>
-          <div className="stat"><div className="lbl">Billed this month</div><div className="v">{tzs(sum("billed_month"))}</div><div className="s">TZS through Shehena</div></div>
+          <div className="stat"><div className="lbl">Monthly revenue</div><div className="v">{tzs(mrr)}</div><div className="s">TZS a month, paying clients</div></div>
+          <div className="stat"><div className="lbl">Received this month</div><div className="v">{tzs(received)}</div><div className="s">TZS · {sum("ship_month")} consignments by clients</div></div>
         </div>
 
         {adding && <AddCompany busy={pending} onSubmit={(v) => run(() => createCompany(v), () => setAdding(false))} />}
@@ -110,6 +139,8 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
           <Announcement current={data.settings.announcement} updated={data.settings.announcement_updated_at} busy={pending} onSave={(t) => run(() => setAnnouncement(t))} />
         </div>
 
+        <Pricing bands={data.bands} settings={data.settings} rows={rows} busy={pending} run={run} />
+
         <div className="filters" style={{ marginTop: 22 }}>
           <div className="chips">
             {([["", `All · ${rows.length}`], ["active", `Active · ${count("active")}`], ["trial", `Trial · ${count("trial")}`], ["overdue", `Overdue · ${count("overdue")}`], ["suspended", `Suspended · ${count("suspended")}`], ["quiet", `Quiet 14+ days · ${quiet.length}`]] as [typeof filter, string][])
@@ -118,7 +149,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
           <div className="searchbox" style={{ flex: "1 1 220px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Company, staff name or email" aria-label="Search companies" style={{ paddingLeft: 11 }} /></div>
         </div>
         <div className="ledger" style={{ marginTop: 12 }}><table>
-          <thead><tr><th>Company</th><th>Admin</th><th className="r">Staff</th><th className="r">Trucks</th><th className="r">This month</th><th>Last activity</th><th>Status</th></tr></thead>
+          <thead><tr><th>Company</th><th>Admin</th><th className="r">Staff</th><th className="r">Trucks</th><th className="r">This month</th><th>Last activity</th><th className="r">Plan</th><th>Status</th></tr></thead>
           <tbody>
             {shown.map((r) => {
               const d = daysAgo(r.st.last_activity) ?? 0;
@@ -130,7 +161,8 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
                   <td className="r num">{r.st.vehicles}</td>
                   <td className="r num">{r.st.ship_month} cons.<div className="sub">TZS {tzs(r.st.billed_month)}</div></td>
                   <td><span style={d >= 14 && r.acc.status !== "suspended" ? { color: "var(--bad)", fontWeight: 600 } : undefined}>{ago(r.st.last_activity)}</span></td>
-                  <td><StatusPill s={r.acc.status} /></td>
+                  <td className="r num">{tzs(r.bill.fee)}<div className="sub">{r.acc.custom_fee != null ? "custom fee" : r.bill.band}</div></td>
+                  <td><StatusPill s={r.acc.status} /><div className="sub">{dueText(r)}</div></td>
                 </tr>
               );
             })}
@@ -153,7 +185,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
         <>
           <div className="scrim" onClick={() => setOpenId(null)} />
           <aside className="sheet" aria-label={open.name}>
-            <CompanySheet key={open.id} r={open} audit={data.audit.filter((a) => a.company_id === open.id)} busy={pending} run={run} close={() => setOpenId(null)} />
+            <CompanySheet key={open.id} r={open} settings={data.settings} audit={data.audit.filter((a) => a.company_id === open.id)} busy={pending} run={run} close={() => setOpenId(null)} />
           </aside>
         </>
       )}
@@ -218,9 +250,8 @@ function AuditList({ items, companies }: { items: Audit[]; companies: Company[] 
   );
 }
 
-function CompanySheet({ r, audit, busy, run, close }: {
-  r: Row; audit: Audit[]; busy: boolean; close: () => void;
-  run: (fn: () => Promise<{ ok?: string; error?: string }>, after?: () => void) => void;
+function CompanySheet({ r, settings, audit, busy, run, close }: {
+  r: Row; settings: BillingSettings; audit: Audit[]; busy: boolean; close: () => void; run: Run;
 }) {
   const [notes, setNotes] = useState(r.acc.notes || "");
   const [confirmSuspend, setConfirmSuspend] = useState(false);
@@ -233,9 +264,12 @@ function CompanySheet({ r, audit, busy, run, close }: {
         <button className="btn sm" onClick={close}>Close</button>
       </div>
 
+      <Billing r={r} settings={settings} busy={busy} run={run} />
+
       <div className="card"><h3>Account status</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <StatusPill s={r.acc.status} /><span className="sub">since {fmtDate(r.acc.status_changed_at)}</span>
+          <StatusPill s={r.acc.status} /><span className="sub">since {fmtDate(r.acc.status_changed_at)} · {r.acc.auto_status ? "automatic, from payments" : "set by hand"}</span>
+          {!r.acc.auto_status && <button className="btn sm" disabled={busy} onClick={() => run(() => setAutoStatus(r.id))}>Make automatic</button>}
         </div>
         <div className="actions">
           {(["trial", "active", "overdue"] as Status[]).filter((s) => s !== r.acc.status).map((s) => (
@@ -250,7 +284,7 @@ function CompanySheet({ r, audit, busy, run, close }: {
             </div>
           ) : <button className="btn sm danger" onClick={() => setConfirmSuspend(true)}>Suspend</button>}
         </div>
-        <p className="note">Overdue only flags the account here. Suspended blocks all access for that company&apos;s staff.</p>
+        <p className="note">Overdue warns the client&apos;s Admin and CEO. Suspended blocks all access for that company&apos;s staff. Changing the status by hand turns automatic status off until you record a payment or press &quot;Make automatic&quot;.</p>
       </div>
 
       <div className="card"><h3>This month</h3>
@@ -363,6 +397,135 @@ function Leads({ leads, siteUrl, busy, run }: {
           </table></div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------- billing
+
+const num = (v: string) => (v.trim() === "" ? NaN : Number(v.replace(/,/g, "")));
+
+function Billing({ r, settings, busy, run }: { r: Row; settings: BillingSettings; busy: boolean; run: Run }) {
+  const a = r.acc;
+  // A new payment starts the day after the current paid-until date, or today if there is none / it lapsed long ago.
+  const start = a.paid_until && a.paid_until >= addDays(today(), -settings.grace_days - 31) ? addDays(a.paid_until, 1) : today();
+  const [pay, setPay] = useState({ months: "1", amount: String(r.bill.fee || ""), from: start, method: PAY_METHODS[0], reference: "", paid_on: today() });
+  const [edit, setEdit] = useState(false);
+  const [f, setF] = useState({ custom_fee: a.custom_fee == null ? "" : String(a.custom_fee), trial_ends: a.trial_ends || "", paid_until: a.paid_until || "" });
+  const [undo, setUndo] = useState<string | number | null>(null);
+  const months = Math.max(1, Math.round(num(pay.months) || 1));
+  const setMonths = (m: string) => setPay((p) => ({ ...p, months: m, amount: String((r.bill.fee || 0) * Math.max(1, Math.round(num(m) || 1)) || "") }));
+  return (
+    <div className="card"><h3>Subscription</h3>
+      <dl className="kv">
+        <dt>Plan</dt><dd>{r.bill.band} · {r.st.vehicles} truck{r.st.vehicles === 1 ? "" : "s"} now</dd>
+        <dt>Monthly fee</dt><dd className="num">TZS {tzs(r.bill.fee)}{a.custom_fee != null && <span className="sub"> · custom</span>}</dd>
+        {a.trial_ends && <><dt>Trial ends</dt><dd>{dayLabel(a.trial_ends)}</dd></>}
+        <dt>Paid until</dt><dd>{a.paid_until ? dayLabel(a.paid_until) : <span className="sub">No payment recorded</span>}</dd>
+        {r.bill.suspend_on && a.status !== "suspended" && <><dt>Suspends on</dt><dd>{dayLabel(r.bill.suspend_on)} <span className="sub">if unpaid</span></dd></>}
+      </dl>
+
+      <form noValidate onSubmit={(e) => { e.preventDefault(); run(() => recordPayment({ companyId: r.id, months, amount: num(pay.amount), from: pay.from, method: pay.method, reference: pay.reference, paid_on: pay.paid_on }), () => setPay((p) => ({ ...p, reference: "" }))); }}
+        className="paybox">
+        <div className="lbl" style={{ marginBottom: 8 }}>Record a payment</div>
+        <div className="fields">
+          <label className="f">Months<select value={pay.months} onChange={(e) => setMonths(e.target.value)} aria-label="Months paid">
+            {[1, 2, 3, 6, 12].map((m) => <option key={m} value={m}>{m} month{m === 1 ? "" : "s"}</option>)}</select></label>
+          <label className="f">Amount received (TZS)<input inputMode="numeric" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} aria-label="Amount received" /></label>
+          <label className="f">Covers from<input type="date" value={pay.from} onChange={(e) => setPay({ ...pay, from: e.target.value })} aria-label="Covers from" /></label>
+          <label className="f">Date paid<input type="date" value={pay.paid_on} onChange={(e) => setPay({ ...pay, paid_on: e.target.value })} /></label>
+          <label className="f">Paid by<select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>{PAY_METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>
+          <label className="f">Reference <small>optional</small><input value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} placeholder="e.g. M-Pesa code" aria-label="Payment reference" /></label>
+        </div>
+        <p className="note" style={{ margin: "8px 0 0" }}>Covers {dayLabel(pay.from)} to <b>{pay.from ? dayLabel(periodEnd(pay.from, months)) : "—"}</b>. Fee × months = TZS {tzs((r.bill.fee || 0) * months)}; change the amount for a discount.</p>
+        <div className="actions"><button className="btn primary sm" type="submit" disabled={busy}>Record payment</button></div>
+      </form>
+
+      {r.bill.pays.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div className="lbl">Payments</div>
+          {r.bill.pays.map((p) => (
+            <div className="lrow" key={p.id} style={{ flexWrap: "wrap" }}>
+              <div><b className="num">TZS {tzs(p.amount)}</b> <span className="sub">· {p.months} mo · {dayLabel(p.period_from)} – {dayLabel(p.period_to)}</span>
+                <div className="sub">Paid {dayLabel(p.paid_on)}{p.method && ` · ${p.method}`}{p.reference && ` · ${p.reference}`} · by {p.recorded_by}</div></div>
+              {undo === p.id ? (
+                <div className="confirm">Remove this payment? Paid-until goes back.
+                  <button className="btn sm danger" disabled={busy} onClick={() => { setUndo(null); run(() => deletePayment(p.id)); }}>Remove</button>
+                  <button className="btn sm" onClick={() => setUndo(null)}>Cancel</button></div>
+              ) : (
+                <div className="actions" style={{ margin: 0 }}>
+                  <button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, r.name, r.bill.band)}>Receipt</button>
+                  <button className="btn sm" onClick={() => setUndo(p.id)} aria-label="Remove payment">Remove</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {edit ? (
+        <form noValidate className="paybox" onSubmit={(e) => {
+          e.preventDefault();
+          const cf = f.custom_fee.trim() === "" ? null : num(f.custom_fee);
+          run(() => setAccountBilling(r.id, { custom_fee: cf, trial_ends: f.trial_ends || null, paid_until: f.paid_until || null }), () => setEdit(false));
+        }}>
+          <div className="fields">
+            <label className="f">Custom monthly fee <small>blank = band price</small><input inputMode="numeric" value={f.custom_fee} onChange={(e) => setF({ ...f, custom_fee: e.target.value })} placeholder={`Band price: TZS ${tzs(r.bill.fee)}`} /></label>
+            <label className="f">Trial ends<input type="date" value={f.trial_ends} onChange={(e) => setF({ ...f, trial_ends: e.target.value })} /></label>
+            <label className="f">Paid until <small>correct by hand</small><input type="date" value={f.paid_until} onChange={(e) => setF({ ...f, paid_until: e.target.value })} /></label>
+          </div>
+          <div className="actions"><button className="btn sm primary" type="submit" disabled={busy}>Save</button><button className="btn sm" type="button" onClick={() => setEdit(false)}>Cancel</button></div>
+        </form>
+      ) : <div className="actions"><button className="btn sm" onClick={() => setEdit(true)}>Change fee or dates</button>
+        {!a.paid_until && <button className="btn sm" disabled={busy} onClick={() => run(() => setAccountBilling(r.id, { custom_fee: a.custom_fee, trial_ends: addDays(today(), settings.trial_days), paid_until: a.paid_until }))}>Give a {settings.trial_days}-day trial</button>}
+      </div>}
+    </div>
+  );
+}
+
+type BandDraft = { min: string; max: string; fee: string };
+function Pricing({ bands, settings, rows, busy, run }: { bands: Band[]; settings: OwnerData["settings"]; rows: Row[]; busy: boolean; run: Run }) {
+  const toDraft = (b: Band[]) => sortBands(b).map((x) => ({ min: String(x.min_trucks), max: x.max_trucks == null ? "" : String(x.max_trucks), fee: String(x.monthly_fee) }));
+  const [d, setD] = useState<BandDraft[]>(toDraft(bands));
+  const [s, setS] = useState({ trial_days: String(settings.trial_days), grace_days: String(settings.grace_days), auto_suspend: settings.auto_suspend, billing_instructions: settings.billing_instructions });
+  const setRow = (i: number, k: keyof BandDraft, v: string) => setD((L) => L.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const parsed: Band[] = d.map((x) => ({ min_trucks: num(x.min), max_trucks: x.max.trim() === "" ? null : num(x.max), monthly_fee: num(x.fee) }));
+  const using = (b: Band) => rows.filter((r) => r.acc.custom_fee == null && r.st.vehicles >= b.min_trucks && (b.max_trucks == null || r.st.vehicles <= b.max_trucks)).length;
+  return (
+    <div className="rgrid" style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr)", marginTop: 16 }}>
+      <div className="panel">
+        <h2>Price bands</h2>
+        <p className="sub" style={{ marginTop: 4 }}>Monthly fee by the number of trucks a company has in Shehena. Changes apply to the next payment you record.</p>
+        <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small bands" style={{ minWidth: 0 }}>
+          <thead><tr><th>From trucks</th><th>To trucks</th><th>TZS a month</th><th className="r">Clients</th><th /></tr></thead>
+          <tbody>{d.map((x, i) => (
+            <tr key={i}>
+              <td><input inputMode="numeric" value={x.min} onChange={(e) => setRow(i, "min", e.target.value)} aria-label={`Band ${i + 1} from trucks`} /></td>
+              <td><input inputMode="numeric" value={x.max} onChange={(e) => setRow(i, "max", e.target.value)} placeholder="and more" aria-label={`Band ${i + 1} to trucks`} /></td>
+              <td><input inputMode="numeric" value={x.fee} onChange={(e) => setRow(i, "fee", e.target.value)} aria-label={`Band ${i + 1} monthly fee`} /></td>
+              <td className="r num">{using(parsed[i])}</td>
+              <td className="r">{d.length > 1 && <button className="btn sm" onClick={() => setD((L) => L.filter((_, j) => j !== i))} aria-label={`Remove band ${i + 1}`}>✕</button>}</td>
+            </tr>))}
+          </tbody>
+        </table></div>
+        <div className="actions">
+          <button className="btn sm" onClick={() => setD((L) => { const last = L[L.length - 1]; const from = last ? (num(last.max) || num(last.min) || 0) + 1 : 1; return [...L, { min: String(from), max: "", fee: "" }]; })}>+ Add band</button>
+          <button className="btn sm primary" disabled={busy} onClick={() => run(() => saveBands(parsed))}>Save bands</button>
+        </div>
+        <p className="note">Leave &quot;To trucks&quot; empty on the last band for &quot;and more&quot;. A company with no trucks yet pays the first band.</p>
+      </div>
+      <form className="panel" noValidate onSubmit={(e) => { e.preventDefault(); run(() => saveBillingSettings({ trial_days: num(s.trial_days), grace_days: num(s.grace_days), auto_suspend: s.auto_suspend, billing_instructions: s.billing_instructions })); }}>
+        <h2>Billing rules</h2>
+        <div className="fields" style={{ marginTop: 8 }}>
+          <label className="f">Free trial (days)<input inputMode="numeric" value={s.trial_days} onChange={(e) => setS({ ...s, trial_days: e.target.value })} /></label>
+          <label className="f">Grace after due date (days)<input inputMode="numeric" value={s.grace_days} onChange={(e) => setS({ ...s, grace_days: e.target.value })} /></label>
+          <label className="f full check"><input type="checkbox" checked={s.auto_suspend} onChange={(e) => setS({ ...s, auto_suspend: e.target.checked })} /> Suspend automatically when the grace days run out</label>
+          <label className="f full">How clients pay you <small>shown to their Admin and CEO</small>
+            <textarea rows={2} value={s.billing_instructions} onChange={(e) => setS({ ...s, billing_instructions: e.target.value })} placeholder="e.g. M-Pesa Lipa Namba 123456 (Serengeti Labs) or CRDB A/C 0150XXXXXXX. Send the code on WhatsApp 0712 000 000." /></label>
+        </div>
+        <div className="actions"><button className="btn sm primary" type="submit" disabled={busy}>Save billing rules</button></div>
+        <p className="note">Clients see a reminder 5 days before the due date, then an overdue warning with the suspension date.</p>
+      </form>
     </div>
   );
 }

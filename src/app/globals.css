@@ -470,3 +470,11 @@ details.panel[open]>summary{margin-bottom:10px}
 .slip-items th{padding:4px 0;font-size:10.5px;border-bottom:1px solid var(--line)}
 .slip-items td{padding:4px 0;border-bottom:1px dashed var(--line);vertical-align:top}
 .slip-items tr:last-child td{border-bottom:0}
+
+/* billing (owner console + client settings) */
+.paybox{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--sunk)}
+.paybox .fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+table.bands input{width:100%;min-width:70px;padding:6px 8px}
+table.bands td{padding:4px 6px 4px 0}
+.f.check{flex-direction:row;align-items:center;gap:8px;display:flex;font-weight:500}
+.f.check input{width:auto}

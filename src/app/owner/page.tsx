@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isOwnerEmail } from "@/lib/owner";
+import { billingBands, refreshStatuses } from "@/lib/billing-server";
+import { BILLING_DEFAULTS } from "@/lib/billing";
 import AuthShell from "@/components/AuthShell";
 import OwnerConsole, { type OwnerData } from "@/components/OwnerConsole";
 import { signOut } from "../login/actions";
@@ -26,7 +28,8 @@ export default async function OwnerPage() {
     );
   }
   const admin = supabaseAdmin();
-  const [companies, accounts, stats, staff, settings, audit, own, leads] = await Promise.all([
+  await refreshStatuses();
+  const [companies, accounts, stats, staff, settings, audit, own, leads, bands, payments] = await Promise.all([
     admin.from("companies").select("id, name, branch, phone, created_at").order("created_at", { ascending: false }),
     admin.from("company_accounts").select("*"),
     admin.rpc("owner_company_stats"),
@@ -35,6 +38,8 @@ export default async function OwnerPage() {
     admin.from("owner_audit").select("*").order("at", { ascending: false }).limit(60),
     admin.from("profiles").select("id").eq("id", user.id).maybeSingle(),
     admin.from("leads").select("*").order("created_at", { ascending: false }).limit(300),
+    billingBands(),
+    admin.from("billing_payments").select("*").order("paid_on", { ascending: false }).limit(1000),
   ]);
   const data: OwnerData = {
     me: user.email!,
@@ -43,11 +48,14 @@ export default async function OwnerPage() {
     accounts: accounts.data || [],
     stats: stats.data || [],
     staff: staff.data || [],
-    settings: settings.data || { signup_open: true, announcement: "", announcement_updated_at: null },
+    settings: { signup_open: true, announcement: "", announcement_updated_at: null, ...BILLING_DEFAULTS, ...(settings.data || {}) },
+    bands,
+    payments: (payments.data || []).map((p) => ({ ...p, amount: Number(p.amount) })),
     audit: audit.data || [],
     leads: leads.data || [],
     siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "https://www.shehenacargo.co.tz",
-    error: [companies, accounts, stats, staff].some((r) => r.error) ? "Some figures couldn't load. Check that migration 0003 has been run in Supabase." : "",
+    error: [companies, accounts, stats, staff].some((r) => r.error) ? "Some figures couldn't load. Check that migration 0003 has been run in Supabase."
+      : payments.error ? "Billing isn't set up yet. Run migration 0006_billing.sql in Supabase." : "",
   };
   return <OwnerConsole data={data} />;
 }

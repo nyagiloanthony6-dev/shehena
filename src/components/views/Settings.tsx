@@ -1,8 +1,45 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useStore } from "../store";
-import { REGIONS, ROLES, fmtDay, type Profile, type Role, type Vehicle } from "@/lib/domain";
+import { REGIONS, ROLES, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
+import { dayLabel, type Subscription } from "@/lib/billing";
+import { downloadSubscriptionReceipt } from "../billingPdf";
+
+const SUB_LABEL = { trial: "Free trial", active: "Active", overdue: "Overdue", suspended: "Suspended" } as const;
+function SubscriptionCard({ sub }: { sub: Subscription }) {
+  const { company } = useStore();
+  return (
+    <fieldset style={{ maxWidth: 760 }}><legend>Shehena subscription</legend>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span className={`pill acc-${sub.status}`}>{SUB_LABEL[sub.status]}</span>
+        <span className="sub">
+          {sub.status === "trial" && sub.due ? `Trial ends ${dayLabel(sub.due)}` : sub.paid_until ? `Paid until ${dayLabel(sub.paid_until)}` : "No payment recorded yet"}
+          {sub.status === "overdue" && sub.suspend_on ? ` · access pauses on ${dayLabel(sub.suspend_on)}` : ""}
+        </span>
+      </div>
+      <dl className="kv" style={{ marginTop: 12 }}>
+        <dt>Plan</dt><dd>{sub.band} <span className="sub">· you have {sub.trucks} truck{sub.trucks === 1 ? "" : "s"}</span></dd>
+        <dt>Monthly fee</dt><dd className="num">TZS {tzs(sub.fee)}{sub.custom && <span className="sub"> · agreed price</span>}</dd>
+        <dt>How to pay</dt><dd>{sub.instructions || "Contact Serengeti Labs."}</dd>
+      </dl>
+      <p className="note">The plan follows the number of trucks under Vehicles. Adding trucks may move you to the next band from your next payment.</p>
+      {sub.payments.length > 0 && (
+        <div className="ledger" style={{ marginTop: 10 }}><table className="small" style={{ minWidth: 0 }}>
+          <thead><tr><th>Paid</th><th>Period</th><th className="r">TZS</th><th /></tr></thead>
+          <tbody>{sub.payments.map((p) => (
+            <tr key={p.id}>
+              <td>{dayLabel(p.paid_on)}<div className="sub">{[p.method, p.reference].filter(Boolean).join(" · ")}</div></td>
+              <td>{dayLabel(p.period_from)} – {dayLabel(p.period_to)}<div className="sub">{p.months} month{p.months === 1 ? "" : "s"}</div></td>
+              <td className="r num">{tzs(p.amount)}</td>
+              <td className="r"><button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, company.name, sub.band)}>Receipt</button></td>
+            </tr>))}
+          </tbody>
+        </table></div>
+      )}
+    </fieldset>
+  );
+}
 
 function CompanyForm() {
   const { company, patchCompany, toast } = useStore();
@@ -151,11 +188,12 @@ function AddVehicle() {
   );
 }
 
-export default function Settings() {
+export default function Settings({ sub }: { sub?: Subscription | null }) {
   const { staff, vehicles } = useStore();
   return (
     <section>
       <div className="sectionhead"><h1>Settings</h1></div>
+      {sub && <SubscriptionCard sub={sub} />}
       <CompanyForm />
       <fieldset style={{ maxWidth: 760 }}><legend>Staff accounts</legend>
         <p className="sub" style={{ marginTop: 0 }}>Everyone signs in with their own email and password. Admins manage staff and settings; cashiers receive goods, take payments and load trucks; the CEO sees reports and sets targets.</p>

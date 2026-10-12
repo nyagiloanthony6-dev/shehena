@@ -11,7 +11,8 @@ import Arrivals from "./views/Arrivals";
 import Reports from "./views/Reports";
 import Settings from "./views/Settings";
 import { signOut } from "@/app/login/actions";
-import { initials, ROLES, SYSTEM, type Company, type Perm, type Profile } from "@/lib/domain";
+import { initials, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
+import { dayLabel, type Subscription } from "@/lib/billing";
 
 export type View = "home" | "list" | "new" | "trips" | "arrivals" | "reports" | "set";
 const TABS: [View, string, Perm | null, string][] = [
@@ -42,13 +43,32 @@ export const useUi = () => {
   return u;
 };
 
-export default function CargoApp({ me, initialCompany, isOwner = false, announcement = "", status = "active" }: {
-  me: Profile; initialCompany: Company; isOwner?: boolean; announcement?: string; status?: string;
+export default function CargoApp({ me, initialCompany, isOwner = false, announcement = "", status = "active", subscription = null }: {
+  me: Profile; initialCompany: Company; isOwner?: boolean; announcement?: string; status?: string; subscription?: Subscription | null;
 }) {
-  return <StoreProvider me={me} initialCompany={initialCompany}><Shell isOwner={isOwner} announcement={announcement} status={status} /></StoreProvider>;
+  return <StoreProvider me={me} initialCompany={initialCompany}><Shell isOwner={isOwner} announcement={announcement} status={status} sub={subscription} /></StoreProvider>;
 }
 
-function Shell({ isOwner, announcement, status }: { isOwner: boolean; announcement: string; status: string }) {
+const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
+/** Reminder for the Admin and CEO: trial ending, renewal coming up, or overdue. */
+function SubscriptionNotice({ sub, onDetails }: { sub: Subscription; onDetails?: () => void }) {
+  const pay = sub.instructions ? <> <b>How to pay:</b> {sub.instructions}</> : <> Contact Serengeti Labs to pay.</>;
+  const fee = <>TZS {tzs(sub.fee)} a month ({sub.band})</>;
+  const more = onDetails ? <button className="btn sm" onClick={onDetails}>Details</button> : null;
+  const left = sub.days_left ?? 0;
+  if (sub.status === "overdue") return (
+    <div className="notice warn" role="status"><span><b>Your Shehena subscription is overdue</b>{sub.due ? ` since ${dayLabel(sub.due)}` : ""}. Pay {fee} to keep access{sub.suspend_on ? <> — access pauses on <b>{dayLabel(sub.suspend_on)}</b></> : null}.{pay}</span>{more}</div>
+  );
+  if (sub.status === "trial" && sub.due) return (
+    <div className="notice" role="status"><span><b>Free trial: {left > 0 ? `${days(left)} left` : "last day today"}</b> (ends {dayLabel(sub.due)}). After that Shehena is {fee}.{pay}</span>{more}</div>
+  );
+  if (sub.status === "active" && sub.due && left <= 5) return (
+    <div className="notice" role="status"><span><b>Your subscription {left > 0 ? `renews in ${days(left)}` : "ends today"}</b> (paid to {dayLabel(sub.due)}). {fee}.{pay}</span>{more}</div>
+  );
+  return null;
+}
+
+function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; announcement: string; status: string; sub: Subscription | null }) {
   const st = useStore();
   const [view, setView] = useState<View>("home");
   const [sheet, setSheet] = useState<{ type: "ship" | "trip"; id: string } | null>(null);
@@ -140,11 +160,15 @@ function Shell({ isOwner, announcement, status }: { isOwner: boolean; announceme
             {announcement && hiddenNote !== announcement && (
               <div className="notice" role="status"><span><b>Serengeti Labs:</b> {announcement}</span><button className="btn sm" onClick={hideNote}>Dismiss</button></div>
             )}
-            {status === "overdue" && st.can("settings") && (
-              <div className="notice warn" role="status"><span><b>Your Shehena subscription is overdue.</b> Please pay Serengeti Labs to avoid interruption.</span></div>
-            )}
-            {status === "trial" && st.can("settings") && (
-              <div className="notice" role="status"><span><b>You&apos;re on a free trial of Shehena.</b> Contact Serengeti Labs to activate your account.</span></div>
+            {sub ? (view !== "set" && <SubscriptionNotice sub={sub} onDetails={st.can("settings") ? () => go("set") : undefined} />) : (
+              <>
+                {status === "overdue" && st.can("settings") && (
+                  <div className="notice warn" role="status"><span><b>Your Shehena subscription is overdue.</b> Please pay Serengeti Labs to avoid interruption.</span></div>
+                )}
+                {status === "trial" && st.can("settings") && (
+                  <div className="notice" role="status"><span><b>You&apos;re on a free trial of Shehena.</b> Contact Serengeti Labs to activate your account.</span></div>
+                )}
+              </>
             )}
             {needsSetup && view !== "set" && (
               <div className="banner" style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", background: "var(--accent-soft)", color: "var(--fg)" }}>
@@ -160,7 +184,7 @@ function Shell({ isOwner, announcement, status }: { isOwner: boolean; announceme
                 {view === "trips" && <Loading />}
                 {view === "arrivals" && <Arrivals />}
                 {view === "reports" && <Reports />}
-                {view === "set" && <Settings />}
+                {view === "set" && <Settings sub={sub} />}
               </>
             )}
             <div className="mcredit">{SYSTEM} · Developed by <b>Serengeti Labs</b></div>
