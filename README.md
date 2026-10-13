@@ -127,6 +127,18 @@ Unpaid receivers are told the amount and how to pay (from **Settings → How cus
 come with ID to collect. Goods can't be released until paid — the database refuses it. Unpaid goods
 waiting 2+ days are flagged on the Overview, and each one has a **Payment reminder** message.
 
+## Goods found on arrival
+Sometimes goods come off a truck that were never recorded at loading. At the destination, open the
+arrived truck (Arrivals → *Arrived this week*, or the trip) and press **Record found goods**: enter the
+receiver (sender if known), the goods and the proper charge, and how they were found. The record joins
+that truck's trip, is marked **Found**, and prints a receipt and stickers like any other consignment.
+- Cashiers' records wait for the Admin under **Arrivals → Found goods to check**; the Admin opens each
+  and presses **Mark checked**. The Admin's own records count as checked.
+- **Settings → Goods found on arrival** lets the Admin allow cashiers, or keep it Admin-only.
+- The database enforces it: only allowed roles can record found goods, only on an arrived truck; only
+  the Admin can mark them checked; after checking, only the Admin can change the charge.
+Requires migration `0007_found_goods.sql`.
+
 ## Receipt and package stickers
 When goods are saved, one PDF downloads with the sender's receipt followed by a sticker for every
 package (e.g. 13 packages → 13 stickers, "3 / 13"). Stickers show the company, destination (large),

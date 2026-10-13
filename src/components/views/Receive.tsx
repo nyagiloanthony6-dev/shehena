@@ -4,7 +4,7 @@ import { downloadReceiptAndStickers, packages, stickerPrefs } from "../stickers"
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Slip } from "../parts";
-import { METHODS, REGIONS, intlPhone, tzs, validPhone, ymd, type Item, type Shipment } from "@/lib/domain";
+import { METHODS, REGIONS, canRecordFound, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment } from "@/lib/domain";
 
 type Line = { name: string; pkgs: string; kg: string; unit: string; charge: string };
 const blankLine = (): Line => ({ name: "", pkgs: "1", kg: "", unit: "", charge: "" });
@@ -27,8 +27,12 @@ const blank = (origin: string) => ({
 });
 
 export default function Receive() {
-  const { company, shipments, me, insert, toast } = useStore();
+  const { company, shipments, trips, me, insert, toast } = useStore();
   const ui = useUi();
+  // "Found on arrival" mode: goods discovered on an arrived truck that were never recorded at loading.
+  const trip = ui.foundTrip ? trips.find((t) => t.id === ui.foundTrip && t.status === "arrived") || null : null;
+  const found = !!trip && canRecordFound(me.role, company);
+  const [foundNote, setFoundNote] = useState("");
   const [f, setF] = useState(() => blank(company.default_origin || "DAR"));
   const [lines, setLines] = useState<Line[]>([blankLine()]);
   const setLine = (i: number, k: keyof Line, v: string) => setLines((L) => L.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
@@ -58,20 +62,20 @@ export default function Receive() {
   };
 
   const preview: Partial<Shipment> = {
-    ...f, ...tot, items,
+    ...f, ...tot, items, ...(found ? { origin: trip!.origin, dest: trip!.dest } : {}),
     no: `${f.origin}-${f.dest}-…`, method: f.pay === "paid" ? f.method : null, created_by_name: me.full_name,
   };
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const miss: string[] = [];
-    if (!f.s_name.trim()) miss.push("sender name");
-    if (!validPhone(f.s_phone)) miss.push("a valid sender phone (e.g. 0712 345 678)");
+    if (!found && !f.s_name.trim()) miss.push("sender name");
+    if ((!found || f.s_phone.trim()) && !validPhone(f.s_phone)) miss.push("a valid sender phone (e.g. 0712 345 678)");
     if (!f.r_name.trim()) miss.push("receiver name");
     if (!validPhone(f.r_phone)) miss.push("a valid receiver phone");
     if (items.some((i) => !i.name)) miss.push(items.length > 1 ? "a name for every item" : "item name");
     if (items.some((i) => i.pkgs < 1)) miss.push("at least 1 package for every item");
-    if (f.origin === f.dest) miss.push("a destination different from the origin");
+    if (!found && f.origin === f.dest) miss.push("a destination different from the origin");
     if (miss.length) return setErr("Please add " + miss.join(", ") + ".");
     setErr(""); setBusy(true);
     const now = new Date().toISOString();
@@ -81,30 +85,45 @@ export default function Receive() {
       paid_at: f.pay === "paid" ? now : null, paid_by: f.pay === "paid" ? me.full_name : null,
       notes: f.notes.trim(), status: "received", received_at: now, notices: [], created_by: me.id, created_by_name: me.full_name,
     };
+    if (found) Object.assign(row, {
+      // They travelled on this truck; the database also enforces this.
+      trip_id: trip!.id, origin: trip!.origin, dest: trip!.dest, status: "arrived", found_on_arrival: true, found_note: foundNote.trim(),
+      loaded_at: trip!.departed_at || now, transit_at: trip!.departed_at || now, arrived_at: trip!.arrived_at || now,
+      ...(me.role === "admin" ? { checked_by: me.full_name, checked_at: now } : {}),
+    });
+    const origin = row.origin!, dest = row.dest!;
     let saved: Shipment | null = null;
     for (let i = 0; i < 3 && !saved; i++) {
-      saved = await insert<Shipment>("shipments", { ...row, no: `${f.origin}-${f.dest}-${ymd()}-${Math.floor(Math.random() * 9000) + 1000}` });
+      saved = await insert<Shipment>("shipments", { ...row, no: `${origin}-${dest}-${ymd()}-${Math.floor(Math.random() * 9000) + 1000}` });
     }
     setBusy(false);
     if (!saved) return;
     setF(blank(company.default_origin || "DAR"));
     setLines([blankLine()]);
+    setFoundNote("");
+    if (found) ui.recordFound(null);
     ui.go("list");
     ui.openShip(saved.id);
     // Receipt for the sender and a sticker for every package, in one PDF.
     if (stickerPrefs().auto) {
       const n = packages(saved).length;
-      toast(`Saved ${saved.no}. Receipt and ${n} sticker${n === 1 ? "" : "s"} downloading.`);
+      toast(`Saved ${saved.no}${found ? ` as found on ${trip!.plate}` : ""}. Receipt and ${n} sticker${n === 1 ? "" : "s"} downloading.`);
       try { await downloadReceiptAndStickers(saved, company); } catch { toast("Saved, but the PDF couldn't be made. Use Receipt + stickers below.", true); }
     } else toast(`Saved ${saved.no}. Send the notices below.`);
   }
 
   return (
     <section>
-      <div className="sectionhead"><h1>Receive goods</h1><span className="sub">Record the consignment, then hand the sender the receipt.</span></div>
+      <div className="sectionhead"><h1>{found ? "Record found goods" : "Receive goods"}</h1><span className="sub">{found ? "Goods that came off the truck but were never recorded at loading." : "Record the consignment, then hand the sender the receipt."}</span></div>
+      {found && (
+        <div className="notice warn" role="status">
+          <span><b>Found on {trip!.plate}</b> · trip {trip!.no} · {regShort(trip!.origin)} → {regShort(trip!.dest)}, arrived {fmtDate(trip!.arrived_at)}. Enter the receiver and the proper charge.{me.role !== "admin" && " The Admin will check this record."}</span>
+          <button className="btn sm" type="button" onClick={() => ui.recordFound(null)}>Cancel</button>
+        </div>
+      )}
       <form className="formgrid" noValidate onSubmit={submit}>
         <div>
-          <fieldset><legend>Sender (brought the goods)</legend>
+          <fieldset><legend>{found ? "Sender (if known)" : "Sender (brought the goods)"}</legend>
             <div className="fields">
               <label className="f">Phone number<input value={f.s_phone} onChange={(e) => onPhone("s_phone", e.target.value)} inputMode="tel" placeholder="0712 345 678" /></label>
               <label className="f">Customer name<input value={f.s_name} onChange={(e) => set("s_name", e.target.value)} autoComplete="off" /></label>
@@ -118,12 +137,18 @@ export default function Receive() {
             </div>
             {rKnown && <div className="hint">✓ Known customer: {rKnown.name}{rKnown.n ? ` · ${rKnown.n} previous consignment${rKnown.n === 1 ? "" : "s"}` : ""}</div>}
           </fieldset>
+          {found ? (
+            <fieldset><legend>How were they found?</legend>
+              <label className="f full">Note <small>optional</small><textarea rows={2} value={foundNote} onChange={(e) => setFoundNote(e.target.value)} placeholder="e.g. 2 extra bales at the back of the truck, no waybill; driver says loaded at Ubungo" aria-label="How the goods were found" /></label>
+            </fieldset>
+          ) : (
           <fieldset><legend>Route</legend>
             <div className="fields">
               <label className="f">From<select value={f.origin} onChange={(e) => set("origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
               <label className="f">To<select value={f.dest} onChange={(e) => set("dest", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
             </div>
           </fieldset>
+          )}
           <fieldset><legend>Goods and charges</legend>
             <p className="sub" style={{ margin: "0 0 10px" }}>One line per kind of goods. Price/pkg and Kg are optional — enter a price per package and the charge is worked out for you.</p>
             <div className="ilines">
@@ -166,7 +191,7 @@ export default function Receive() {
           </fieldset>
           <div className="err" role="alert">{err}</div>
           <div className="actions">
-            <button className="btn primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Save & issue receipt"}</button>
+            <button className="btn primary" type="submit" disabled={busy}>{busy ? "Saving…" : found ? "Save found goods & issue receipt" : "Save & issue receipt"}</button>
             <button className="btn" type="button" onClick={() => { setF(blank(company.default_origin || "DAR")); setLines([blankLine()]); setErr(""); }}>Clear</button>
           </div>
         </div>

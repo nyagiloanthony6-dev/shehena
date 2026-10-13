@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { PayPill, SendButtons, sentLog, useArriveTrip } from "../parts";
-import { METHODS, REGIONS, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { METHODS, REGIONS, canRecordFound, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
 
@@ -85,7 +85,10 @@ function WaitingRow({ s }: { s: Shipment }) {
 }
 
 export default function Arrivals() {
-  const { trips, shipments } = useStore();
+  const { trips, shipments, me, company, tripShips } = useStore();
+  const mayRecord = canRecordFound(me.role, company);
+  const landed = trips.filter((t) => t.status === "arrived" && daysSince(t.arrived_at) <= 7).sort((a, b) => (b.arrived_at || "").localeCompare(a.arrived_at || ""));
+  const toCheck = shipments.filter((s) => s.found_on_arrival && !s.checked_at).sort((a, b) => a.received_at.localeCompare(b.received_at));
   const ui = useUi();
   const [show, setShow] = useState<"all" | "unpaid" | "paid" | "notify">("all");
   const [dest, setDest] = useState("");
@@ -121,6 +124,42 @@ export default function Arrivals() {
       <div className="group-h"><h2>Trucks on the road</h2><span className="sub">{road.length}</span></div>
       {road.length ? <div className="trips">{road.map((t) => <RoadTruck key={t.id} t={t} />)}</div>
         : <p className="quiet">No trucks on the road. Trucks appear here once they&apos;re dispatched from the Loading bay.</p>}
+
+      {me.role === "admin" && toCheck.length > 0 && (
+        <>
+          <div className="group-h" style={{ marginTop: 26 }}><h2>Found goods to check</h2><span className="sub">{toCheck.length}</span></div>
+          <div className="panel found-panel">
+            <p className="sub" style={{ marginTop: 0 }}>Recorded at the destination because they weren&apos;t on the loading list. Check the goods, receiver and charge.</p>
+            {toCheck.map((s) => {
+              const t = trips.find((x) => x.id === s.trip_id);
+              return (
+                <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
+                  <div><b>{goodsLabel(s)}</b> · {s.pkgs} pkg<div className="sub"><span className="mono">{s.no}</span> · {t?.plate || "—"} · {regShort(s.dest)} · by {s.created_by_name}{s.found_note ? ` · “${s.found_note.slice(0, 60)}”` : ""}</div></div>
+                  <div className="r"><b>TZS {tzs(s.charge)}</b><div className="sub">{s.pay === "paid" ? "Paid" : "Not paid"}</div></div>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {landed.length > 0 && (
+        <>
+          <div className="group-h" style={{ marginTop: 26 }}><h2>Arrived this week</h2><span className="sub">{landed.length}</span></div>
+          <div className="panel">
+            {landed.map((t) => {
+              const L = tripShips(t), f = L.filter((s) => s.found_on_arrival).length;
+              return (
+                <div className="lrow" key={t.id} style={{ flexWrap: "wrap" }}>
+                  <div><a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}><b>{t.plate}</b></a> · {regShort(t.origin)} → {regShort(t.dest)}
+                    <div className="sub">arrived {fmtDate(t.arrived_at)} · {L.length} consignment{L.length === 1 ? "" : "s"}{f ? ` · ${f} found on arrival` : ""}</div></div>
+                  {mayRecord && <button className="btn sm" onClick={() => ui.recordFound(t.id)}>Record found goods</button>}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <div className="group-h" style={{ marginTop: 26 }}><h2>Waiting for customers</h2><span className="sub">{waitingAll.length}</span></div>
       <div className="filters">

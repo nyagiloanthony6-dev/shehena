@@ -35,6 +35,9 @@ interface Ui {
   setListPay: (p: "" | "paid" | "unpaid") => void;
   tripFormOpen: boolean;
   setTripFormOpen: (b: boolean) => void;
+  /** Trip whose found (unrecorded) goods are being keyed in on the Receive screen. */
+  foundTrip: string | null;
+  recordFound: (tripId: string | null) => void;
 }
 const UiCtx = createContext<Ui | null>(null);
 export const useUi = () => {
@@ -74,6 +77,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
   const [sheet, setSheet] = useState<{ type: "ship" | "trip"; id: string } | null>(null);
   const [listPay, setListPay] = useState<"" | "paid" | "unpaid">("");
   const [tripFormOpen, setTripFormOpen] = useState(false);
+  const [foundTrip, setFoundTrip] = useState<string | null>(null);
   const [hiddenNote, setHiddenNote] = useState("");
   useEffect(() => { try { setHiddenNote(localStorage.getItem("shehena.note") || ""); } catch { /* private mode */ } }, []);
   const hideNote = () => { setHiddenNote(announcement); try { localStorage.setItem("shehena.note", announcement); } catch { /* private mode */ } };
@@ -85,6 +89,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
 
   const go = useCallback((v: View) => {
     const next = allowed(v) ? v : "home";
+    if (next !== "new") setFoundTrip(null);
     setSheet(null);
     setView(next);
     if (window.location.hash !== "#" + next) window.history.pushState(null, "", "#" + next);
@@ -118,6 +123,8 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
     openTrip: (id) => setSheet({ type: "trip", id }),
     close: () => setSheet(null),
     listPay, setListPay, tripFormOpen, setTripFormOpen,
+    foundTrip,
+    recordFound: (tripId) => { setFoundTrip(tripId); if (tripId) go("new"); },
   };
   const loadingN = st.trips.filter((t) => t.status === "loading").length;
   const roadN = st.trips.filter((t) => t.status === "departed").length;

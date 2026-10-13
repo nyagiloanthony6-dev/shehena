@@ -14,6 +14,8 @@ export interface Company {
   default_origin: string;
   message_lang: "sw" | "en";
   payment_instructions: string;
+  /** Who may record goods found on an arrived truck: Admin and cashiers, or the Admin only. */
+  found_goods_by?: "all" | "admin";
 }
 export interface Profile {
   id: string;
@@ -98,6 +100,11 @@ export interface Shipment {
   collected_by: string | null;
   notices: Notice[];
   items?: Item[];
+  /** Found on an arrived truck without having been recorded at loading. */
+  found_on_arrival?: boolean;
+  found_note?: string;
+  checked_by?: string | null;
+  checked_at?: string | null;
   created_by: string | null;
   created_by_name: string | null;
 }
@@ -126,6 +133,9 @@ const PERMS: Record<Role, Perm[]> = {
   ceo: ["reports", "target"],
 };
 export const can = (role: Role | undefined, p: Perm) => !!role && PERMS[role].includes(p);
+/** Recording goods found on arrival: the Admin always; cashiers unless the Admin restricted it. */
+export const canRecordFound = (role: Role | undefined, company: Pick<Company, "found_goods_by">) =>
+  role === "admin" || (role === "cashier" && company.found_goods_by !== "admin");
 
 export const regName = (c: string) => (REGIONS.find((r) => r[0] === c) || [c, c])[1];
 export const regShort = (c: string) => regName(c).replace(/ \(.*\)/, "");

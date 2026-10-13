@@ -4,6 +4,7 @@ import { useStore } from "./store";
 import { useUi } from "./CargoApp";
 import { STICKER_SIZES, downloadReceiptAndStickers, downloadStickers, packages, saveStickerPrefs, stickerPrefs, type StickerPrefs } from "./stickers";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
+import { canRecordFound } from "@/lib/domain";
 import { METHODS, STATUS, TSTATUS, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 export function ShipmentSheet({ id }: { id: string }) {
@@ -25,6 +26,8 @@ export function ShipmentSheet({ id }: { id: string }) {
         <div><div className="lbl">Waybill</div><h2 style={{ fontFamily: "var(--f-mono)" }}>{s.no}</h2></div>
         <button className="btn sm" onClick={ui.close}>Close</button>
       </div>
+
+      {s.found_on_arrival && <FoundCard s={s} />}
 
       <div className="card"><h3>Delivery status</h3>
         <div className="steps">{STATUS.map(([k, l], i) => <div key={k} className={i <= idx ? "done" : ""}>{l}<small>{times[k] ? fmtDay(times[k]) : " "}</small></div>)}</div>
@@ -166,6 +169,7 @@ export function TripSheet({ id }: { id: string }) {
           <p className="note">All consignments on this vehicle move to &quot;Arrived&quot; and arrival notices become ready.</p>
         </div>
       )}
+      {t.status === "arrived" && <FoundOnTrip trip={t} />}
       {t.status === "arrived" && <BulkNotices trip={t} kind="arrived" />}
       {t.status !== "loading" && <BulkNotices trip={t} kind="departed" />}
 
@@ -238,5 +242,55 @@ export function PrintActions({ s }: { s: Shipment }) {
         </div>
       </details>
     </>
+  );
+}
+
+/** On a consignment that was found on an arrived truck: where it came from and the Admin's check. */
+export function FoundCard({ s }: { s: Shipment }) {
+  const { tripById, me, patch, toast } = useStore();
+  const ui = useUi();
+  const t = tripById(s.trip_id);
+  const checked = !!s.checked_at;
+  return (
+    <div className={`card found${checked ? "" : " unchecked"}`}>
+      <h3>Found on arrival</h3>
+      <p style={{ margin: 0 }}>Not recorded at loading. Found on {t ? <a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.plate}</a> : "the truck"} in {regShort(s.dest)} and recorded by <b>{s.created_by_name || "—"}</b> on {fmtDate(s.received_at)}.</p>
+      {s.found_note && <p className="sub" style={{ margin: "6px 0 0" }}>&ldquo;{s.found_note}&rdquo;</p>}
+      <div className="actions" style={{ alignItems: "center" }}>
+        {checked
+          ? <span className="pill pay-paid">Checked by {s.checked_by || "Admin"} · {fmtDay(s.checked_at!)}</span>
+          : <span className="pill pay-unpaid">Not yet checked by the Admin</span>}
+        {me.role === "admin" && !checked && (
+          <button className="btn sm primary" onClick={async () => { if (await patch<Shipment>("shipments", s.id, { checked_by: me.full_name, checked_at: new Date().toISOString() })) toast("Marked as checked"); }}>Mark checked</button>
+        )}
+        {me.role === "admin" && checked && (
+          <button className="btn sm" onClick={() => patch<Shipment>("shipments", s.id, { checked_by: null, checked_at: null })}>Undo check</button>
+        )}
+      </div>
+      {me.role === "admin" && !checked && <p className="note">Check the goods, receiver and charge. If the charge is wrong, delete this record and key it in again.</p>}
+    </div>
+  );
+}
+
+/** On an arrived trip: goods found on the truck that weren't recorded at loading, and a button to add more. */
+function FoundOnTrip({ trip }: { trip: Trip }) {
+  const { tripShips, me, company } = useStore();
+  const ui = useUi();
+  const found = tripShips(trip).filter((s) => s.found_on_arrival);
+  const allowed = canRecordFound(me.role, company);
+  if (!allowed && !found.length) return null;
+  return (
+    <div className="card"><h3>Goods found on this truck{found.length ? ` · ${found.length}` : ""}</h3>
+      {found.map((s) => (
+        <div className="lrow" key={s.id}>
+          <div><a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openShip(s.id); }}>{s.no}</a> · {goodsLabel(s)} · {s.pkgs} pkg · TZS {tzs(s.charge)}<div className="sub">{s.r_name} · by {s.created_by_name}</div></div>
+          <span className={`pill ${s.checked_at ? "pay-paid" : "pay-unpaid"}`}>{s.checked_at ? "Checked" : "To check"}</span>
+        </div>
+      ))}
+      {allowed
+        ? <><button className="btn" onClick={() => ui.recordFound(trip.id)}>Record goods found on this truck</button>
+          <p className="note">For goods that came off {trip.plate} but were never recorded at loading. You enter the receiver and the proper charge; {me.role === "admin" ? "your records count as checked." : "the Admin checks each one."}</p></>
+        : <p className="note">Only the Admin can record found goods.</p>}
+    </div>
   );
 }

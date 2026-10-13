@@ -52,7 +52,7 @@ export default function Consignments() {
             const t = tripById(s.trip_id);
             return (
               <tr className="row" key={s.id} tabIndex={0} onClick={() => ui.openShip(s.id)} onKeyDown={(e) => e.key === "Enter" && ui.openShip(s.id)}>
-                <td><span className="mono wb">{s.no}</span><div className="sub">{fmtDate(s.received_at)}</div></td>
+                <td><span className="mono wb">{s.no}</span>{s.found_on_arrival && <span className="tag-found" title="Found on arrival, not recorded at loading">Found</span>}<div className="sub">{fmtDate(s.received_at)}</div></td>
                 <td><b style={{ fontWeight: 600 }}>{goodsLabel(s)}</b><div className="sub">{s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}{s.kg ? ` · ${s.kg} kg` : ""}</div></td>
                 <td>{s.s_name}<div className="sub">to {s.r_name}</div></td>
                 <td className="route">{regShort(s.origin)}<i>→</i>{regShort(s.dest)}</td>
@@ -65,7 +65,7 @@ export default function Consignments() {
       )}
       <div className="cards">{list.map((s) => (
         <button className="ccard" key={s.id} onClick={() => ui.openShip(s.id)}>
-          <div className="ctop"><span className="mono wb sub">{s.no}</span><StatusPill s={s.status} /></div>
+          <div className="ctop"><span className="mono wb sub">{s.no}{s.found_on_arrival && <span className="tag-found">Found</span>}</span><StatusPill s={s.status} /></div>
           <div><b>{goodsLabel(s)}</b> · {s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}</div>
           <div className="sub">{s.s_name} → {s.r_name} · {regShort(s.dest)}</div>
           <div className="cbot"><b>TZS {tzs(s.charge)}</b><PayPill paid={s.pay === "paid"} /></div>

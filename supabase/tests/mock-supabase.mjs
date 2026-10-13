@@ -58,8 +58,8 @@ const visible = (c, table, rows) => c.service ? rows : SERVICE_ONLY.includes(tab
 const DEFAULTS = {
   vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null },
   trips: { driver: "", driver_phone: "", target: 0, target_set_by: null, status: "loading", departed_at: null, departed_by: null, arrived_at: null, arrived_by: null },
-  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [] },
-  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "" },
+  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null },
+  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all" },
   profiles: { active: true },
 };
 
