@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
+import { STICKER_SIZES, downloadReceiptAndStickers, downloadStickers, packages, saveStickerPrefs, stickerPrefs, type StickerPrefs } from "./stickers";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
 import { METHODS, STATUS, TSTATUS, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
 
@@ -75,8 +76,8 @@ export function ShipmentSheet({ id }: { id: string }) {
       <div className="card"><h3>Goods received notice</h3><NotifyBlock s={s} kind="received" to="receiver" />
         <details style={{ marginTop: 10 }}><summary className="sub" style={{ cursor: "pointer" }}>Send receipt to the sender</summary><NotifyBlock s={s} kind="received" to="sender" /></details>
       </div>
-      <div className="card"><h3>Receipt</h3><Slip s={s} company={company} />
-        <div className="actions" style={{ marginTop: 20 }}><button className="btn" onClick={() => downloadReceipt(s, company)}>Download receipt (PDF)</button></div>
+      <div className="card"><h3>Receipt and stickers</h3><Slip s={s} company={company} />
+        <PrintActions s={s} />
       </div>
       {can("delete") && (
         <div className="card"><h3>Record</h3>
@@ -206,6 +207,36 @@ export function TripSheet({ id }: { id: string }) {
           ))}
         </div>
       )}
+    </>
+  );
+}
+
+/** Print the receipt for the sender and one sticker per package (no amounts, names or phone numbers). */
+export function PrintActions({ s }: { s: Shipment }) {
+  const { company, toast } = useStore();
+  const [prefs, setPrefs] = useState<StickerPrefs>({ size: "100x75", showItem: true, auto: true });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setPrefs(stickerPrefs()); }, []);
+  const set = (p: Partial<StickerPrefs>) => { const n = { ...prefs, ...p }; setPrefs(n); saveStickerPrefs(n); };
+  const n = packages(s).length;
+  const run = async (fn: () => Promise<void>) => { setBusy(true); try { await fn(); } catch { toast("Couldn't make the PDF. Try again.", true); } setBusy(false); };
+  return (
+    <>
+      <div className="actions" style={{ marginTop: 20 }}>
+        <button className="btn primary" disabled={busy} onClick={() => run(() => downloadReceiptAndStickers(s, company))}>Receipt + {n} sticker{n === 1 ? "" : "s"} (PDF)</button>
+        <button className="btn" disabled={busy} onClick={() => run(() => downloadReceipt(s, company))}>Receipt only</button>
+        <button className="btn" disabled={busy} onClick={() => run(() => downloadStickers(s, company))}>Stickers only</button>
+      </div>
+      <p className="note">Stickers show the waybill number, route, package number and a QR code. No amount, names or phone numbers.</p>
+      <details style={{ marginTop: 8 }}><summary className="sub" style={{ cursor: "pointer" }}>Sticker settings for this device</summary>
+        <div className="fields" style={{ marginTop: 10 }}>
+          <label className="f">Sticker size<select value={prefs.size} onChange={(e) => set({ size: e.target.value as StickerPrefs["size"] })}>{STICKER_SIZES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+          <div className="f" style={{ justifyContent: "end", gap: 8 }}>
+            <label className="check"><input type="checkbox" checked={prefs.showItem} onChange={(e) => set({ showItem: e.target.checked })} /> Show the goods description</label>
+            <label className="check"><input type="checkbox" checked={prefs.auto} onChange={(e) => set({ auto: e.target.checked })} /> Download receipt + stickers when goods are saved</label>
+          </div>
+        </div>
+      </details>
     </>
   );
 }

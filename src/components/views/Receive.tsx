@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { downloadReceiptAndStickers, packages, stickerPrefs } from "../stickers";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Slip } from "../parts";
@@ -90,7 +91,12 @@ export default function Receive() {
     setLines([blankLine()]);
     ui.go("list");
     ui.openShip(saved.id);
-    toast(`Saved ${saved.no}. Send the notices below.`);
+    // Receipt for the sender and a sticker for every package, in one PDF.
+    if (stickerPrefs().auto) {
+      const n = packages(saved).length;
+      toast(`Saved ${saved.no}. Receipt and ${n} sticker${n === 1 ? "" : "s"} downloading.`);
+      try { await downloadReceiptAndStickers(saved, company); } catch { toast("Saved, but the PDF couldn't be made. Use Receipt + stickers below.", true); }
+    } else toast(`Saved ${saved.no}. Send the notices below.`);
   }
 
   return (

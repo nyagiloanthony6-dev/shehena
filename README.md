@@ -127,6 +127,14 @@ Unpaid receivers are told the amount and how to pay (from **Settings → How cus
 come with ID to collect. Goods can't be released until paid — the database refuses it. Unpaid goods
 waiting 2+ days are flagged on the Overview, and each one has a **Payment reminder** message.
 
+## Receipt and package stickers
+When goods are saved, one PDF downloads with the sender's receipt followed by a sticker for every
+package (e.g. 13 packages → 13 stickers, "3 / 13"). Stickers show the company, destination (large),
+origin, waybill number, package number, date and a QR code of the waybill — **never the amount,
+names or phone numbers**. Sticker size (100×75, 100×150, 80 mm roll, or A4 with 8 per page), whether
+to show the goods description, and the automatic download are set per device under
+**Sticker settings** on any consignment. Reprint any time from the consignment.
+
 ## Several items in one consignment
 A sender can bring different goods in one visit (e.g. 10 cartons of oil, 2 mattresses, a spare tyre),
 each with its own charge. **Receive goods** has one line per kind of goods — enter a price per package

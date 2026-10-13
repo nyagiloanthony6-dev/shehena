@@ -133,6 +133,11 @@ export function Slip({ s, company, servedBy }: { s: Partial<Shipment>; company: 
 }
 
 export async function downloadReceipt(s: Shipment, company: Company) {
+  (await receiptDoc(s, company)).save(`Receipt-${s.no}.pdf`);
+}
+
+/** The 80 mm receipt as a PDF document (first page), so stickers can be added after it. */
+export async function receiptDoc(s: Shipment, company: Company) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: [80, 160 + Math.max(0, itemsOf(s).length - 1) * 6] });
   let y = 10;
@@ -166,7 +171,7 @@ export async function downloadReceipt(s: Shipment, company: Company) {
   pair(lines.length > 1 ? "Total charge" : "Charge", "TZS " + tzs(s.charge)); pair("Payment", s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : "NOT PAID - due on collection");
   pair("Served by", s.created_by_name || "-"); dash();
   line("Keep this receipt. The receiver collects with ID and the waybill number.", 7.5);
-  doc.save(`Receipt-${s.no}.pdf`);
+  return doc;
 }
 
 async function copy(text: string, toast: (m: string, e?: boolean) => void) {

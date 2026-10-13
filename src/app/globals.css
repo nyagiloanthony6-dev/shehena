@@ -478,3 +478,5 @@ table.bands input{width:100%;min-width:70px;padding:6px 8px}
 table.bands td{padding:4px 6px 4px 0;vertical-align:middle}
 .f.check{flex-direction:row;align-items:center;gap:8px;display:flex;font-weight:500}
 .f.check input{width:auto}
+.check{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.check input{width:auto}
