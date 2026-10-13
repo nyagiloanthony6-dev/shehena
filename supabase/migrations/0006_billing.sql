@@ -22,7 +22,7 @@ create table if not exists public.billing_bands (
   unique (min_trucks)
 );
 insert into public.billing_bands (min_trucks, max_trucks, monthly_fee)
-select * from (values (0, 1, 50000), (2, 3, 100000), (4, 6, 180000), (7, 10, 270000), (11, null::int, 350000)) v
+select * from (values (0, 1, 80000), (2, 3, 150000), (4, 6, 250000), (7, 10, 350000), (11, null::int, 450000)) v
 where not exists (select 1 from public.billing_bands);
 
 create table if not exists public.billing_payments (

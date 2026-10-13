@@ -65,8 +65,8 @@ Open **/owner** while signed in with an email listed in `OWNER_EMAILS`. From the
 Requires migration `0003_client_accounts.sql` and the `OWNER_EMAILS` environment variable.
 
 ## Billing client companies
-In the owner console, **Price bands** set the monthly fee by number of trucks (default TZS 50,000 for 1
-truck, 100,000 for 2–3, 180,000 for 4–6, 270,000 for 7–10, 350,000 for 11+). **Billing rules** set the free
+In the owner console, **Price bands** set the monthly fee by number of trucks (default TZS 80,000 for 1
+truck, 150,000 for 2–3, 250,000 for 4–6, 350,000 for 7–10, 450,000 for 11+). **Billing rules** set the free
 trial length, grace days, automatic suspension, and how clients pay you.
 - New companies start on a free trial. Open a company and **Record a payment** (months, amount, any setup
   fee, M-Pesa code) — paid-until moves forward and a PDF receipt is ready for the client.

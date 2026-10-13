@@ -4,7 +4,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 
 const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "" }],
-  billing_bands: [[0, 1, 50000], [2, 3, 100000], [4, 6, 180000], [7, 10, 270000], [11, null, 350000]].map(([min_trucks, max_trucks, monthly_fee], i) => ({ id: i + 1, min_trucks, max_trucks, monthly_fee })),
+  billing_bands: [[0, 1, 80000], [2, 3, 150000], [4, 6, 250000], [7, 10, 350000], [11, null, 450000]].map(([min_trucks, max_trucks, monthly_fee], i) => ({ id: i + 1, min_trucks, max_trucks, monthly_fee })),
   billing_payments: [], sales_agents: [], commissions: [], agent_payouts: [] };
 const ymd = (d = new Date()) => new Date(d.getTime() + 3 * 3600e3).toISOString().slice(0, 10);
 const plusDays = (s, n) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
