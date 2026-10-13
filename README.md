@@ -49,11 +49,10 @@ Add cashiers, the CEO and vehicles under **Settings**.
 
 Set `ALLOW_COMPANY_SIGNUP=false` if you want to onboard companies yourself instead of letting them sign up.
 
-## Marketing page
-The home page (`/`) is a public page in Kiswahili and English with a **Request a demo** form.
-Requests appear in the owner console under **Demo requests**. Add `?ref=something` to the link
-(e.g. `/?ref=facebook`) to see which channel each request came from — the console has a link maker.
-Requires migration `0004_leads.sql`. Optional: `NEXT_PUBLIC_SALES_WHATSAPP` shows a WhatsApp button.
+## Home page
+There is no public marketing page. The site address opens the sign-in page (or the app when already
+signed in). Links with `?ref=code` still work: they open sign-in and credit a company that registers
+to the salesperson with that code.
 
 ## Owner console (Serengeti Labs)
 Open **/owner** while signed in with an email listed in `OWNER_EMAILS`. From there you can:

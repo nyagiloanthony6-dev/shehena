@@ -370,7 +370,7 @@ function Leads({ leads, agents, siteUrl, busy, run }: {
     <div className="rgrid" style={{ gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr)", marginTop: 22 }}>
       <div className="panel">
         <div className="ph" style={{ flexWrap: "wrap" }}>
-          <div><h2>Demo requests {newN > 0 && <span className="nbadge" style={{ marginLeft: 6 }}>{newN} new</span>}</h2><div className="sub">From the form on your marketing page.</div></div>
+          <div><h2>Demo requests {newN > 0 && <span className="nbadge" style={{ marginLeft: 6 }}>{newN} new</span>}</h2><div className="sub">Earlier requests from the old marketing page (now removed).</div></div>
           <div className="chips">
             <button className="chip" aria-pressed={show === "open"} onClick={() => setShow("open")}>Open</button>
             <button className="chip" aria-pressed={show === "all"} onClick={() => setShow("all")}>All · {leads.length}</button>
@@ -395,11 +395,11 @@ function Leads({ leads, agents, siteUrl, busy, run }: {
             </div>
           </div>
         ))}
-        {!list.length && <p className="quiet">{leads.length ? "No open requests." : "No requests yet. Share your marketing link to get some."}</p>}
+        {!list.length && <p className="quiet">{leads.length ? "No open requests." : "No requests."}</p>}
       </div>
       <div className="panel">
-        <h2>Marketing links</h2>
-        <p className="sub" style={{ marginTop: 4 }}>Make a separate link for each place you share it. Requests show where they came from.</p>
+        <h2>Sign-up links</h2>
+        <p className="sub" style={{ marginTop: 4 }}>Each link opens the sign-in page. If the code belongs to a salesperson, a company that registers after opening it is credited to them.</p>
         <label className="f" style={{ marginTop: 10 }}>Where will you share it?
           <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="facebook, flyer-kariakoo, radio…" /></label>
         <div className="msg mono" style={{ marginTop: 8, fontSize: 13 }}>{link}</div>
@@ -650,7 +650,7 @@ function AgentSheet({ a, data, rows, busy, run, close }: { a: Agent; data: Owner
           <button className="btn sm primary" onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* select manually */ } }}>{copied ? "Copied" : "Copy link"}</button>
           {a.phone && <a className="btn wa sm" href={`https://wa.me/${a.phone.replace(/\D/g, "").replace(/^0/, "255")}?text=${encodeURIComponent(`Habari ${a.name.split(" ")[0]}, hiki ndicho kiungo chako cha Shehena. Kitumie kwa wateja wote: ${link}`)}`} target="_blank" rel="noopener noreferrer">Send on WhatsApp</a>}
         </div>
-        <p className="note">Demo requests from this link show their name. A company that registers itself after opening it is credited to them automatically.</p>
+        <p className="note">The link opens the sign-in page. A company that registers after opening it is credited to them automatically.</p>
       </div>
 
       <div className="card"><h3>Owed now</h3>

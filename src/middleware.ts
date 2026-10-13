@@ -32,8 +32,20 @@ export async function middleware(request: NextRequest) {
   }
   // Remember which salesperson's link brought this visitor, so a self sign-up is credited to them.
   const ref = request.nextUrl.searchParams.get("ref");
-  if (ref && /^[a-z0-9_-]{2,40}$/i.test(ref)) response.cookies.set("shehena_ref", ref.toLowerCase(), { maxAge: 60 * 60 * 24 * 60, sameSite: "lax", path: "/" });
-  return response;
+  const keepRef = (r: NextResponse) => {
+    if (ref && /^[a-z0-9_-]{2,40}$/i.test(ref)) r.cookies.set("shehena_ref", ref.toLowerCase(), { maxAge: 60 * 60 * 24 * 60, sameSite: "lax", path: "/" });
+    return r;
+  };
+  // No public home page: the address goes straight to sign-in (or into the app when signed in).
+  if (path === "/") {
+    const url = request.nextUrl.clone();
+    url.pathname = user ? "/app" : "/login";
+    url.search = "";
+    const r = NextResponse.redirect(url);
+    response.cookies.getAll().forEach((c) => r.cookies.set(c));
+    return keepRef(r);
+  }
+  return keepRef(response);
 }
 
 export const config = {
