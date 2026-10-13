@@ -29,7 +29,7 @@ export default async function OwnerPage() {
   }
   const admin = supabaseAdmin();
   await refreshStatuses();
-  const [companies, accounts, stats, staff, settings, audit, own, leads, bands, payments] = await Promise.all([
+  const [companies, accounts, stats, staff, settings, audit, own, leads, bands, payments, agents, commissions, payouts] = await Promise.all([
     admin.from("companies").select("id, name, branch, phone, created_at").order("created_at", { ascending: false }),
     admin.from("company_accounts").select("*"),
     admin.rpc("owner_company_stats"),
@@ -40,7 +40,11 @@ export default async function OwnerPage() {
     admin.from("leads").select("*").order("created_at", { ascending: false }).limit(300),
     billingBands(),
     admin.from("billing_payments").select("*").order("paid_on", { ascending: false }).limit(1000),
+    admin.from("sales_agents").select("*").order("name"),
+    admin.from("commissions").select("*").order("earned_on", { ascending: false }).limit(3000),
+    admin.from("agent_payouts").select("*").order("paid_on", { ascending: false }).limit(500),
   ]);
+  const n = <T extends Record<string, unknown>>(rows: T[] | null, keys: string[]) => (rows || []).map((r) => ({ ...r, ...Object.fromEntries(keys.map((k) => [k, Number(r[k])])) }));
   const data: OwnerData = {
     me: user.email!,
     hasCompany: !!own.data,
@@ -50,7 +54,10 @@ export default async function OwnerPage() {
     staff: staff.data || [],
     settings: { signup_open: true, announcement: "", announcement_updated_at: null, ...BILLING_DEFAULTS, ...(settings.data || {}) },
     bands,
-    payments: (payments.data || []).map((p) => ({ ...p, amount: Number(p.amount) })),
+    payments: n(payments.data, ["amount", "setup_fee"]) as never,
+    agents: n(agents.data, ["signing_pct", "setup_pct", "commission_pct", "commission_months"]) as never,
+    commissions: n(commissions.data, ["amount"]) as never,
+    payouts: n(payouts.data, ["amount"]) as never,
     audit: audit.data || [],
     leads: leads.data || [],
     siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "https://www.shehenacargo.co.tz",

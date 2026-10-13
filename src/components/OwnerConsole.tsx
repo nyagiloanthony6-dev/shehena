@@ -3,20 +3,22 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mark } from "./Icon";
 import {
+  addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
   createCompany, deletePayment, recordPayment, resetStaffPassword, saveBands, saveBillingSettings, setAccountBilling, setAnnouncement,
   setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen,
 } from "@/app/owner/actions";
 import {
+  AGENT_DEFAULTS, KIND_LABEL, refSlug, type Agent, type Commission, type Payout,
   PAY_METHODS, bandFor, bandLabel, dayLabel, feeFor, periodEnd, sortBands, statusFor, today, addDays,
   type Band, type BillingPayment, type BillingSettings,
 } from "@/lib/billing";
-import { downloadSubscriptionReceipt } from "./billingPdf";
+import { downloadAgentStatement, downloadSubscriptionReceipt } from "./billingPdf";
 import { signOut } from "@/app/login/actions";
 import { ROLES, fmtDate, tzs, type Role } from "@/lib/domain";
 
 type Status = "trial" | "active" | "overdue" | "suspended";
 type Company = { id: string; name: string; branch: string; phone: string; created_at: string };
-type Account = { company_id: string; status: Status; notes: string; status_changed_at: string; trial_ends: string | null; paid_until: string | null; custom_fee: number | null; auto_status: boolean };
+type Account = { company_id: string; status: Status; notes: string; status_changed_at: string; trial_ends: string | null; paid_until: string | null; custom_fee: number | null; auto_status: boolean; agent_id: number | string | null; agent_since: string | null };
 type Stat = { company_id: string; staff: number; active_staff: number; vehicles: number; trips_month: number; ship_month: number; billed_month: number; paid_month: number; ship_total: number; last_activity: string | null };
 type Staff = { id: string; company_id: string; full_name: string; email: string; role: Role; active: boolean; created_at: string };
 type Lead = { id: number; created_at: string; name: string; company: string; phone: string; email: string; region: string; trucks: string; message: string; source: string; status: string };
@@ -25,7 +27,7 @@ export interface OwnerData {
   me: string; hasCompany: boolean; error: string;
   companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[]; leads: Lead[]; siteUrl: string;
   settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null } & BillingSettings;
-  bands: Band[]; payments: BillingPayment[];
+  bands: Band[]; payments: BillingPayment[]; agents: Agent[]; commissions: Commission[]; payouts: Payout[];
 }
 type Bill = { band: string; fee: number; due: string | null; suspend_on: string | null; pays: BillingPayment[] };
 type Row = Company & { acc: Account; st: Stat; admins: Staff[]; people: Staff[]; bill: Bill };
@@ -38,6 +40,9 @@ const ACTIONS: Record<string, string> = {
   "announcement.set": "Posted announcement", "announcement.clear": "Removed announcement", "lead.status": "Updated a demo request",
   "billing.payment": "Recorded a payment", "billing.payment_removed": "Removed a payment", "billing.account": "Changed billing details",
   "billing.auto": "Switched to automatic status", "billing.bands": "Changed price bands", "billing.settings": "Changed billing settings",
+  "agent.create": "Added a salesperson", "agent.update": "Updated a salesperson", "agent.assign": "Changed a client's salesperson",
+  "agent.earned": "Commission earned", "agent.line": "Added allowance / adjustment", "agent.line_removed": "Removed allowance / adjustment",
+  "agent.payout": "Paid a salesperson", "agent.payout_removed": "Removed a payout",
 };
 const daysAgo = (iso?: string | null) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : null);
 const ago = (iso?: string | null) => { const d = daysAgo(iso); return d === null ? "—" : d < 1 ? "Today" : d === 1 ? "Yesterday" : `${d} days ago`; };
@@ -66,6 +71,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
   const [filter, setFilter] = useState<"" | Status | "quiet">("");
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [agentId, setAgentId] = useState<string | null>(null);
 
   const run = (fn: () => Promise<{ ok?: string; error?: string }>, after?: () => void) => start(async () => {
     const r = await fn();
@@ -76,7 +82,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
 
   const rows: Row[] = useMemo(() => data.companies.map((c) => {
     const people = data.staff.filter((s) => s.company_id === c.id);
-    const acc: Account = data.accounts.find((a) => a.company_id === c.id) || { company_id: c.id, status: "active", notes: "", status_changed_at: c.created_at, trial_ends: null, paid_until: null, custom_fee: null, auto_status: true };
+    const acc: Account = data.accounts.find((a) => a.company_id === c.id) || { company_id: c.id, status: "active", notes: "", status_changed_at: c.created_at, trial_ends: null, paid_until: null, custom_fee: null, auto_status: true, agent_id: null, agent_since: null };
     const st = data.stats.find((s) => s.company_id === c.id) || { company_id: c.id, staff: people.length, active_staff: 0, vehicles: 0, trips_month: 0, ship_month: 0, billed_month: 0, paid_month: 0, ship_total: 0, last_activity: c.created_at };
     const { due, suspend_on } = statusFor(acc, data.settings);
     return {
@@ -123,7 +129,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
           <div className="stat"><div className="lbl">Received this month</div><div className="v">{tzs(received)}</div><div className="s">TZS · {sum("ship_month")} consignments by clients</div></div>
         </div>
 
-        {adding && <AddCompany busy={pending} onSubmit={(v) => run(() => createCompany(v), () => setAdding(false))} />}
+        {adding && <AddCompany agents={data.agents} busy={pending} onSubmit={(v) => run(() => createCompany(v), () => setAdding(false))} />}
 
         <div className="rgrid" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.4fr)" }}>
           <div className="panel">
@@ -172,7 +178,9 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
           {rows.length > 0 && !shown.length && <div className="empty"><p>No companies match.</p></div>}
         </div>
 
-        <Leads leads={data.leads} siteUrl={data.siteUrl} busy={pending} run={run} />
+        <SalesTeam data={data} rows={rows} busy={pending} run={run} open={(id) => setAgentId(id)} />
+
+        <Leads leads={data.leads} agents={data.agents} siteUrl={data.siteUrl} busy={pending} run={run} />
 
         <div className="panel" style={{ marginTop: 22 }}>
           <h2>Owner activity</h2><div className="sub">Everything done from this console, newest first.</div>
@@ -185,17 +193,28 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
         <>
           <div className="scrim" onClick={() => setOpenId(null)} />
           <aside className="sheet" aria-label={open.name}>
-            <CompanySheet key={open.id} r={open} settings={data.settings} audit={data.audit.filter((a) => a.company_id === open.id)} busy={pending} run={run} close={() => setOpenId(null)} />
+            <CompanySheet key={open.id} r={open} agents={data.agents} settings={data.settings} audit={data.audit.filter((a) => a.company_id === open.id)} busy={pending} run={run} close={() => setOpenId(null)} />
           </aside>
         </>
       )}
+      {agentId && (() => {
+        const a = data.agents.find((x) => String(x.id) === agentId);
+        return a ? (
+          <>
+            <div className="scrim" onClick={() => setAgentId(null)} />
+            <aside className="sheet" aria-label={a.name}>
+              <AgentSheet key={agentId} a={a} data={data} rows={rows} busy={pending} run={run} close={() => setAgentId(null)} />
+            </aside>
+          </>
+        ) : null;
+      })()}
       {toast && <div className={`toast${toast.e ? " err" : ""}`} role="status">{toast.m}</div>}
     </div>
   );
 }
 
-function AddCompany({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Parameters<typeof createCompany>[0]) => void }) {
-  const [f, setF] = useState({ name: "", branch: "", phone: "", admin_name: "", admin_email: "", password: tempPassword(), status: "trial" as Status });
+function AddCompany({ agents, busy, onSubmit }: { agents: Agent[]; busy: boolean; onSubmit: (v: Parameters<typeof createCompany>[0]) => void }) {
+  const [f, setF] = useState({ name: "", branch: "", phone: "", admin_name: "", admin_email: "", password: tempPassword(), status: "trial" as Status, agent_id: "" });
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   return (
     <form noValidate onSubmit={(e) => { e.preventDefault(); onSubmit(f); }} style={{ marginTop: 16 }}>
@@ -208,6 +227,7 @@ function AddCompany({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Parameter
           <label className="f">Admin&apos;s full name<input value={f.admin_name} onChange={(e) => set("admin_name", e.target.value)} /></label>
           <label className="f">Admin&apos;s email<input type="email" value={f.admin_email} onChange={(e) => set("admin_email", e.target.value)} autoComplete="off" /></label>
           <label className="f">Temporary password<input value={f.password} onChange={(e) => set("password", e.target.value)} autoComplete="off" /></label>
+          <label className="f">Brought in by<select value={f.agent_id} onChange={(e) => set("agent_id", e.target.value)}><option value="">No salesperson</option>{agents.filter((a) => a.active).map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}</select></label>
           <div style={{ display: "flex", alignItems: "end" }}><button className="btn primary" type="submit" disabled={busy} style={{ width: "100%" }}>{busy ? "Creating…" : "Create company"}</button></div>
         </div>
         <p className="note">Give the Admin their email and this temporary password. They can change it with &quot;Forgot password?&quot;, then add their own staff.</p>
@@ -250,8 +270,8 @@ function AuditList({ items, companies }: { items: Audit[]; companies: Company[] 
   );
 }
 
-function CompanySheet({ r, settings, audit, busy, run, close }: {
-  r: Row; settings: BillingSettings; audit: Audit[]; busy: boolean; close: () => void; run: Run;
+function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
+  r: Row; agents: Agent[]; settings: BillingSettings; audit: Audit[]; busy: boolean; close: () => void; run: Run;
 }) {
   const [notes, setNotes] = useState(r.acc.notes || "");
   const [confirmSuspend, setConfirmSuspend] = useState(false);
@@ -264,7 +284,7 @@ function CompanySheet({ r, settings, audit, busy, run, close }: {
         <button className="btn sm" onClick={close}>Close</button>
       </div>
 
-      <Billing r={r} settings={settings} busy={busy} run={run} />
+      <Billing r={r} agents={agents} settings={settings} busy={busy} run={run} />
 
       <div className="card"><h3>Account status</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -331,8 +351,8 @@ function CompanySheet({ r, settings, audit, busy, run, close }: {
 }
 
 const LEAD_LABEL: Record<string, string> = { new: "New", contacted: "Contacted", demo: "Demo done", won: "Won", lost: "Lost" };
-function Leads({ leads, siteUrl, busy, run }: {
-  leads: Lead[]; siteUrl: string; busy: boolean;
+function Leads({ leads, agents, siteUrl, busy, run }: {
+  leads: Lead[]; agents: Agent[]; siteUrl: string; busy: boolean;
   run: (fn: () => Promise<{ ok?: string; error?: string }>, after?: () => void) => void;
 }) {
   const [ref, setRef] = useState("whatsapp");
@@ -362,7 +382,7 @@ function Leads({ leads, siteUrl, busy, run }: {
               <b>{l.name}</b>{l.company && <> · {l.company}</>}
               <div className="sub"><span className="mono">{l.phone}</span>{l.email && <> · {l.email}</>}{l.region && <> · {l.region}</>}{l.trucks && <> · {l.trucks} trucks</>}</div>
               {l.message && <div className="sub" style={{ marginTop: 3 }}>&ldquo;{l.message}&rdquo;</div>}
-              <div className="sub" style={{ marginTop: 3 }}>{fmtDate(l.created_at)} · from <b>{l.source || "direct"}</b></div>
+              <div className="sub" style={{ marginTop: 3 }}>{fmtDate(l.created_at)} · from <b>{l.source || "direct"}</b>{(() => { const a = agents.find((x) => x.ref_code === (l.source || "").toLowerCase()); return a ? <> · salesperson <b>{a.name}</b></> : null; })()}</div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "end" }}>
               <div className="actions" style={{ margin: 0 }}>
@@ -405,11 +425,11 @@ function Leads({ leads, siteUrl, busy, run }: {
 
 const num = (v: string) => (v.trim() === "" ? NaN : Number(v.replace(/,/g, "")));
 
-function Billing({ r, settings, busy, run }: { r: Row; settings: BillingSettings; busy: boolean; run: Run }) {
+function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; settings: BillingSettings; busy: boolean; run: Run }) {
   const a = r.acc;
   // A new payment starts the day after the current paid-until date, or today if there is none / it lapsed long ago.
   const start = a.paid_until && a.paid_until >= addDays(today(), -settings.grace_days - 31) ? addDays(a.paid_until, 1) : today();
-  const [pay, setPay] = useState({ months: "1", amount: String(r.bill.fee || ""), from: start, method: PAY_METHODS[0], reference: "", paid_on: today() });
+  const [pay, setPay] = useState({ months: "1", amount: String(r.bill.fee || ""), setup: "", from: start, method: PAY_METHODS[0], reference: "", paid_on: today() });
   const [edit, setEdit] = useState(false);
   const [f, setF] = useState({ custom_fee: a.custom_fee == null ? "" : String(a.custom_fee), trial_ends: a.trial_ends || "", paid_until: a.paid_until || "" });
   const [undo, setUndo] = useState<string | number | null>(null);
@@ -423,9 +443,16 @@ function Billing({ r, settings, busy, run }: { r: Row; settings: BillingSettings
         {a.trial_ends && <><dt>Trial ends</dt><dd>{dayLabel(a.trial_ends)}</dd></>}
         <dt>Paid until</dt><dd>{a.paid_until ? dayLabel(a.paid_until) : <span className="sub">No payment recorded</span>}</dd>
         {r.bill.suspend_on && a.status !== "suspended" && <><dt>Suspends on</dt><dd>{dayLabel(r.bill.suspend_on)} <span className="sub">if unpaid</span></dd></>}
+        <dt>Brought in by</dt><dd>
+          <select value={a.agent_id == null ? "" : String(a.agent_id)} disabled={busy} onChange={(e) => run(() => assignAgent(r.id, e.target.value || null))} aria-label="Salesperson" style={{ width: "auto", maxWidth: "100%" }}>
+            <option value="">No salesperson</option>
+            {agents.filter((x) => x.active || String(x.id) === String(a.agent_id)).map((x) => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
+          </select>
+          {a.agent_since && <span className="sub"> since {dayLabel(a.agent_since)}</span>}
+        </dd>
       </dl>
 
-      <form noValidate onSubmit={(e) => { e.preventDefault(); run(() => recordPayment({ companyId: r.id, months, amount: num(pay.amount), from: pay.from, method: pay.method, reference: pay.reference, paid_on: pay.paid_on }), () => setPay((p) => ({ ...p, reference: "" }))); }}
+      <form noValidate onSubmit={(e) => { e.preventDefault(); run(() => recordPayment({ companyId: r.id, months, amount: num(pay.amount), setup_fee: num(pay.setup) || 0, from: pay.from, method: pay.method, reference: pay.reference, paid_on: pay.paid_on }), () => setPay((p) => ({ ...p, reference: "" }))); }}
         className="paybox">
         <div className="lbl" style={{ marginBottom: 8 }}>Record a payment</div>
         <div className="fields">
@@ -435,9 +462,10 @@ function Billing({ r, settings, busy, run }: { r: Row; settings: BillingSettings
           <label className="f">Covers from<input type="date" value={pay.from} onChange={(e) => setPay({ ...pay, from: e.target.value })} aria-label="Covers from" /></label>
           <label className="f">Date paid<input type="date" value={pay.paid_on} onChange={(e) => setPay({ ...pay, paid_on: e.target.value })} /></label>
           <label className="f">Paid by<select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>{PAY_METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>
+          <label className="f">Of which setup fee <small>optional</small><input inputMode="numeric" value={pay.setup} onChange={(e) => { const s = e.target.value; setPay((p) => ({ ...p, setup: s, amount: String((r.bill.fee || 0) * months + (num(s) || 0)) })); }} placeholder="0" aria-label="Setup fee included" /></label>
           <label className="f">Reference <small>optional</small><input value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} placeholder="e.g. M-Pesa code" aria-label="Payment reference" /></label>
         </div>
-        <p className="note" style={{ margin: "8px 0 0" }}>Covers {dayLabel(pay.from)} to <b>{pay.from ? dayLabel(periodEnd(pay.from, months)) : "—"}</b>. Fee × months = TZS {tzs((r.bill.fee || 0) * months)}; change the amount for a discount.</p>
+        <p className="note" style={{ margin: "8px 0 0" }}>Covers {dayLabel(pay.from)} to <b>{pay.from ? dayLabel(periodEnd(pay.from, months)) : "—"}</b>. Fee × months = TZS {tzs((r.bill.fee || 0) * months)}{num(pay.setup) > 0 ? ` + setup ${tzs(num(pay.setup))}` : ""}; change the amount for a discount.</p>
         <div className="actions"><button className="btn primary sm" type="submit" disabled={busy}>Record payment</button></div>
       </form>
 
@@ -446,7 +474,7 @@ function Billing({ r, settings, busy, run }: { r: Row; settings: BillingSettings
           <div className="lbl">Payments</div>
           {r.bill.pays.map((p) => (
             <div className="lrow" key={p.id} style={{ flexWrap: "wrap" }}>
-              <div><b className="num">TZS {tzs(p.amount)}</b> <span className="sub">· {p.months} mo · {dayLabel(p.period_from)} – {dayLabel(p.period_to)}</span>
+              <div><b className="num">TZS {tzs(p.amount)}</b>{p.setup_fee ? <span className="sub"> (incl. setup {tzs(p.setup_fee)})</span> : null} <span className="sub">· {p.months} mo · {dayLabel(p.period_from)} – {dayLabel(p.period_to)}</span>
                 <div className="sub">Paid {dayLabel(p.paid_on)}{p.method && ` · ${p.method}`}{p.reference && ` · ${p.reference}`} · by {p.recorded_by}</div></div>
               {undo === p.id ? (
                 <div className="confirm">Remove this payment? Paid-until goes back.
@@ -527,5 +555,186 @@ function Pricing({ bands, settings, rows, busy, run }: { bands: Band[]; settings
         <p className="note">Clients see a reminder 5 days before the due date, then an overdue warning with the suspension date.</p>
       </form>
     </div>
+  );
+}
+
+// ---------------- sales team
+
+const agentOwed = (data: OwnerData, id: number | string) => data.commissions.filter((c) => String(c.agent_id) === String(id) && c.payout_id == null).reduce((a, c) => a + c.amount, 0);
+
+function SalesTeam({ data, rows, busy, run, open }: { data: OwnerData; rows: Row[]; busy: boolean; run: Run; open: (id: string) => void }) {
+  const [adding, setAdding] = useState(false);
+  const month = today().slice(0, 7);
+  const owedAll = data.agents.reduce((a, x) => a + agentOwed(data, x.id), 0);
+  return (
+    <div className="panel" style={{ marginTop: 22 }}>
+      <div className="ph" style={{ flexWrap: "wrap" }}>
+        <div><h2>Sales team</h2><div className="sub">Each salesperson gets their own link. Clients they bring earn them a signing bonus and commission on payments. {owedAll > 0 && <b>Owed now: TZS {tzs(owedAll)}</b>}</div></div>
+        <button className={`btn sm${adding ? "" : " primary"}`} onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "Add salesperson"}</button>
+      </div>
+      {adding && <AgentForm busy={busy} onSave={(v) => run(() => saveAgent(null, v), () => setAdding(false))} />}
+      {data.agents.length ? (
+        <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small" style={{ minWidth: 0 }}>
+          <thead><tr><th>Salesperson</th><th className="r">Demo requests</th><th className="r">Clients</th><th className="r">Paying</th><th className="r">Earned this month</th><th className="r">Owed</th></tr></thead>
+          <tbody>{data.agents.map((a) => {
+            const mine = rows.filter((r) => String(r.acc.agent_id) === String(a.id));
+            const leads = data.leads.filter((l) => (l.source || "").toLowerCase() === a.ref_code).length;
+            const month$ = data.commissions.filter((c) => String(c.agent_id) === String(a.id) && c.earned_on.startsWith(month)).reduce((s, c) => s + c.amount, 0);
+            const owed = agentOwed(data, a.id);
+            return (
+              <tr key={a.id} className="row" tabIndex={0} onClick={() => open(String(a.id))} onKeyDown={(e) => e.key === "Enter" && open(String(a.id))}>
+                <td><b>{a.name}</b>{!a.active && <span className="sub"> · inactive</span>}<div className="sub mono">?ref={a.ref_code}</div></td>
+                <td className="r num">{leads}</td>
+                <td className="r num">{mine.length}</td>
+                <td className="r num">{mine.filter((r) => r.acc.status === "active").length}</td>
+                <td className="r num">{tzs(month$)}</td>
+                <td className="r num" style={owed > 0 ? { fontWeight: 700 } : undefined}>{tzs(owed)}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table></div>
+      ) : !adding && <p className="quiet">No salespeople yet. Add one to give them a link and track what they earn.</p>}
+    </div>
+  );
+}
+
+type AgentDraft = { name: string; phone: string; email: string; ref_code: string; signing_pct: string; setup_pct: string; commission_pct: string; commission_months: string; notes: string };
+function AgentForm({ a, busy, onSave }: { a?: Agent; busy: boolean; onSave: (v: Parameters<typeof saveAgent>[1]) => void }) {
+  const d = { ...AGENT_DEFAULTS, ...(a || {}) };
+  const [f, setF] = useState<AgentDraft>({ name: a?.name || "", phone: a?.phone || "", email: a?.email || "", ref_code: a?.ref_code || "", signing_pct: String(d.signing_pct), setup_pct: String(d.setup_pct), commission_pct: String(d.commission_pct), commission_months: String(d.commission_months), notes: a?.notes || "" });
+  const [touched, setTouched] = useState(!!a);
+  const set = (k: keyof AgentDraft, v: string) => setF((x) => ({ ...x, [k]: v, ...(k === "name" && !touched ? { ref_code: refSlug(v.split(" ")[0] || "") } : {}) }));
+  return (
+    <form noValidate className={a ? "" : "paybox"} onSubmit={(e) => { e.preventDefault(); onSave({ ...f, signing_pct: num(f.signing_pct), setup_pct: num(f.setup_pct), commission_pct: num(f.commission_pct), commission_months: num(f.commission_months) }); }}>
+      <div className="fields four">
+        <label className="f">Full name<input value={f.name} onChange={(e) => set("name", e.target.value)} aria-label="Salesperson name" /></label>
+        <label className="f">Phone<input value={f.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" /></label>
+        <label className="f">Email <small>optional</small><input value={f.email} onChange={(e) => set("email", e.target.value)} /></label>
+        <label className="f">Link code<input value={f.ref_code} onChange={(e) => { setTouched(true); set("ref_code", e.target.value); }} aria-label="Link code" /></label>
+        <label className="f">Signing bonus <small>% of 1st month</small><input inputMode="numeric" value={f.signing_pct} onChange={(e) => set("signing_pct", e.target.value)} /></label>
+        <label className="f">Setup fee share <small>%</small><input inputMode="numeric" value={f.setup_pct} onChange={(e) => set("setup_pct", e.target.value)} /></label>
+        <label className="f">Commission <small>% of payments</small><input inputMode="numeric" value={f.commission_pct} onChange={(e) => set("commission_pct", e.target.value)} /></label>
+        <label className="f">For <small>months after signing</small><input inputMode="numeric" value={f.commission_months} onChange={(e) => set("commission_months", e.target.value)} /></label>
+        <label className="f full">Notes <small>agreement, allowance terms</small><textarea rows={2} value={f.notes} onChange={(e) => set("notes", e.target.value)} /></label>
+      </div>
+      <div className="actions"><button className="btn sm primary" type="submit" disabled={busy}>{a ? "Save" : "Add salesperson"}</button></div>
+      <p className="note">Rates apply to client payments recorded from now on; what was already earned doesn&apos;t change.</p>
+    </form>
+  );
+}
+
+function AgentSheet({ a, data, rows, busy, run, close }: { a: Agent; data: OwnerData; rows: Row[]; busy: boolean; run: Run; close: () => void }) {
+  const [edit, setEdit] = useState(false);
+  const [line, setLine] = useState({ kind: "allowance" as "allowance" | "adjustment", amount: "", note: "" });
+  const [po, setPo] = useState({ method: PAY_METHODS[0], reference: "", paid_on: today() });
+  const [copied, setCopied] = useState(false);
+  const [undo, setUndo] = useState<string | number | null>(null);
+  const link = `${data.siteUrl.replace(/\/$/, "")}/?ref=${a.ref_code}`;
+  const mine = rows.filter((r) => String(r.acc.agent_id) === String(a.id));
+  const lines = data.commissions.filter((c) => String(c.agent_id) === String(a.id));
+  const open = lines.filter((c) => c.payout_id == null);
+  const owed = open.reduce((s, c) => s + c.amount, 0);
+  const payouts = data.payouts.filter((p) => String(p.agent_id) === String(a.id));
+  const co = (id: string | null) => data.companies.find((c) => c.id === id)?.name || "";
+  const forPdf = (L: Commission[]) => L.map((c) => ({ kind: KIND_LABEL[c.kind], amount: c.amount, note: c.note, earned_on: c.earned_on, company: co(c.company_id) }));
+  return (
+    <>
+      <div className="sheet-h">
+        <div><div className="lbl">Salesperson</div><h2>{a.name}</h2><div className="sub">{[a.phone, a.email].filter(Boolean).join(" · ")}{!a.active && " · inactive"}</div></div>
+        <button className="btn sm" onClick={close}>Close</button>
+      </div>
+
+      <div className="card"><h3>Their link</h3>
+        <div className="msg mono" style={{ fontSize: 13 }}>{link}</div>
+        <div className="actions">
+          <button className="btn sm primary" onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* select manually */ } }}>{copied ? "Copied" : "Copy link"}</button>
+          {a.phone && <a className="btn wa sm" href={`https://wa.me/${a.phone.replace(/\D/g, "").replace(/^0/, "255")}?text=${encodeURIComponent(`Habari ${a.name.split(" ")[0]}, hiki ndicho kiungo chako cha Shehena. Kitumie kwa wateja wote: ${link}`)}`} target="_blank" rel="noopener noreferrer">Send on WhatsApp</a>}
+        </div>
+        <p className="note">Demo requests from this link show their name. A company that registers itself after opening it is credited to them automatically.</p>
+      </div>
+
+      <div className="card"><h3>Owed now</h3>
+        <div className="big" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}><span className="sub">{open.length} line{open.length === 1 ? "" : "s"} not yet paid</span><b className="num" style={{ fontSize: 22 }}>TZS {tzs(owed)}</b></div>
+        {open.map((c) => (
+          <div className="lrow" key={c.id}>
+            <div><b>{KIND_LABEL[c.kind]}</b>{co(c.company_id) && <> · {co(c.company_id)}</>}<div className="sub">{dayLabel(c.earned_on)}{c.note && ` · ${c.note}`}</div></div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}><span className="num">{tzs(c.amount)}</span>
+              {c.payment_id == null && <button className="btn sm" disabled={busy} onClick={() => run(() => deleteAgentLine(c.id))} aria-label="Remove line">✕</button>}</div>
+          </div>
+        ))}
+        <form noValidate className="paybox" onSubmit={(e) => { e.preventDefault(); run(() => addAgentLine(a.id, line.kind, num(line.amount), line.note), () => setLine({ ...line, amount: "", note: "" })); }}>
+          <div className="fields">
+            <label className="f">Add<select value={line.kind} onChange={(e) => setLine({ ...line, kind: e.target.value as "allowance" })}><option value="allowance">Allowance (transport, airtime)</option><option value="adjustment">Adjustment (+ or −)</option></select></label>
+            <label className="f">Amount (TZS)<input inputMode="numeric" value={line.amount} onChange={(e) => setLine({ ...line, amount: e.target.value })} aria-label="Line amount" /></label>
+            <label className="f full">Note<input value={line.note} onChange={(e) => setLine({ ...line, note: e.target.value })} placeholder="e.g. Transport, 4 field days" /></label>
+          </div>
+          <div className="actions"><button className="btn sm" type="submit" disabled={busy}>Add line</button></div>
+        </form>
+        {owed > 0 && (
+          <form noValidate className="paybox" onSubmit={(e) => { e.preventDefault(); run(() => recordPayout(a.id, po)); }}>
+            <div className="lbl" style={{ marginBottom: 8 }}>Pay {a.name.split(" ")[0]} TZS {tzs(owed)}</div>
+            <div className="fields">
+              <label className="f">Paid by<select value={po.method} onChange={(e) => setPo({ ...po, method: e.target.value })}>{PAY_METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>
+              <label className="f">Date paid<input type="date" value={po.paid_on} onChange={(e) => setPo({ ...po, paid_on: e.target.value })} /></label>
+              <label className="f full">Reference <small>optional</small><input value={po.reference} onChange={(e) => setPo({ ...po, reference: e.target.value })} aria-label="Payout reference" /></label>
+            </div>
+            <div className="actions">
+              <button className="btn sm primary" type="submit" disabled={busy}>Record payout</button>
+              <button className="btn sm" type="button" onClick={() => downloadAgentStatement(a, forPdf(open), null)}>Statement of what&apos;s owed</button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {payouts.length > 0 && (
+        <div className="card"><h3>Payouts</h3>
+          {payouts.map((p) => (
+            <div className="lrow" key={p.id} style={{ flexWrap: "wrap" }}>
+              <div><b className="num">TZS {tzs(p.amount)}</b><div className="sub">{dayLabel(p.paid_on)}{p.method && ` · ${p.method}`}{p.reference && ` · ${p.reference}`}</div></div>
+              {undo === p.id ? (
+                <div className="confirm">Remove this payout? Its lines become owed again.
+                  <button className="btn sm danger" disabled={busy} onClick={() => { setUndo(null); run(() => deletePayout(p.id)); }}>Remove</button>
+                  <button className="btn sm" onClick={() => setUndo(null)}>Cancel</button></div>
+              ) : (
+                <div className="actions" style={{ margin: 0 }}>
+                  <button className="btn sm" onClick={() => downloadAgentStatement(a, forPdf(lines.filter((c) => String(c.payout_id) === String(p.id))), p)}>Statement</button>
+                  <button className="btn sm" onClick={() => setUndo(p.id)}>Remove</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="card"><h3>Clients · {mine.length}</h3>
+        {mine.map((r) => {
+          const earned = lines.filter((c) => c.company_id === r.id).reduce((s, c) => s + c.amount, 0);
+          return (
+            <div className="lrow" key={r.id}>
+              <div><b>{r.name}</b> <StatusPill s={r.acc.status} /><div className="sub">since {dayLabel(r.acc.agent_since)} · {r.bill.band} · TZS {tzs(r.bill.fee)}/mo</div></div>
+              <span className="num sub">earned {tzs(earned)}</span>
+            </div>
+          );
+        })}
+        {!mine.length && <p className="sub">No clients yet. Set &quot;Brought in by&quot; on a client, or they&apos;re linked automatically when a company registers from their link.</p>}
+      </div>
+
+      <div className="card"><h3>Rates and details</h3>
+        {edit ? <AgentForm a={a} busy={busy} onSave={(v) => run(() => saveAgent(a.id, { ...v, active: a.active }), () => setEdit(false))} /> : (
+          <>
+            <dl className="kv">
+              <dt>Signing bonus</dt><dd>{a.signing_pct}% of the first month</dd>
+              <dt>Setup fee share</dt><dd>{a.setup_pct}%</dd>
+              <dt>Commission</dt><dd>{a.commission_pct}% of payments for {a.commission_months} months</dd>
+              {a.notes && <><dt>Notes</dt><dd>{a.notes}</dd></>}
+            </dl>
+            <div className="actions">
+              <button className="btn sm" onClick={() => setEdit(true)}>Edit</button>
+              <button className="btn sm" disabled={busy} onClick={() => run(() => saveAgent(a.id, { ...a, active: !a.active }))}>{a.active ? "Mark inactive" : "Mark active"}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </>
   );
 }

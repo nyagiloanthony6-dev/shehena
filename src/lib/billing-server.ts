@@ -50,7 +50,7 @@ export async function subscriptionFor(companyId: string): Promise<Subscription |
       admin.from("company_accounts").select("company_id, status, trial_ends, paid_until, custom_fee, auto_status").eq("company_id", companyId).maybeSingle(),
       admin.from("vehicles").select("id").eq("company_id", companyId),
       billingBands(), billingSettings(),
-      admin.from("billing_payments").select("id, amount, months, period_from, period_to, method, reference, paid_on").eq("company_id", companyId).order("period_to", { ascending: false }).limit(24),
+      admin.from("billing_payments").select("id, amount, setup_fee, months, period_from, period_to, method, reference, paid_on").eq("company_id", companyId).order("period_to", { ascending: false }).limit(24),
     ]);
     if (!acc) return null;
     const a = acc as BillingAccount;
@@ -61,7 +61,7 @@ export async function subscriptionFor(companyId: string): Promise<Subscription |
       trial_ends: a.trial_ends, paid_until: a.paid_until, due, suspend_on: a.auto_status ? suspend_on : null,
       days_left: due ? daysBetween(today(), due) : null,
       instructions: s.billing_instructions,
-      payments: (pays || []).map((p) => ({ ...p, amount: Number(p.amount) })),
+      payments: (pays || []).map((p) => ({ ...p, amount: Number(p.amount), setup_fee: Number(p.setup_fee || 0) })),
     };
   } catch { return null; }
 }

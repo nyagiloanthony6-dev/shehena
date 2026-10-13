@@ -44,7 +44,7 @@ Add cashiers, the CEO and vehicles under **Settings**.
 ### 3. Deploy on Vercel
 1. Push this folder to GitHub, then **Import** the repo at <https://vercel.com/new>.
 2. Add the same environment variables (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-   `SUPABASE_SERVICE_ROLE_KEY`, `ALLOW_COMPANY_SIGNUP`, `OWNER_EMAILS`).
+   `SUPABASE_SERVICE_ROLE_KEY`, `ALLOW_COMPANY_SIGNUP`, `OWNER_EMAILS`, `CRON_SECRET`).
 3. Deploy, then point your domain at it and update the Supabase *Site URL* (step 1.4).
 
 Set `ALLOW_COMPANY_SIGNUP=false` if you want to onboard companies yourself instead of letting them sign up.
@@ -64,6 +64,29 @@ Open **/owner** while signed in with an email listed in `OWNER_EMAILS`. From the
 - review the owner activity log
 
 Requires migration `0003_client_accounts.sql` and the `OWNER_EMAILS` environment variable.
+
+## Billing client companies
+In the owner console, **Price bands** set the monthly fee by number of trucks (default TZS 50,000 for 1
+truck, 100,000 for 2–3, 180,000 for 4–6, 270,000 for 7–10, 350,000 for 11+). **Billing rules** set the free
+trial length, grace days, automatic suspension, and how clients pay you.
+- New companies start on a free trial. Open a company and **Record a payment** (months, amount, any setup
+  fee, M-Pesa code) — paid-until moves forward and a PDF receipt is ready for the client.
+- Status follows the dates: paid up → Active, in trial → Trial, past due → Overdue (the client's Admin and
+  CEO see the amount, how to pay and the suspension date), past due + grace days → Suspended.
+  Changing a status by hand turns this off for that company until you press **Make automatic**.
+- Clients' Admins see their plan, payments and receipts under **Settings → Shehena subscription**.
+- Statuses refresh whenever the app or console opens, and daily via Vercel Cron (`vercel.json`). Set a
+  `CRON_SECRET` environment variable in Vercel (any long random text) so only Vercel can call it.
+
+## Sales team and commission
+Add salespeople under **Sales team**. Each gets a link (`/?ref=juma`): demo requests from it show their
+name, and a company that registers after opening it is credited to them (or set **Brought in by** on a
+client). When you record a client payment, the salesperson earns automatically:
+signing bonus (default 100% of the first month), setup fee share (30%) and monthly commission (10% of
+payments for 12 months). Add allowances or adjustments, then **Record payout** to pay everything owed —
+each payout has a PDF statement. Removing a client payment takes back its commission.
+
+Requires migration `0006_billing.sql`.
 
 ## How it fits together
 

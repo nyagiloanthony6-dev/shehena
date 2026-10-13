@@ -6,6 +6,7 @@ export interface Band { id?: number | string; min_trucks: number; max_trucks: nu
 export interface BillingPayment {
   id: number | string; company_id: string; amount: number; months: number;
   period_from: string; period_to: string; method: string; reference: string; paid_on: string; recorded_by: string; created_at: string;
+  setup_fee?: number;
 }
 export interface BillingSettings { trial_days: number; grace_days: number; auto_suspend: boolean; billing_instructions: string }
 export interface BillingAccount {
@@ -16,7 +17,7 @@ export interface BillingAccount {
 export interface Subscription {
   status: AccountStatus; trucks: number; band: string; fee: number; custom: boolean;
   trial_ends: string | null; paid_until: string | null; due: string | null; suspend_on: string | null; days_left: number | null;
-  instructions: string; payments: Pick<BillingPayment, "id" | "amount" | "months" | "period_from" | "period_to" | "method" | "reference" | "paid_on">[];
+  instructions: string; payments: Pick<BillingPayment, "id" | "amount" | "setup_fee" | "months" | "period_from" | "period_to" | "method" | "reference" | "paid_on">[];
 }
 
 export const BILLING_DEFAULTS: BillingSettings = { trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "" };
@@ -65,7 +66,7 @@ export function bandsProblem(bands: Band[]) {
     if (!(Number(b.monthly_fee) >= 0)) return "Each band needs a monthly fee.";
     if (b.max_trucks == null && i < s.length - 1) return "Only the last band can be open-ended (\"and more\").";
     const next = s[i + 1];
-    if (next && b.max_trucks != null && next.min_trucks !== b.max_trucks + 1) return `Bands must follow on: after ${b.max_trucks} trucks the next band should start at ${b.max_trucks + 1}.`;
+    if (next && b.max_trucks != null && next.min_trucks !== b.max_trucks + 1) return `Bands must follow on: after ${b.max_trucks} truck${b.max_trucks === 1 ? "" : "s"} the next band should start at ${b.max_trucks + 1}.`;
   }
   return "";
 }
@@ -84,4 +85,50 @@ export function statusFor(acc: BillingAccount, s: BillingSettings, on = today())
   if (on <= due) return { status: acc.paid_until && on <= acc.paid_until ? "active" : "trial", due, suspend_on };
   if (!s.auto_suspend || on < suspend_on!) return { status: "overdue", due, suspend_on };
   return { status: "suspended", due, suspend_on };
+}
+
+// ---- sales team
+
+export interface Agent {
+  id: number | string; name: string; phone: string; email: string; ref_code: string; active: boolean;
+  signing_pct: number; setup_pct: number; commission_pct: number; commission_months: number; notes: string; created_at: string;
+}
+export type CommissionKind = "signing" | "setup" | "monthly" | "allowance" | "adjustment";
+export interface Commission {
+  id: number | string; agent_id: number | string; company_id: string | null; payment_id: number | string | null;
+  kind: CommissionKind; amount: number; note: string; earned_on: string; payout_id: number | string | null; created_at: string;
+}
+export interface Payout { id: number | string; agent_id: number | string; amount: number; paid_on: string; method: string; reference: string; recorded_by: string; created_at: string }
+
+export const KIND_LABEL: Record<CommissionKind, string> = {
+  signing: "Signing bonus", setup: "Setup fee share", monthly: "Monthly commission", allowance: "Allowance", adjustment: "Adjustment",
+};
+export const AGENT_DEFAULTS = { signing_pct: 100, setup_pct: 30, commission_pct: 10, commission_months: 12 };
+export const refSlug = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+
+/**
+ * What an agent earns from one client payment.
+ * - Signing bonus: signing_pct of one month's fee, on the client's first subscription payment.
+ * - Setup share: setup_pct of any setup fee in the payment.
+ * - Monthly commission: commission_pct of the rest of the subscription money, while the payment
+ *   falls within commission_months of the date the agent signed the client.
+ */
+export function commissionLines(
+  agent: Pick<Agent, "signing_pct" | "setup_pct" | "commission_pct" | "commission_months">,
+  pay: { amount: number; setup_fee: number; months: number; paid_on: string },
+  firstSubscription: boolean, agentSince: string,
+): { kind: CommissionKind; amount: number; note: string }[] {
+  const out: { kind: CommissionKind; amount: number; note: string }[] = [];
+  const r = (n: number) => Math.round(n);
+  const sub = Math.max(0, Number(pay.amount) - Number(pay.setup_fee || 0));
+  const month = pay.months > 0 ? sub / pay.months : 0;
+  if (pay.setup_fee > 0 && agent.setup_pct > 0) out.push({ kind: "setup", amount: r(pay.setup_fee * agent.setup_pct / 100), note: `${agent.setup_pct}% of setup fee ${r(pay.setup_fee).toLocaleString("en-US")}` });
+  let rest = sub;
+  if (firstSubscription && sub > 0 && agent.signing_pct > 0) {
+    out.push({ kind: "signing", amount: r(month * agent.signing_pct / 100), note: `${agent.signing_pct}% of first month ${r(month).toLocaleString("en-US")}` });
+    rest = sub - month;
+  }
+  const until = addMonths(agentSince, agent.commission_months);
+  if (rest > 0 && agent.commission_pct > 0 && pay.paid_on < until) out.push({ kind: "monthly", amount: r(rest * agent.commission_pct / 100), note: `${agent.commission_pct}% of ${r(rest).toLocaleString("en-US")}` });
+  return out.filter((l) => l.amount > 0);
 }

@@ -30,6 +30,9 @@ export async function middleware(request: NextRequest) {
     url.pathname = "/app";
     return NextResponse.redirect(url);
   }
+  // Remember which salesperson's link brought this visitor, so a self sign-up is credited to them.
+  const ref = request.nextUrl.searchParams.get("ref");
+  if (ref && /^[a-z0-9_-]{2,40}$/i.test(ref)) response.cookies.set("shehena_ref", ref.toLowerCase(), { maxAge: 60 * 60 * 24 * 60, sameSite: "lax", path: "/" });
   return response;
 }
 

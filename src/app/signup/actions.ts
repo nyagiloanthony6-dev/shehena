@@ -1,5 +1,6 @@
 "use server";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseServer } from "@/lib/supabase/server";
 import type { FormState } from "../login/actions";
@@ -35,6 +36,12 @@ export async function signUpCompany(_: FormState, fd: FormData): Promise<FormSta
     await admin.from("companies").delete().eq("id", co.id);
     await admin.auth.admin.deleteUser(created.user.id);
     return { error: "Could not finish setting up the account. Try again." };
+  }
+  // Came from a salesperson's link? Credit them with this client.
+  const ref = (await cookies()).get("shehena_ref")?.value;
+  if (ref) {
+    const { data: agent } = await admin.from("sales_agents").select("id").eq("ref_code", ref).eq("active", true).maybeSingle();
+    if (agent) await admin.from("company_accounts").update({ agent_id: agent.id, agent_since: new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10) }).eq("company_id", co.id);
   }
   const sb = await supabaseServer();
   await sb.auth.signInWithPassword({ email, password });

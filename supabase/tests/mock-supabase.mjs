@@ -5,10 +5,10 @@ import crypto from "node:crypto";
 
 const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "" }],
   billing_bands: [[0, 1, 50000], [2, 3, 100000], [4, 6, 180000], [7, 10, 270000], [11, null, 350000]].map(([min_trucks, max_trucks, monthly_fee], i) => ({ id: i + 1, min_trucks, max_trucks, monthly_fee })),
-  billing_payments: [] };
+  billing_payments: [], sales_agents: [], commissions: [], agent_payouts: [] };
 const ymd = (d = new Date()) => new Date(d.getTime() + 3 * 3600e3).toISOString().slice(0, 10);
 const plusDays = (s, n) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-const SERVICE_ONLY = ["company_accounts", "owner_audit", "leads", "billing_bands", "billing_payments"];
+const SERVICE_ONLY = ["company_accounts", "owner_audit", "leads", "billing_bands", "billing_payments", "sales_agents", "commissions", "agent_payouts"];
 const PK = { company_accounts: "company_id", platform_settings: "id" };
 const suspended = (cid) => db.company_accounts.find((a) => a.company_id === cid)?.status === "suspended";
 const users = []; // {id,email,password,banned}
@@ -41,7 +41,8 @@ function applyFilters(rows, params) {
   let out = rows;
   for (const [k, v] of params) {
     if (["select", "order", "limit", "columns", "on_conflict"].includes(k)) continue;
-    if (v.startsWith("eq.")) out = out.filter((r) => String(r[k]) === v.slice(3));
+    if (v === "is.null") out = out.filter((r) => r[k] == null);
+    else if (v.startsWith("eq.")) out = out.filter((r) => String(r[k]) === v.slice(3));
     else if (v.startsWith("gte.")) out = out.filter((r) => String(r[k]) >= v.slice(4) || Number(r[k]) >= Number(v.slice(4)));
     else if (v.startsWith("in.(")) { const set = v.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")); out = out.filter((r) => set.includes(String(r[k]))); }
   }
@@ -148,7 +149,10 @@ http.createServer(async (req, res) => {
       if (table === "leads") list.forEach((r, i) => { r.id = db.leads.length + i; r.created_at = new Date().toISOString(); r.status = r.status || "new"; });
       if (table === "owner_audit") list.forEach((r, i) => { r.id = db.owner_audit.length + i; r.at = new Date().toISOString(); });
       if (table === "billing_bands") list.forEach((r, i) => { r.id = Date.now() + i; });
-      if (table === "billing_payments") list.forEach((r, i) => { r.id = db.billing_payments.length + 1 + i; r.paid_on = r.paid_on || ymd(); });
+      if (table === "billing_payments") list.forEach((r, i) => { r.id = db.billing_payments.length + 1 + i + Math.floor(Math.random() * 1e6) * 100; r.paid_on = r.paid_on || ymd(); r.setup_fee = r.setup_fee || 0; });
+      if (["sales_agents", "commissions", "agent_payouts"].includes(table)) list.forEach((r, i) => { r.id = Date.now() * 10 + i; });
+      if (table === "sales_agents") list.forEach((r) => Object.assign(r, { active: true, signing_pct: 100, setup_pct: 30, commission_pct: 10, commission_months: 12, notes: "", phone: "", email: "", ...r }));
+      if (table === "commissions") list.forEach((r) => { r.payout_id = r.payout_id ?? null; r.payment_id = r.payment_id ?? null; r.note = r.note || ""; r.earned_on = r.earned_on || ymd(); });
       return wantRows || single ? out(list) : send(res, 201);
     }
     if (req.method === "PATCH") {
