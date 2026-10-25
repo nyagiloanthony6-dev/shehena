@@ -112,7 +112,7 @@ export function DailyChart() {
       const L = shipments.filter((s) => new Date(s.received_at).toDateString() === d.toDateString());
       const v = L.reduce((a, s) => a + Number(s.charge || 0), 0);
       out.push({
-        label: String(d.getDate()), value: v, tone: L.some((s) => s.pay !== "paid") ? "dim" : undefined,
+        label: String(d.getDate()), value: v, tone: L.some((s) => s.pay === "unpaid") ? "dim" : undefined,
         tip: `${d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })}: TZS ${tzs(v)} · ${L.length} consignment${L.length === 1 ? "" : "s"}`,
       });
     }

@@ -1,14 +1,16 @@
 "use client";
+import { useState } from "react";
 import { useStore } from "./store";
+import { useUi } from "./CargoApp";
 import {
-  fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
+  PAY_LABEL, type Pay, fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
   type Company, type NoticeKind, type NoticeTo, type Shipment, type Trip,
 } from "@/lib/domain";
 
 export const StatusPill = ({ s }: { s: string }) => <span className={`pill st-${s}`}>{stLabel(s)}</span>;
 export const TripPill = ({ s }: { s: string }) => <span className={`pill st-${s}`}>{tLabel(s)}</span>;
-export const PayPill = ({ paid, long }: { paid: boolean; long?: boolean }) => (
-  <span className={`pill pay-${paid ? "paid" : "unpaid"}`}>{paid ? "Paid" : long ? "Not paid – due on collection" : "Not paid"}</span>
+export const PayPill = ({ pay, long }: { pay: Pay; long?: boolean }) => (
+  <span className={`pill pay-${pay}`}>{pay === "unpaid" && long ? "Not paid – due on collection" : PAY_LABEL[pay]}</span>
 );
 export const Example = () => null;
 
@@ -33,7 +35,8 @@ export function tripTotals(list: Shipment[]) {
     n: list.length, pkgs: pkgsOf(list), billed, paid, due: billed - paid,
     senders: new Set(list.map((x) => intlPhone(x.s_phone))).size,
     receivers: new Set(list.map((x) => intlPhone(x.r_phone))).size,
-    unpaidN: list.filter((x) => x.pay !== "paid").length,
+    unpaidN: list.filter((x) => x.pay === "unpaid").length,
+    onBill: list.filter((x) => x.pay === "bill").reduce((a, x) => a + Number(x.charge || 0), 0),
   };
 }
 
@@ -93,8 +96,10 @@ export function TripSummary({ trip }: { trip: Trip }) {
   );
 }
 
-export function Slip({ s, company, servedBy }: { s: Partial<Shipment>; company: Company; servedBy?: string }) {
-  const paid = s.pay === "paid";
+export function Slip({ s, company, servedBy, account }: { s: Partial<Shipment>; company: Company; servedBy?: string; account?: string }) {
+  const pay = (s.pay || "unpaid") as Pay;
+  const disc = Number(s.discount || 0);
+  const gross = Number(s.gross_charge ?? (Number(s.charge || 0) + disc));
   const head = [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ");
   const lines = itemsOf(s);
   return (
@@ -123,21 +128,27 @@ export function Slip({ s, company, servedBy }: { s: Partial<Shipment>; company: 
         {s.notes ? <><dt>Notes</dt><dd>{s.notes}</dd></> : null}
       </dl>
       <hr />
-      <div className="big"><span>{lines.length > 1 ? "Total charge" : "Charge"}</span><b>TZS {tzs(s.charge)}</b></div>
+      {disc > 0 && (
+        <dl>
+          <dt>Subtotal</dt><dd className="num">TZS {tzs(gross)}</dd>
+          <dt>Discount</dt><dd className="num">− TZS {tzs(disc)}{s.discount_reason ? <span className="sub"> · {s.discount_reason}</span> : null}</dd>
+        </dl>
+      )}
+      <div className="big"><span>{disc > 0 ? "Total to pay" : lines.length > 1 ? "Total charge" : "Charge"}</span><b>TZS {tzs(s.charge)}</b></div>
       <div className="big" style={{ marginTop: 6 }}><span>Payment</span>
-        <span className={`pill pay-${paid ? "paid" : "unpaid"}`}>{paid ? "Paid" + (s.method ? " · " + s.method : "") : "Not paid – due on collection"}</span>
+        <span className={`pill pay-${pay}`}>{pay === "paid" ? "Paid" + (s.method ? " · " + s.method : "") : pay === "bill" ? `Monthly bill${account ? " · " + account : ""}` : "Not paid – due on collection"}</span>
       </div>
       <p className="sub" style={{ margin: "12px 0 0" }}>Served by {s.created_by_name || servedBy || "—"}. Keep this receipt. The receiver collects with ID and the waybill number.</p>
     </div>
   );
 }
 
-export async function downloadReceipt(s: Shipment, company: Company) {
-  (await receiptDoc(s, company)).save(`Receipt-${s.no}.pdf`);
+export async function downloadReceipt(s: Shipment, company: Company, account?: string) {
+  (await receiptDoc(s, company, account)).save(`Receipt-${s.no}.pdf`);
 }
 
 /** The 80 mm receipt as a PDF document (first page), so stickers can be added after it. */
-export async function receiptDoc(s: Shipment, company: Company) {
+export async function receiptDoc(s: Shipment, company: Company, account?: string) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: [80, 160 + Math.max(0, itemsOf(s).length - 1) * 6] });
   let y = 10;
@@ -168,7 +179,10 @@ export async function receiptDoc(s: Shipment, company: Company) {
     }
     y += 1.5; pair("Total packages", String(s.pkgs));
   } else { pair("Item", s.item); pair("Packages", String(s.pkgs)); } if (s.kg) pair("Weight", s.kg + " kg"); if (s.notes) pair("Notes", s.notes); dash();
-  pair(lines.length > 1 ? "Total charge" : "Charge", "TZS " + tzs(s.charge)); pair("Payment", s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : "NOT PAID - due on collection");
+  const disc = Number(s.discount || 0);
+  if (disc > 0) { pair("Subtotal", "TZS " + tzs(s.gross_charge ?? Number(s.charge) + disc)); pair("Discount", "- TZS " + tzs(disc) + (s.discount_reason ? ` (${s.discount_reason})` : "")); }
+  pair(disc > 0 ? "Total to pay" : lines.length > 1 ? "Total charge" : "Charge", "TZS " + tzs(s.charge));
+  pair("Payment", s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : s.pay === "bill" ? "MONTHLY BILL" + (account ? ` (${account})` : "") : "NOT PAID - due on collection");
   pair("Served by", s.created_by_name || "-"); dash();
   line("Keep this receipt. The receiver collects with ID and the waybill number.", 7.5);
   return doc;
@@ -217,9 +231,9 @@ export function NotifyBlock({ s, kind, to }: { s: Shipment; kind: NoticeKind; to
 
 export function BulkNotices({ trip, kind }: { trip: Trip; kind: "departed" | "arrived" }) {
   const { tripShips, can, toast } = useStore();
-  const list = [...tripShips(trip)].sort((a, b) => (a.pay === "paid" ? 1 : 0) - (b.pay === "paid" ? 1 : 0));
+  const list = [...tripShips(trip)].sort((a, b) => (a.pay === "unpaid" ? 0 : 1) - (b.pay === "unpaid" ? 0 : 1));
   const done = list.filter((s) => sentLog(s, kind, "receiver").length).length;
-  const unpaid = list.filter((s) => s.pay !== "paid");
+  const unpaid = list.filter((s) => s.pay === "unpaid");
   const unpaidAmt = unpaid.reduce((a, s) => a + Number(s.charge || 0), 0);
   return (
     <div className="card">
@@ -234,7 +248,7 @@ export function BulkNotices({ trip, kind }: { trip: Trip; kind: "departed" | "ar
           <div className="nrow" key={s.id}>
             <div style={{ minWidth: 0 }}>
               <b>{s.r_name}</b> <span className="mono sub">{prettyPhone(s.r_phone)}</span>
-              <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg{kind === "arrived" && <> · {s.pay === "paid" ? <span style={{ color: "var(--good)" }}>Paid</span> : <span style={{ color: "var(--bad)" }}>Owes TZS {tzs(s.charge)}</span>}</>}</div>
+              <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg{kind === "arrived" && <> · {s.pay === "unpaid" ? <span style={{ color: "var(--bad)" }}>Owes TZS {tzs(s.charge)}</span> : <span style={{ color: "var(--good)" }}>{PAY_LABEL[s.pay]}</span>}</>}</div>
               {l.length ? <span className="tick">✓ Sent via {l[l.length - 1].channel}</span> : <span className="pending">Not sent</span>}
             </div>
             <div className="actions" style={{ margin: 0 }}><SendButtons s={s} kind={kind} to="receiver" /></div>
@@ -253,3 +267,45 @@ export function BulkNotices({ trip, kind }: { trip: Trip; kind: "departed" | "ar
 }
 
 export { fmtDay };
+
+/** Trucks loaded, departed or arrived on a chosen day, with their totals. */
+export function TrucksByDate({ initial = "departed" }: { initial?: "loaded" | "departed" | "arrived" }) {
+  const { trips, tripShips, can } = useStore();
+  const ui = useUi();
+  const arrive = useArriveTrip();
+  const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  const [day, setDay] = useState(() => local(new Date()));
+  const [basis, setBasis] = useState(initial);
+  const field = (t: Trip) => (basis === "loaded" ? t.created_at : basis === "departed" ? t.departed_at : t.arrived_at);
+  const list = trips.filter((t) => { const v = field(t); return !!v && local(new Date(v)) === day; })
+    .sort((a, b) => String(field(a)).localeCompare(String(field(b))));
+  const all = list.flatMap(tripShips);
+  const step = (n: number) => { const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() + n); setDay(local(d)); };
+  return (
+    <div className="panel bydate">
+      <div className="ph" style={{ flexWrap: "wrap", gap: 8 }}>
+        <div><h2>Trucks by date</h2><div className="sub">{list.length} truck{list.length === 1 ? "" : "s"} · {all.length} consignments · {pkgsOf(all)} packages · TZS {tzs(all.reduce((a, s) => a + Number(s.charge || 0), 0))}</div></div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="chips">{(["loaded", "departed", "arrived"] as const).map((k) => <button key={k} className="chip" aria-pressed={basis === k} onClick={() => setBasis(k)}>{k === "loaded" ? "Loaded" : k === "departed" ? "Departed" : "Arrived"}</button>)}</div>
+          <button className="btn sm" onClick={() => step(-1)} aria-label="Previous day">‹</button>
+          <input type="date" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} style={{ width: "auto" }} aria-label="Date" />
+          <button className="btn sm" onClick={() => step(1)} aria-label="Next day">›</button>
+        </div>
+      </div>
+      {list.length ? (
+        <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small" style={{ minWidth: 0 }}>
+          <thead><tr><th>Truck</th><th>Route</th><th>Status</th><th className="r">Cons.</th><th className="r">Pkgs</th><th className="r">TZS</th><th className="r">To collect</th><th /></tr></thead>
+          <tbody>{list.map((t) => { const L = tripShips(t), x = tripTotals(L); return (
+            <tr key={t.id} className="row" onClick={() => ui.openTrip(t.id)}>
+              <td><span className="mono wb" style={{ fontWeight: 600 }}>{t.plate}</span><div className="sub">{t.driver || "—"}</div></td>
+              <td>{regShort(t.origin)} → {regShort(t.dest)}<div className="sub">{fmtDate(field(t)).slice(-5)}</div></td>
+              <td><TripPill s={t.status} /></td>
+              <td className="r num">{x.n}</td><td className="r num">{x.pkgs}</td><td className="r num">{tzs(x.billed)}</td>
+              <td className="r num" style={x.unpaidN ? { color: "var(--bad)" } : undefined}>{tzs(L.filter((s) => s.pay === "unpaid").reduce((a, s) => a + Number(s.charge || 0), 0))}</td>
+              <td className="r" onClick={(e) => e.stopPropagation()}>{t.status === "departed" && can("dispatch") && <button className="btn sm primary" onClick={async () => { if (await arrive(t)) ui.openTrip(t.id); }}>Mark arrived</button>}</td>
+            </tr>); })}</tbody>
+        </table></div>
+      ) : <p className="quiet">No trucks {basis} on this date.</p>}
+    </div>
+  );
+}

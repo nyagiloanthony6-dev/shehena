@@ -9,18 +9,22 @@ import Receive from "./views/Receive";
 import Loading from "./views/Loading";
 import Arrivals from "./views/Arrivals";
 import Reports from "./views/Reports";
+import Bills, { AccountSheet } from "./views/Bills";
+import Claims, { ClaimSheet } from "./views/Claims";
 import Settings from "./views/Settings";
 import { signOut } from "@/app/login/actions";
 import { initials, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
 import { dayLabel, type Subscription } from "@/lib/billing";
 
-export type View = "home" | "list" | "new" | "trips" | "arrivals" | "reports" | "set";
+export type View = "home" | "list" | "new" | "trips" | "arrivals" | "bills" | "claims" | "reports" | "set";
 const TABS: [View, string, Perm | null, string][] = [
   ["home", "Overview", null, "Home"],
   ["list", "Consignments", null, "Cargo"],
   ["new", "Receive goods", "receive", "Receive"],
   ["trips", "Loading bay", null, "Loading"],
   ["arrivals", "Arrivals", null, "Arrivals"],
+  ["bills", "Monthly bills", null, "Bills"],
+  ["claims", "Claims", null, "Claims"],
   ["reports", "Reports", "reports", "Reports"],
   ["set", "Settings", "settings", "Settings"],
 ];
@@ -30,15 +34,22 @@ interface Ui {
   go: (v: View) => void;
   openShip: (id: string) => void;
   openTrip: (id: string) => void;
+  openAccount: (id: string) => void;
+  openClaim: (id: string) => void;
+  /** Start a claim for a consignment (lost / damaged / broken goods). */
+  reportClaim: (shipmentId: string | null) => void;
+  claimFor: string | null;
   close: () => void;
-  listPay: "" | "paid" | "unpaid";
-  setListPay: (p: "" | "paid" | "unpaid") => void;
+  listPay: "" | "paid" | "unpaid" | "bill";
+  setListPay: (p: "" | "paid" | "unpaid" | "bill") => void;
   tripFormOpen: boolean;
   setTripFormOpen: (b: boolean) => void;
   /** Trip whose found (unrecorded) goods are being keyed in on the Receive screen. */
   foundTrip: string | null;
   recordFound: (tripId: string | null) => void;
 }
+/** On phones the bottom bar holds the daily screens; the rest are under "More". */
+const MOBILE_MAIN: View[] = ["home", "list", "new", "trips", "arrivals"];
 const UiCtx = createContext<Ui | null>(null);
 export const useUi = () => {
   const u = useContext(UiCtx);
@@ -74,10 +85,12 @@ function SubscriptionNotice({ sub, onDetails }: { sub: Subscription; onDetails?:
 function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; announcement: string; status: string; sub: Subscription | null }) {
   const st = useStore();
   const [view, setView] = useState<View>("home");
-  const [sheet, setSheet] = useState<{ type: "ship" | "trip"; id: string } | null>(null);
-  const [listPay, setListPay] = useState<"" | "paid" | "unpaid">("");
+  const [sheet, setSheet] = useState<{ type: "ship" | "trip" | "account" | "claim"; id: string } | null>(null);
+  const [listPay, setListPay] = useState<"" | "paid" | "unpaid" | "bill">("");
   const [tripFormOpen, setTripFormOpen] = useState(false);
   const [foundTrip, setFoundTrip] = useState<string | null>(null);
+  const [more, setMore] = useState(false);
+  const [claimFor, setClaimFor] = useState<string | null>(null);
   const [hiddenNote, setHiddenNote] = useState("");
   useEffect(() => { try { setHiddenNote(localStorage.getItem("shehena.note") || ""); } catch { /* private mode */ } }, []);
   const hideNote = () => { setHiddenNote(announcement); try { localStorage.setItem("shehena.note", announcement); } catch { /* private mode */ } };
@@ -90,6 +103,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
   const go = useCallback((v: View) => {
     const next = allowed(v) ? v : "home";
     if (next !== "new") setFoundTrip(null);
+    if (next !== "claims") setClaimFor(null);
     setSheet(null);
     setView(next);
     if (window.location.hash !== "#" + next) window.history.pushState(null, "", "#" + next);
@@ -121,6 +135,10 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
     view, go,
     openShip: (id) => setSheet({ type: "ship", id }),
     openTrip: (id) => setSheet({ type: "trip", id }),
+    openAccount: (id) => setSheet({ type: "account", id }),
+    openClaim: (id) => setSheet({ type: "claim", id }),
+    reportClaim: (id) => { setClaimFor(id); if (id) go("claims"); },
+    claimFor,
     close: () => setSheet(null),
     listPay, setListPay, tripFormOpen, setTripFormOpen,
     foundTrip,
@@ -190,6 +208,8 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
                 {view === "new" && <Receive />}
                 {view === "trips" && <Loading />}
                 {view === "arrivals" && <Arrivals />}
+                {view === "bills" && <Bills />}
+                {view === "claims" && <Claims />}
                 {view === "reports" && <Reports />}
                 {view === "set" && <Settings sub={sub} />}
               </>
@@ -197,13 +217,27 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
             <div className="mcredit">{SYSTEM} · Developed by <b>Serengeti Labs</b></div>
           </main>
         </div>
-        <nav className="bottomnav" aria-label="Main">{items.filter(([k]) => k !== "set").map(([k, , , short]) => navBtn(k, short))}</nav>
+        <nav className="bottomnav" aria-label="Main">
+          {items.filter(([k]) => MOBILE_MAIN.includes(k)).map(([k, , , short]) => navBtn(k, short))}
+          <button onClick={() => setMore(true)} aria-current={!MOBILE_MAIN.includes(view) ? "page" : undefined} aria-label="More"><Icon name="more" /><span>More</span></button>
+        </nav>
+        {more && (
+          <>
+            <div className="scrim" onClick={() => setMore(false)} />
+            <div className="moresheet" role="dialog" aria-label="More">
+              {items.filter(([k]) => !MOBILE_MAIN.includes(k)).map(([k, l]) => (
+                <button key={k} onClick={() => { setMore(false); go(k); }} aria-current={view === k ? "page" : undefined}><Icon name={k} /><span>{l}</span></button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
       {sheet && (
         <>
           <div className="scrim" onClick={() => setSheet(null)} />
           <aside className="sheet" aria-label="Details">
-            {sheet.type === "ship" ? <ShipmentSheet id={sheet.id} /> : <TripSheet id={sheet.id} />}
+            {sheet.type === "ship" ? <ShipmentSheet id={sheet.id} /> : sheet.type === "trip" ? <TripSheet id={sheet.id} />
+              : sheet.type === "account" ? <AccountSheet id={sheet.id} /> : <ClaimSheet id={sheet.id} />}
           </aside>
         </>
       )}

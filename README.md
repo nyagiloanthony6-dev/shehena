@@ -126,6 +126,32 @@ Unpaid receivers are told the amount and how to pay (from **Settings → How cus
 come with ID to collect. Goods can't be released until paid — the database refuses it. Unpaid goods
 waiting 2+ days are flagged on the Overview, and each one has a **Payment reminder** message.
 
+## Trucks by date and manifests
+**Loading bay** and **Arrivals** have *Trucks by date*: pick a day and see every truck loaded, departed
+or arrived that day with consignments, packages, money and what's still to collect; mark a truck
+arrived straight from the list. Each trip shows the full manifest (sender, receiver, phone, goods,
+packages, charge, payment) and downloads it as an A4 PDF for the driver and the destination office.
+
+## Monthly bill customers (wateja wa bili)
+The Admin opens accounts under **Monthly bills**. When receiving goods choose **Monthly bill** and the
+customer: nothing is collected at the counter, the receipt and messages say it's on the monthly bill,
+and the goods can be released without payment. Each account shows a monthly statement (brought
+forward, goods, payments, balance) as a PDF or a WhatsApp/SMS message, and staff record payments
+against it. Only the Admin opens, edits or closes accounts, removes payments, or takes goods off a bill.
+
+## Discounts
+A discount (with its reason) can be given when receiving goods or later, before payment. The receipt
+shows subtotal, discount and total; the database keeps the charge before and after and who gave it.
+**Reports → Discounts given** totals them by staff member. A paid consignment can't be discounted.
+
+## Claims (changamoto)
+**Claims** records goods that were lost, damaged or broken: the customer, waybill, type of problem,
+value of the goods, compensation agreed, each payment with its date, and the balance still owed.
+Start one from a consignment (**Report lost or damaged goods**) or from the Claims screen. Cashiers
+record claims and payments; only the Admin changes agreed amounts, closes claims or removes payments.
+
+Requires migration `0008_bills_discounts_claims.sql`.
+
 ## Goods found on arrival
 Sometimes goods come off a truck that were never recorded at loading. At the destination, open the
 arrived truck (Arrivals → *Arrived this week*, or the trip) and press **Record found goods**: enter the

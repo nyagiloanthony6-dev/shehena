@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
-import { TripCard } from "../parts";
+import { TripCard, TrucksByDate } from "../parts";
 import { REGIONS, TSTATUS, fmtDay, pkgsOf, sumCharge, tzs, ymd, type Trip, type Vehicle } from "@/lib/domain";
 
 function TargetRow({ v }: { v: Vehicle }) {
@@ -66,6 +66,8 @@ export default function Loading() {
         {can("load") && <button className={`btn${ui.tripFormOpen ? "" : " primary"}`} onClick={() => ui.setTripFormOpen(!ui.tripFormOpen)}>{ui.tripFormOpen ? "Cancel" : "Start loading a truck"}</button>}
       </div>
       <div className="waitbar"><Icon name="box" /><span><b className="num">{waiting.length}</b> consignment{waiting.length === 1 ? "" : "s"} · <b className="num">{pkgsOf(waiting)}</b> packages · TZS <b className="num">{tzs(sumCharge(waiting))}</b> waiting at the office to be loaded</span></div>
+
+      <div style={{ marginTop: 14 }}><TrucksByDate initial="loaded" /></div>
 
       {can("load") && ui.tripFormOpen && (
         <form noValidate onSubmit={start} style={{ marginTop: 14 }}>

@@ -10,7 +10,7 @@ export function Stats() {
   const { shipments } = useStore();
   const today = new Date().toDateString();
   const c = (k: string) => shipments.filter((s) => s.status === k).length;
-  const unpaid = shipments.filter((s) => s.pay !== "paid");
+  const unpaid = shipments.filter((s) => s.pay === "unpaid");
   return (
     <div className="stats">
       <div className="stat"><div className="lbl">Received today</div><div className="v">{shipments.filter((s) => new Date(s.received_at).toDateString() === today).length}</div><div className="s">{shipments.length} on record</div></div>
@@ -29,7 +29,7 @@ export default function Overview() {
   const first = (me.full_name || "").split(" ")[0];
   const T = trips.filter((t) => t.status !== "arrived").sort((a, b) => (a.status > b.status ? -1 : 1) || b.created_at.localeCompare(a.created_at));
   const A = shipments.filter((s) => s.status === "arrived").sort((a, b) => (a.arrived_at || "").localeCompare(b.arrived_at || ""));
-  const U = shipments.filter((s) => s.pay !== "paid").sort((a, b) => Number(b.charge) - Number(a.charge));
+  const U = shipments.filter((s) => s.pay === "unpaid").sort((a, b) => Number(b.charge) - Number(a.charge));
   const R = shipments.slice(0, 6);
   const newTrip = () => { ui.setTripFormOpen(true); ui.go("trips"); };
   return (
@@ -61,7 +61,7 @@ export default function Overview() {
               return (
                 <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
                   <div><b>{s.r_name}</b><div className="sub">{goodsLabel(s)} · {regShort(s.dest)}</div></div>
-                  <div className="r"><div className="sub">{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</div>{s.pay !== "paid" && <div className="sub" style={{ color: "var(--bad)" }}>TZS {tzs(s.charge)} due{d >= 2 && !(s.notices || []).some((n) => n.kind === "reminder" && Date.now() - new Date(n.at).getTime() < 2 * 864e5) ? " · send reminder" : ""}</div>}</div>
+                  <div className="r"><div className="sub">{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</div>{s.pay === "unpaid" && <div className="sub" style={{ color: "var(--bad)" }}>TZS {tzs(s.charge)} due{d >= 2 && !(s.notices || []).some((n) => n.kind === "reminder" && Date.now() - new Date(n.at).getTime() < 2 * 864e5) ? " · send reminder" : ""}</div>}</div>
                 </button>
               );
             })}

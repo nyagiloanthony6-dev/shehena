@@ -127,8 +127,8 @@ export async function downloadStickers(s: Shipment, company: Company) {
 }
 
 /** Receipt first, then every sticker, in one PDF — what the cashier prints when goods arrive. */
-export async function downloadReceiptAndStickers(s: Shipment, company: Company) {
+export async function downloadReceiptAndStickers(s: Shipment, company: Company, account?: string) {
   const { receiptDoc } = await import("./parts");
-  const doc = await addStickers(await receiptDoc(s, company), s, company);
+  const doc = await addStickers(await receiptDoc(s, company, account), s, company);
   doc.save(`Receipt-and-stickers-${s.no}.pdf`);
 }

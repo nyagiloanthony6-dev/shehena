@@ -7,14 +7,15 @@ import { DailyChart, YearPanel } from "../charts";
 import { fmtDay, pkgsOf, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 type Period = "today" | "7" | "30" | "all";
-const agg = (L: Shipment[]) => { const b = sumCharge(L), pd = sumCharge(L.filter((x) => x.pay === "paid")); return { b, pd, u: b - pd }; };
+// b = billed, pd = paid, u = unpaid at the counter (goods on monthly bills are counted under Bills)
+const agg = (L: Shipment[]) => ({ b: sumCharge(L), pd: sumCharge(L.filter((x) => x.pay === "paid")), u: sumCharge(L.filter((x) => x.pay === "unpaid")) });
 
 export default function Reports() {
-  const { shipments, trips, tripShips, tripById } = useStore();
+  const { shipments, trips, tripShips, tripById, claims, claimPayments, accounts } = useStore();
   const ui = useUi();
   const [period, setPeriod] = useState<Period>("30");
   const [truck, setTruck] = useState("");
-  const [payView, setPayView] = useState<"unpaid" | "paid" | "all">("unpaid");
+  const [payView, setPayView] = useState<"unpaid" | "paid" | "bill" | "all">("unpaid");
 
   const inPeriod = (iso?: string | null) => {
     if (!iso) return false;
@@ -34,7 +35,7 @@ export default function Reports() {
   const methods: Record<string, { n: number; v: number }> = {};
   paid.forEach((s) => { const k = s.method || "Not recorded"; methods[k] = methods[k] || { n: 0, v: 0 }; methods[k].n++; methods[k].v += Number(s.charge || 0); });
   const dests: Record<string, { n: number; p: number; b: number; u: number }> = {};
-  S.forEach((s) => { const d = (dests[s.dest] = dests[s.dest] || { n: 0, p: 0, b: 0, u: 0 }); d.n++; d.p += s.pkgs; d.b += Number(s.charge || 0); if (s.pay !== "paid") d.u += Number(s.charge || 0); });
+  S.forEach((s) => { const d = (dests[s.dest] = dests[s.dest] || { n: 0, p: 0, b: 0, u: 0 }); d.n++; d.p += s.pkgs; d.b += Number(s.charge || 0); if (s.pay === "unpaid") d.u += Number(s.charge || 0); });
   const staffRows: Record<string, { n: number; c: number }> = {};
   S.forEach((s) => { const k = s.created_by_name || "—"; (staffRows[k] = staffRows[k] || { n: 0, c: 0 }).n++; });
   shipments.filter((s) => s.pay === "paid" && inPeriod(s.paid_at)).forEach((s) => { const k = s.paid_by || s.created_by_name || "—"; (staffRows[k] = staffRows[k] || { n: 0, c: 0 }).c += Number(s.charge || 0); });
@@ -44,8 +45,17 @@ export default function Reports() {
     .sort((a, b) => b.x.b - a.x.b);
   const T2 = T.filter((t) => !truck || t.plate === truck);
   const T2ships = T2.flatMap(tripShips);
-  const U = S.filter((x) => x.pay !== "paid");
-  const V = payView === "paid" ? paid : payView === "unpaid" ? U : S;
+  const U = S.filter((x) => x.pay === "unpaid");
+  const B = S.filter((x) => x.pay === "bill");
+  const V = payView === "paid" ? paid : payView === "unpaid" ? U : payView === "bill" ? B : S;
+  const unpaidAmt = sumCharge(U);
+  const D = S.filter((x) => Number(x.discount || 0) > 0);
+  const discAmt = D.reduce((a, x) => a + Number(x.discount || 0), 0);
+  const discBy: Record<string, { n: number; v: number }> = {};
+  D.forEach((x) => { const k = x.discount_by || "—"; (discBy[k] = discBy[k] || { n: 0, v: 0 }).n++; discBy[k].v += Number(x.discount || 0); });
+  const C = claims.filter((c) => inPeriod(c.reported_on + "T12:00:00"));
+  const cPaid = (id: string) => claimPayments.filter((p) => p.claim_id === id).reduce((a, p) => a + Number(p.amount), 0);
+  const cOwed = claims.reduce((a, c) => a + Math.max(0, Number(c.compensation) - cPaid(c.id)), 0);
 
   return (
     <section>
@@ -58,7 +68,7 @@ export default function Reports() {
         <div className="stat"><div className="lbl">Consignments</div><div className="v">{S.length}</div><div className="s">{pkgsOf(S)} packages</div></div>
         <div className="stat"><div className="lbl">Billed</div><div className="v">{tzs(billed)}</div><div className="s">TZS</div></div>
         <div className="stat"><div className="lbl">Collected</div><div className="v">{tzs(paidAmt)}</div><div className="s">TZS · {paid.length} paid</div></div>
-        <div className={`stat${billed - paidAmt ? " warn" : ""}`}><div className="lbl">Outstanding</div><div className="v">{tzs(billed - paidAmt)}</div><div className="s">TZS · {S.length - paid.length} unpaid</div></div>
+        <div className={`stat${unpaidAmt ? " warn" : ""}`}><div className="lbl">Outstanding</div><div className="v">{tzs(unpaidAmt)}</div><div className="s">TZS · {U.length} unpaid{B.length ? ` · ${tzs(sumCharge(B))} on bills` : ""}</div></div>
         <div className="stat"><div className="lbl">Trips dispatched</div><div className="v">{dispatched.length}</div><div className="s">{dispatched.filter((t) => t.status === "arrived").length} arrived</div></div>
         <div className="stat"><div className="lbl">Awaiting pickup</div><div className="v">{shipments.filter((s) => s.status === "arrived").length}</div><div className="s">at destinations now</div></div>
       </div>
@@ -76,13 +86,32 @@ export default function Reports() {
             <tbody>{Object.entries(dests).sort((a, b) => b[1].b - a[1].b).map(([k, x]) =>
               <tr key={k}><td>{regShort(k)}</td><td className="r num">{x.n}</td><td className="r num">{x.p}</td><td className="r num">{tzs(x.b)}</td><td className="r num" style={x.u ? { color: "var(--bad)" } : undefined}>{tzs(x.u)}</td></tr>)}
               {!S.length && <tr><td colSpan={5} className="sub">No consignments in this period.</td></tr>}</tbody>
-            {S.length > 0 && <tfoot><tr><td>Total</td><td className="r num">{S.length}</td><td className="r num">{pkgsOf(S)}</td><td className="r num">{tzs(billed)}</td><td className="r num">{tzs(billed - paidAmt)}</td></tr></tfoot>}
+            {S.length > 0 && <tfoot><tr><td>Total</td><td className="r num">{S.length}</td><td className="r num">{pkgsOf(S)}</td><td className="r num">{tzs(billed)}</td><td className="r num">{tzs(unpaidAmt)}</td></tr></tfoot>}
           </table></div>
         </div>
         <div className="panel"><h2>By staff member</h2><div className="sub">Consignments received and payments recorded</div>
           <div className="ledger"><table className="small"><thead><tr><th>Staff</th><th className="r">Received</th><th className="r">Payments TZS</th></tr></thead>
             <tbody>{Object.entries(staffRows).map(([k, x]) => <tr key={k}><td>{k}</td><td className="r num">{x.n}</td><td className="r num">{tzs(x.c)}</td></tr>)}
               {!Object.keys(staffRows).length && <tr><td colSpan={3} className="sub">No activity in this period.</td></tr>}</tbody></table></div>
+        </div>
+      </div>
+
+      <div className="rgrid">
+        <div className="panel"><h2>Discounts given</h2><div className="sub">Consignments received in the period</div>
+          <div className="ykpi" style={{ margin: "6px 0 8px" }}>
+            <div><div className="lbl">Total discount</div><div className="v">{tzs(discAmt)}</div><div className="sub">TZS · {D.length} consignment{D.length === 1 ? "" : "s"}</div></div>
+            <div><div className="lbl">Share of charges</div><div className="v">{billed + discAmt ? ((discAmt / (billed + discAmt)) * 100).toFixed(1) + "%" : "—"}</div><div className="sub">before discount</div></div>
+          </div>
+          <div className="ledger"><table className="small"><thead><tr><th>Given by</th><th className="r">Count</th><th className="r">TZS</th></tr></thead>
+            <tbody>{Object.entries(discBy).sort((a, b) => b[1].v - a[1].v).map(([k, x]) => <tr key={k}><td>{k}</td><td className="r num">{x.n}</td><td className="r num">{tzs(x.v)}</td></tr>)}
+              {!D.length && <tr><td colSpan={3} className="sub">No discounts in this period.</td></tr>}</tbody></table></div>
+        </div>
+        <div className="panel"><h2>Claims (changamoto)</h2><div className="sub">Lost, damaged or broken goods reported in the period</div>
+          <div className="ykpi" style={{ margin: "6px 0 8px" }}>
+            <div><div className="lbl">Reported</div><div className="v">{C.length}</div><div className="sub">TZS {tzs(C.reduce((a, c) => a + Number(c.compensation), 0))} compensation</div></div>
+            <div className="due"><div className="lbl">Still owed (all claims)</div><div className="v">{tzs(cOwed)}</div><div className="sub">TZS to customers</div></div>
+          </div>
+          <button className="link" onClick={() => ui.go("claims")}>Open claims →</button>
         </div>
       </div>
 
@@ -124,12 +153,13 @@ export default function Reports() {
       <div className="panel" style={{ marginTop: 16 }}>
         <div className="ph" style={{ flexWrap: "wrap" }}>
           <div><h2>Paid and unpaid</h2><div className="sub">Every consignment received in the period</div></div>
-          <div className="chips">{([["unpaid", `Unpaid · ${U.length}`], ["paid", `Paid · ${paid.length}`], ["all", `All · ${S.length}`]] as ["unpaid" | "paid" | "all", string][]).map(([k, l]) =>
+          <div className="chips">{([["unpaid", `Unpaid · ${U.length}`], ["paid", `Paid · ${paid.length}`], ["bill", `Monthly bill · ${B.length}`], ["all", `All · ${S.length}`]] as ["unpaid" | "paid" | "bill" | "all", string][]).map(([k, l]) =>
             <button key={k} className="chip" aria-pressed={payView === k} onClick={() => setPayView(k)}>{l}</button>)}</div>
         </div>
         <div className="ykpi" style={{ margin: "4px 0 10px" }}>
           <div><div className="lbl">Paid</div><div className="v" style={{ color: "var(--good)" }}>{tzs(paidAmt)}</div><div className="sub">TZS · {paid.length} consignments</div></div>
-          <div className="due"><div className="lbl">Unpaid</div><div className="v">{tzs(sumCharge(U))}</div><div className="sub">TZS · {U.length} consignments</div></div>
+          <div className="due"><div className="lbl">Unpaid</div><div className="v">{tzs(unpaidAmt)}</div><div className="sub">TZS · {U.length} consignments</div></div>
+          {B.length > 0 && <div><div className="lbl">On monthly bills</div><div className="v">{tzs(sumCharge(B))}</div><div className="sub">TZS · {B.length} consignments</div></div>}
           <div><div className="lbl">Share paid</div><div className="v">{S.length ? Math.round((paidAmt / Math.max(1, billed)) * 100) + "%" : "—"}</div><div className="sub">of TZS billed</div></div>
         </div>
         <div className="ledger"><table className="small">
@@ -140,7 +170,7 @@ export default function Reports() {
               <td>{x.s_name}<div className="sub">to {x.r_name} · {regShort(x.dest)}</div></td>
               <td className="mono wb">{t ? t.plate : <span className="sub">Not loaded</span>}</td>
               <td><StatusPill s={x.status} /></td>
-              <td><PayPill paid={x.pay === "paid"} />{x.pay === "paid" && <div className="sub">{x.method || ""}{x.paid_by ? " · " + x.paid_by : ""}</div>}</td>
+              <td><PayPill pay={x.pay} />{x.pay === "paid" && <div className="sub">{x.method || ""}{x.paid_by ? " · " + x.paid_by : ""}</div>}{x.pay === "bill" && <div className="sub">{accounts.find((a) => a.id === x.account_id)?.name || ""}</div>}</td>
               <td className="r num" style={{ fontWeight: 600 }}>{tzs(x.charge)}</td>
             </tr>); })}
             {!V.length && <tr><td colSpan={6} className="sub">Nothing here for this period.</td></tr>}</tbody>

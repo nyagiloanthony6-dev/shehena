@@ -3,10 +3,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 type Change = RealtimePostgresChangesPayload<Record<string, unknown>>;
-import { can as canRole, type Company, type Perm, type Profile, type Shipment, type Trip, type Vehicle } from "@/lib/domain";
+import { can as canRole, type BillAccount, type BillPayment, type Claim, type ClaimPayment, type Company, type Perm, type Profile, type Shipment, type Trip, type Vehicle } from "@/lib/domain";
 
 type Row = { id: string };
-type Table = "shipments" | "trips" | "vehicles";
+type Table = "shipments" | "trips" | "vehicles" | "bill_accounts" | "bill_payments" | "claims" | "claim_payments";
+/** Tables added by migration 0008; if it hasn't been run yet they just stay empty. */
+const EXTRA: Table[] = ["bill_accounts", "bill_payments", "claims", "claim_payments"];
 
 interface Store {
   me: Profile;
@@ -14,6 +16,12 @@ interface Store {
   shipments: Shipment[];
   trips: Trip[];
   vehicles: Vehicle[];
+  accounts: BillAccount[];
+  billPayments: BillPayment[];
+  claims: Claim[];
+  claimPayments: ClaimPayment[];
+  /** false until migration 0008 has been run in Supabase */
+  hasExtras: boolean;
   staff: Profile[];
   ready: boolean;
   can: (p: Perm) => boolean;
@@ -38,12 +46,16 @@ export const useStore = () => {
 
 const byNewest = (k: string) => (a: Record<string, unknown>, b: Record<string, unknown>) =>
   String(b[k] || "").localeCompare(String(a[k] || ""));
-const SORT: Record<Table, string> = { shipments: "received_at", trips: "created_at", vehicles: "plate" };
+const SORT: Record<Table, string> = {
+  shipments: "received_at", trips: "created_at", vehicles: "plate",
+  bill_accounts: "name", bill_payments: "paid_on", claims: "created_at", claim_payments: "paid_on",
+};
+const ASC = new Set<Table>(["vehicles", "bill_accounts"]);
 
 function upsert<T extends Row>(list: T[], row: T, table: Table): T[] {
   const i = list.findIndex((x) => x.id === row.id);
   const next = i >= 0 ? list.map((x) => (x.id === row.id ? row : x)) : [row, ...list];
-  if (table === "vehicles") return next.sort((a, b) => String((a as unknown as Vehicle).plate).localeCompare(String((b as unknown as Vehicle).plate)));
+  if (ASC.has(table)) return next.sort((a, b) => String((a as unknown as Record<string, unknown>)[SORT[table]]).localeCompare(String((b as unknown as Record<string, unknown>)[SORT[table]])));
   return i >= 0 ? next : (next as unknown as Record<string, unknown>[]).sort(byNewest(SORT[table])) as unknown as T[];
 }
 
@@ -54,6 +66,11 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [accounts, setAccounts] = useState<BillAccount[]>([]);
+  const [billPayments, setBillPayments] = useState<BillPayment[]>([]);
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [claimPayments, setClaimPayments] = useState<ClaimPayment[]>([]);
+  const [hasExtras, setHasExtras] = useState(false);
   const [staff, setStaff] = useState<Profile[]>([]);
   const [ready, setReady] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ m: string; e?: boolean } | null>(null);
@@ -69,6 +86,10 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     shipments: setShipments as React.Dispatch<React.SetStateAction<Row[]>>,
     trips: setTrips as React.Dispatch<React.SetStateAction<Row[]>>,
     vehicles: setVehicles as React.Dispatch<React.SetStateAction<Row[]>>,
+    bill_accounts: setAccounts as React.Dispatch<React.SetStateAction<Row[]>>,
+    bill_payments: setBillPayments as React.Dispatch<React.SetStateAction<Row[]>>,
+    claims: setClaims as React.Dispatch<React.SetStateAction<Row[]>>,
+    claim_payments: setClaimPayments as React.Dispatch<React.SetStateAction<Row[]>>,
   }), []);
 
   const loadAll = useCallback(async () => {
@@ -85,8 +106,12 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     setVehicles((v.data as Vehicle[]) || []);
     setStaff((p.data as Profile[]) || []);
     if (c.data) setCompany(c.data as Company);
+    const extra = await Promise.all(EXTRA.map((tb) => sb.from(tb).select("*").order(SORT[tb], { ascending: ASC.has(tb) }).limit(5000)));
+    const num = (r: Record<string, unknown>) => ({ ...r, ...(["amount", "goods_value", "compensation"].reduce((o, k) => (k in r ? { ...o, [k]: Number(r[k]) } : o), {})) });
+    EXTRA.forEach((tb, i) => setters[tb](((extra[i].data || []) as Record<string, unknown>[]).map(num) as unknown as Row[]));
+    setHasExtras(!extra[0].error);
     setReady(true);
-  }, [sb, initialCompany.id, toast]);
+  }, [sb, initialCompany.id, toast, setters]);
 
   const reloadStaff = useCallback(async () => {
     const { data } = await sb.from("profiles").select("*").order("created_at");
@@ -102,7 +127,7 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     loadAll();
     const filter = `company_id=eq.${initialCompany.id}`;
     const ch = sb.channel(`company-${initialCompany.id}`);
-    (["shipments", "trips", "vehicles"] as Table[]).forEach((table) => {
+    (["shipments", "trips", "vehicles", ...EXTRA] as Table[]).forEach((table) => {
       ch.on("postgres_changes", { event: "*", schema: "public", table, filter }, (p: Change) => {
         const set = setters[table];
         if (p.eventType === "DELETE") set((l) => l.filter((x) => x.id !== (p.old as unknown as Row).id));
@@ -164,13 +189,13 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   }, [sb, company.id, fail]);
 
   const value = useMemo<Store>(() => ({
-    me, company, shipments, trips, vehicles, staff, ready,
+    me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, hasExtras, staff, ready,
     can: (p) => canRole(me.role, p),
     toast, insert, patch, patchMany, remove, patchCompany, reloadStaff,
     tripById: (id) => (id ? trips.find((t) => t.id === id) : undefined),
     shipById: (id) => (id ? shipments.find((s) => s.id === id) : undefined),
     tripShips: (t) => shipments.filter((s) => s.trip_id === t.id),
-  }), [me, company, shipments, trips, vehicles, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
+  }), [me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, hasExtras, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
 
   return (
     <Ctx.Provider value={value}>

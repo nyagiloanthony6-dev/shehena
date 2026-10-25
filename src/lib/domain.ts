@@ -85,7 +85,15 @@ export interface Shipment {
   origin: string;
   dest: string;
   charge: number;
-  pay: "paid" | "unpaid";
+  /** paid at the counter, unpaid (due on collection), or on a customer's monthly bill */
+  pay: Pay;
+  account_id?: string | null;
+  /** charge before discount; `charge` is what the customer owes after the discount */
+  gross_charge?: number | null;
+  discount?: number;
+  discount_reason?: string;
+  discount_by?: string | null;
+  discount_at?: string | null;
   method: string | null;
   paid_at: string | null;
   paid_by: string | null;
@@ -109,6 +117,26 @@ export interface Shipment {
   created_by_name: string | null;
 }
 
+export type Pay = "paid" | "unpaid" | "bill";
+/** Nothing to collect at the counter: paid, or charged to a monthly bill. */
+export const settled = (s: Pick<Shipment, "pay">) => s.pay === "paid" || s.pay === "bill";
+export const PAY_LABEL: Record<Pay, string> = { paid: "Paid", unpaid: "Not paid", bill: "Monthly bill" };
+
+/** A customer who pays monthly (mteja wa bili). */
+export interface BillAccount { id: string; company_id: string; name: string; phone: string; notes: string; active: boolean; created_at: string; created_by_name: string | null }
+export interface BillPayment { id: string; company_id: string; account_id: string; amount: number; paid_on: string; method: string; reference: string; note: string; recorded_by: string | null; created_at: string }
+/** Changamoto: lost, damaged or broken goods and the compensation owed to the customer. */
+export type ClaimKind = "lost" | "damaged" | "broken" | "other";
+export const CLAIM_KINDS: [ClaimKind, string, string][] = [
+  ["lost", "Lost", "Umepotea"], ["damaged", "Damaged", "Umeharibika"], ["broken", "Broken", "Umevunjika"], ["other", "Other", "Nyingine"],
+];
+export interface Claim {
+  id: string; company_id: string; shipment_id: string | null; waybill: string; customer_name: string; customer_phone: string;
+  kind: ClaimKind; description: string; goods_value: number; compensation: number; reported_on: string; closed: boolean;
+  created_at: string; created_by_name: string | null;
+}
+export interface ClaimPayment { id: string; company_id: string; claim_id: string; amount: number; paid_on: string; method: string; reference: string; recorded_by: string | null; created_at: string }
+
 export const SYSTEM = "Shehena";
 
 export const REGIONS: [string, string][] = [
@@ -126,10 +154,11 @@ export const STATUS: [ShipStatus, string][] = [
 export const TSTATUS: [TripStatus, string][] = [["loading", "Loading"], ["departed", "On the road"], ["arrived", "Arrived"]];
 export const ROLES: Record<Role, string> = { admin: "Admin", cashier: "Cashier", ceo: "CEO" };
 
-export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target";
+export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims";
 const PERMS: Record<Role, Perm[]> = {
-  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target"],
-  cashier: ["receive", "pay", "load", "dispatch", "notify"],
+  // accounts = open/close monthly bill customers; claims = record claims and payments
+  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target", "accounts", "claims"],
+  cashier: ["receive", "pay", "load", "dispatch", "notify", "claims"],
   ceo: ["reports", "target"],
 };
 export const can = (role: Role | undefined, p: Perm) => !!role && PERMS[role].includes(p);
@@ -191,6 +220,7 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
     : `${s.item}, ${sw ? "vifurushi" : "packages"} ${s.pkgs}`;
   const payLine = s.pay === "paid"
     ? (sw ? "Malipo: IMELIPWA." : "Payment: PAID.")
+    : s.pay === "bill" ? (sw ? `Malipo: kwenye bili ya mwezi - TZS ${tzs(s.charge)}.` : `Payment: on your monthly bill - TZS ${tzs(s.charge)}.`)
     : (sw ? `Malipo: HAIJALIPWA - TZS ${tzs(s.charge)} ilipwe wakati wa kuchukua.` : `Payment: NOT PAID - TZS ${tzs(s.charge)} due on collection.`);
   const O = regShort(s.origin), D = regShort(s.dest);
   const day = fmtDay(s.transit_at || new Date().toISOString());
@@ -211,6 +241,9 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   if (kind === "reminder") return sw
     ? `Kumbusho: Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) upo ofisini ${D} tangu ${fmtDay(s.arrived_at)}. Kiasi cha kulipa ni ${due}.${how ? ` Lipa kupitia: ${how}.` : ""} Baada ya kulipa, fika na kitambulisho kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`
     : `Reminder: Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have been waiting at our ${D} office since ${fmtDay(s.arrived_at)}. Amount due: ${due}.${how ? ` Pay via: ${how}.` : ""} After paying, come with ID to collect. ${co}${ph ? ", tel: " + ph : ""}`;
+  if (s.pay === "bill") return sw
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? " kwa gari " + plate : ""}. Malipo yapo kwenye bili ya mwezi. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? " on vehicle " + plate : ""}. The charge is on the monthly bill. Please come to our office with ID and this number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
   if (s.pay !== "paid") return sw
     ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? " kwa gari " + plate : ""}. Kiasi cha kulipa ni ${due}.${how ? ` Tafadhali lipia kupitia: ${how}.` : " Tafadhali lipia ofisini."} Baada ya kulipa, fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`
     : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? " on vehicle " + plate : ""}. Amount due: ${due}.${how ? ` Please pay via: ${how}.` : " Please pay at our office."} Once paid, come to our office with ID and this waybill number to collect. ${co}${ph ? ", tel: " + ph : ""}`;

@@ -5,7 +5,8 @@ import crypto from "node:crypto";
 
 const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "" }],
   billing_bands: [[0, 1, 80000], [2, 3, 150000], [4, 6, 250000], [7, 10, 350000], [11, null, 450000]].map(([min_trucks, max_trucks, monthly_fee], i) => ({ id: i + 1, min_trucks, max_trucks, monthly_fee })),
-  billing_payments: [], sales_agents: [], commissions: [], agent_payouts: [] };
+  billing_payments: [], sales_agents: [], commissions: [], agent_payouts: [],
+  bill_accounts: [], bill_payments: [], claims: [], claim_payments: [] };
 const ymd = (d = new Date()) => new Date(d.getTime() + 3 * 3600e3).toISOString().slice(0, 10);
 const plusDays = (s, n) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const SERVICE_ONLY = ["company_accounts", "owner_audit", "leads", "billing_bands", "billing_payments", "sales_agents", "commissions", "agent_payouts"];
@@ -58,7 +59,11 @@ const visible = (c, table, rows) => c.service ? rows : SERVICE_ONLY.includes(tab
 const DEFAULTS = {
   vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null },
   trips: { driver: "", driver_phone: "", target: 0, target_set_by: null, status: "loading", departed_at: null, departed_by: null, arrived_at: null, arrived_by: null },
-  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null },
+  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null, account_id: null, gross_charge: null, discount: 0, discount_reason: "", discount_by: null, discount_at: null },
+  bill_accounts: { phone: "", notes: "", active: true },
+  bill_payments: { method: "", reference: "", note: "" },
+  claims: { shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },
+  claim_payments: { method: "", reference: "" },
   companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all" },
   profiles: { active: true },
 };
@@ -140,7 +145,7 @@ http.createServer(async (req, res) => {
         return wantRows || single ? out(out2) : send(res, 201);
       }
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier"], trips: ["admin", "cashier"], vehicles: ["admin"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier"], trips: ["admin", "cashier"], vehicles: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin", "cashier"], claims: ["admin", "cashier"], claim_payments: ["admin", "cashier"] }[table] || [];
         if (!allowed.includes(role) || list.some((r) => r.company_id !== c.profile.company_id)) return send(res, 403, { message: "new row violates row-level security policy" });
         if (table === "trips" && role === "cashier") list.forEach((r) => { const v = db.vehicles.find((x) => x.company_id === r.company_id && x.plate === r.plate); r.target = v?.target || 0; });
       }
@@ -158,14 +163,14 @@ http.createServer(async (req, res) => {
     if (req.method === "PATCH") {
       const b = await readBody(req);
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier"], trips: ["admin", "cashier", "ceo"], vehicles: ["admin", "ceo"], companies: ["admin"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier"], trips: ["admin", "cashier", "ceo"], vehicles: ["admin", "ceo"], companies: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin"], claims: ["admin"], claim_payments: ["admin"] }[table] || [];
         if (SERVICE_ONLY.includes(table) || table === "platform_settings") return send(res, 403, { message: "permission denied" });
         if (!allowed.includes(role)) return out([]);
         if (role === "cashier" && "target" in b) return send(res, 400, { message: "Only the Admin or CEO can change a target" });
         if (role === "ceo" && Object.keys(b).some((k) => !["target", "target_set_by", "target_set_at"].includes(k))) return send(res, 400, { message: "The CEO can only change targets" });
       }
       const rows = applyFilters(visible(c, table, db[table]), url.searchParams);
-      if (table === "shipments" && rows.some((r) => ({ ...r, ...b }).status === "collected" && ({ ...r, ...b }).pay !== "paid"))
+      if (table === "shipments" && rows.some((r) => ({ ...r, ...b }).status === "collected" && !["paid", "bill"].includes(({ ...r, ...b }).pay)))
         return send(res, 400, { message: "Record the payment before releasing the goods" });
       rows.forEach((r) => Object.assign(r, b));
       return wantRows || single ? out(rows) : send(res, 204);

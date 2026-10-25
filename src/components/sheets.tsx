@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
 import { STICKER_SIZES, downloadReceiptAndStickers, downloadStickers, packages, saveStickerPrefs, stickerPrefs, type StickerPrefs } from "./stickers";
+import { downloadManifest } from "./manifest";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
-import { canRecordFound } from "@/lib/domain";
+import { PAY_LABEL, canRecordFound, settled } from "@/lib/domain";
 import { METHODS, STATUS, TSTATUS, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 export function ShipmentSheet({ id }: { id: string }) {
@@ -34,8 +35,8 @@ export function ShipmentSheet({ id }: { id: string }) {
         {t && <p className="note">Vehicle <b className="mono">{t.plate}</b> · trip <a href="#" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.no}</a> · driver {t.driver || "—"}</p>}
         <div className="actions">
           {s.status === "received" && can("load") && <button className="btn" onClick={() => ui.go("trips")}>Load onto a vehicle</button>}
-          {s.status === "arrived" && can("dispatch") && s.pay === "paid" && <button className="btn primary" onClick={async () => { if (await P({ status: "collected", collected_at: now(), collected_by: me.full_name })) toast("Goods released to the customer"); }}>Release goods to customer</button>}
-          {s.status === "arrived" && can("pay") && s.pay !== "paid" && (
+          {s.status === "arrived" && can("dispatch") && settled(s) && <button className="btn primary" onClick={async () => { if (await P({ status: "collected", collected_at: now(), collected_by: me.full_name })) toast("Goods released to the customer"); }}>Release goods to customer</button>}
+          {s.status === "arrived" && can("pay") && s.pay === "unpaid" && (
             <div className="confirm go" style={{ width: "100%" }}>
               <span><b>TZS {tzs(s.charge)} unpaid.</b> Take payment before releasing the goods.</span>
               <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: "auto" }} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
@@ -47,24 +48,9 @@ export function ShipmentSheet({ id }: { id: string }) {
         {s.status === "collected" && <p className="note">Collected {fmtDate(s.collected_at)}{s.collected_by ? " · released by " + s.collected_by : ""}</p>}
       </div>
 
-      <div className="card"><h3>Payment</h3>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <div>
-            <span className="mono" style={{ fontSize: 17, fontWeight: 600 }}>TZS {tzs(s.charge)}</span> <PayPill paid={s.pay === "paid"} />
-            {s.pay === "paid" && s.paid_at && <div className="sub">{s.method || ""} · {fmtDate(s.paid_at)}{s.paid_by ? " · by " + s.paid_by : ""}</div>}
-          </div>
-          {s.pay === "paid"
-            ? can("undo") && <button className="btn sm" onClick={() => P({ pay: "unpaid", paid_at: null, method: null, paid_by: null })}>Mark not paid</button>
-            : can("pay") && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: "auto" }} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
-                <button className="btn primary sm" onClick={async () => { if (await P({ pay: "paid", method, paid_at: now(), paid_by: me.full_name })) toast("Payment recorded"); }}>Record payment</button>
-              </div>
-            )}
-        </div>
-      </div>
+      <PaymentCard s={s} />
 
-      {s.status === "arrived" && s.pay !== "paid" && (
+      {s.status === "arrived" && s.pay === "unpaid" && (
         <div className="card"><h3>Payment reminder</h3>
           <p className="note" style={{ marginTop: 0 }}>Waiting since {fmtDate(s.arrived_at)}. Send this if the customer hasn&apos;t come to pay and collect.</p>
           <NotifyBlock s={s} kind="reminder" to="receiver" />
@@ -82,6 +68,7 @@ export function ShipmentSheet({ id }: { id: string }) {
       <div className="card"><h3>Receipt and stickers</h3><Slip s={s} company={company} />
         <PrintActions s={s} />
       </div>
+      <ShipmentClaims s={s} />
       {can("delete") && (
         <div className="card"><h3>Record</h3>
           {confirmDel
@@ -94,7 +81,7 @@ export function ShipmentSheet({ id }: { id: string }) {
 }
 
 export function TripSheet({ id }: { id: string }) {
-  const { tripById, tripShips, shipments, can, patch, patchMany, remove, me, toast } = useStore();
+  const { tripById, tripShips, shipments, can, patch, patchMany, remove, me, toast, company } = useStore();
   const ui = useUi();
   const [confirm, setConfirm] = useState<"" | "depart" | "arrive" | "del">("");
   const arriveTrip = useArriveTrip();
@@ -191,7 +178,7 @@ export function TripSheet({ id }: { id: string }) {
               {waiting.map((s) => (
                 <div className="lrow" key={s.id}>
                   <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} pkg · TZS {tzs(s.charge)}
-                    <div className="sub">{s.r_name} · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {s.pay === "paid" ? "Paid" : "Not paid"}</div>
+                    <div className="sub">{s.r_name} · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {PAY_LABEL[s.pay]}</div>
                   </div>
                   <button className="btn sm primary" onClick={() => patch<Shipment>("shipments", s.id, { status: "loaded", trip_id: t.id, loaded_at: now() })}>Load</button>
                 </div>
@@ -203,12 +190,20 @@ export function TripSheet({ id }: { id: string }) {
       )}
       {t.status !== "loading" && (
         <div className="card"><h3>Manifest · {list.length} consignments, {n} packages</h3>
-          {list.map((s) => (
-            <div className="lrow" key={s.id}>
-              <div><a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openShip(s.id); }}>{s.no}</a> · {goodsLabel(s)} · {s.pkgs} pkg<div className="sub">{s.r_name} · {regShort(s.dest)}</div></div>
-              <StatusPill s={s.status} />
-            </div>
-          ))}
+          <div className="actions" style={{ marginTop: 0 }}><button className="btn sm" onClick={() => downloadManifest(t, list, company)}>Manifest (PDF)</button></div>
+          <div className="ledger" style={{ border: 0 }}><table className="small manifest" style={{ minWidth: 0 }}>
+            <thead><tr><th>Waybill</th><th>Sender → receiver</th><th>Goods</th><th className="r">Pkgs</th><th className="r">TZS</th><th>Payment</th></tr></thead>
+            <tbody>{list.map((s) => (
+              <tr key={s.id} className="row" onClick={() => ui.openShip(s.id)}>
+                <td className="mono wb">{s.no}{s.found_on_arrival && <span className="tag-found">Found</span>}<div className="sub"><StatusPill s={s.status} /></div></td>
+                <td>{s.s_name || "—"} → <b>{s.r_name}</b><div className="sub mono">{prettyPhone(s.r_phone)} · {regShort(s.dest)}</div></td>
+                <td>{goodsLabel(s)}</td>
+                <td className="r num">{s.pkgs}</td>
+                <td className="r num">{tzs(s.charge)}</td>
+                <td><PayPill pay={s.pay} /></td>
+              </tr>))}</tbody>
+            <tfoot><tr><td colSpan={3}>Total</td><td className="r num">{n}</td><td className="r num">{tzs(list.reduce((a, s) => a + Number(s.charge || 0), 0))}</td><td /></tr></tfoot>
+          </table></div>
         </div>
       )}
     </>
@@ -291,6 +286,89 @@ function FoundOnTrip({ trip }: { trip: Trip }) {
         ? <><button className="btn" onClick={() => ui.recordFound(trip.id)}>Record goods found on this truck</button>
           <p className="note">For goods that came off {trip.plate} but were never recorded at loading. You enter the receiver and the proper charge; {me.role === "admin" ? "your records count as checked." : "the Admin checks each one."}</p></>
         : <p className="note">Only the Admin can record found goods.</p>}
+    </div>
+  );
+}
+
+/** Payment of a consignment: paid / not paid / monthly bill, and discounts before payment. */
+function PaymentCard({ s }: { s: Shipment }) {
+  const { can, patch, me, toast, accounts, hasExtras } = useStore();
+  const ui = useUi();
+  const [method, setMethod] = useState(METHODS[0]);
+  const [disc, setDisc] = useState<{ open: boolean; amount: string; reason: string }>({ open: false, amount: "", reason: "" });
+  const [billTo, setBillTo] = useState("");
+  const P = (v: Partial<Shipment>) => patch<Shipment>("shipments", s.id, v);
+  const now = () => new Date().toISOString();
+  const d = Number(s.discount || 0);
+  const gross = Number(s.gross_charge ?? Number(s.charge) + d);
+  const acct = accounts.find((a) => a.id === s.account_id);
+  const active = accounts.filter((a) => a.active);
+  const saveDiscount = async () => {
+    const amt = Math.round(Number(disc.amount) || 0);
+    if (amt < 0 || amt > gross) return toast(`The discount must be between 0 and TZS ${tzs(gross)}.`, true);
+    if (amt > 0 && !disc.reason.trim()) return toast("Write the reason for the discount.", true);
+    // The database works out the charge too; sending it keeps the screen right straight away.
+    if (await P({ discount: amt, discount_reason: amt ? disc.reason.trim() : "", discount_by: amt ? me.full_name : null, discount_at: amt ? now() : null, gross_charge: gross, charge: gross - amt })) {
+      toast(amt ? `Discount of TZS ${tzs(amt)} recorded. New total TZS ${tzs(gross - amt)}.` : "Discount removed.");
+      setDisc({ open: false, amount: "", reason: "" });
+    }
+  };
+  return (
+    <div className="card"><h3>Payment</h3>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <span className="mono" style={{ fontSize: 17, fontWeight: 600 }}>TZS {tzs(s.charge)}</span> <PayPill pay={s.pay} />
+          {d > 0 && <div className="sub">TZS {tzs(gross)} − discount TZS {tzs(d)}{s.discount_reason ? ` (“${s.discount_reason}”)` : ""}{s.discount_by ? ` · by ${s.discount_by}` : ""}</div>}
+          {s.pay === "paid" && s.paid_at && <div className="sub">{s.method || ""} · {fmtDate(s.paid_at)}{s.paid_by ? " · by " + s.paid_by : ""}</div>}
+          {s.pay === "bill" && <div className="sub">On the monthly bill of <a href="#" onClick={(e) => { e.preventDefault(); ui.openAccount(s.account_id!); }}>{acct?.name || "an account"}</a></div>}
+        </div>
+        {s.pay === "paid" && can("undo") && <button className="btn sm" onClick={() => P({ pay: "unpaid", paid_at: null, method: null, paid_by: null })}>Mark not paid</button>}
+        {s.pay === "bill" && can("undo") && <button className="btn sm" onClick={() => P({ pay: "unpaid", account_id: null })}>Take off the bill</button>}
+        {s.pay === "unpaid" && can("pay") && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: "auto" }} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
+            <button className="btn primary sm" onClick={async () => { if (await P({ pay: "paid", method, paid_at: now(), paid_by: me.full_name })) toast("Payment recorded"); }}>Record payment</button>
+          </div>
+        )}
+      </div>
+      {s.pay === "unpaid" && can("pay") && hasExtras && active.length > 0 && (
+        <div className="actions" style={{ alignItems: "center" }}>
+          <span className="sub">or put on a monthly bill:</span>
+          <select value={billTo} onChange={(e) => setBillTo(e.target.value)} style={{ width: "auto" }} aria-label="Bill account"><option value="">Choose customer…</option>{active.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+          <button className="btn sm" disabled={!billTo} onClick={async () => { if (await P({ pay: "bill", account_id: billTo })) toast("Put on the monthly bill"); }}>Put on bill</button>
+        </div>
+      )}
+      {s.pay !== "paid" && can("pay") && hasExtras && (
+        disc.open ? (
+          <div className="paybox">
+            <div className="fields">
+              <label className="f">Discount (TZS)<input type="number" min={0} step={500} value={disc.amount} onChange={(e) => setDisc({ ...disc, amount: e.target.value })} aria-label="Discount amount" /></label>
+              <label className="f">Reason<input value={disc.reason} onChange={(e) => setDisc({ ...disc, reason: e.target.value })} placeholder="e.g. Regular customer, asked at collection" aria-label="Discount reason" /></label>
+            </div>
+            <p className="note" style={{ margin: "6px 0 0" }}>Before discount TZS {tzs(gross)} → new total <b>TZS {tzs(Math.max(0, gross - (Number(disc.amount) || 0)))}</b></p>
+            <div className="actions"><button className="btn sm primary" onClick={saveDiscount}>Save discount</button><button className="btn sm" onClick={() => setDisc({ open: false, amount: "", reason: "" })}>Cancel</button></div>
+          </div>
+        ) : <div className="actions"><button className="btn sm" onClick={() => setDisc({ open: true, amount: d ? String(d) : "", reason: s.discount_reason || "" })}>{d ? "Change discount" : "Give a discount"}</button></div>
+      )}
+    </div>
+  );
+}
+
+/** Claims on this consignment, and a button to report lost / damaged / broken goods. */
+function ShipmentClaims({ s }: { s: Shipment }) {
+  const { claims, can, hasExtras } = useStore();
+  const ui = useUi();
+  if (!hasExtras) return null;
+  const mine = claims.filter((c) => c.shipment_id === s.id || (c.waybill && c.waybill === s.no));
+  if (!mine.length && !can("claims")) return null;
+  return (
+    <div className="card"><h3>Problems with these goods</h3>
+      {mine.map((c) => (
+        <div className="lrow" key={c.id}>
+          <div><a href="#" onClick={(e) => { e.preventDefault(); ui.openClaim(c.id); }}><b>{c.customer_name}</b></a> · <span className={`pill claim-${c.kind}`}>{c.kind}</span><div className="sub">compensation TZS {tzs(c.compensation)}</div></div>
+        </div>
+      ))}
+      {can("claims") && <button className="btn sm" onClick={() => ui.reportClaim(s.id)}>Report lost or damaged goods</button>}
     </div>
   );
 }

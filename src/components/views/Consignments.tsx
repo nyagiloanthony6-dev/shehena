@@ -38,7 +38,7 @@ export default function Consignments() {
       </div>
       <div className="filters" style={{ marginTop: 8 }}>
         <div className="chips">{([["", "All statuses"], ...STATUS] as [string, string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={status === k} onClick={() => setStatus(k)}>{l}</button>)}</div>
-        <div className="chips">{([["", "Any payment"], ["unpaid", "Not paid"], ["paid", "Paid"]] as ["" | "paid" | "unpaid", string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={pay === k} onClick={() => ui.setListPay(k)}>{l}</button>)}</div>
+        <div className="chips">{([["", "Any payment"], ["unpaid", "Not paid"], ["paid", "Paid"], ["bill", "Monthly bill"]] as ["" | "paid" | "unpaid" | "bill", string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={pay === k} onClick={() => ui.setListPay(k)}>{l}</button>)}</div>
       </div>
       {list.length > 0 && (
         <div className="sub" style={{ marginTop: 12 }}>
@@ -56,7 +56,7 @@ export default function Consignments() {
                 <td><b style={{ fontWeight: 600 }}>{goodsLabel(s)}</b><div className="sub">{s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}{s.kg ? ` · ${s.kg} kg` : ""}</div></td>
                 <td>{s.s_name}<div className="sub">to {s.r_name}</div></td>
                 <td className="route">{regShort(s.origin)}<i>→</i>{regShort(s.dest)}</td>
-                <td className="r"><span className="num amt">{tzs(s.charge)}</span><div style={{ marginTop: 3 }}><PayPill paid={s.pay === "paid"} /></div></td>
+                <td className="r"><span className="num amt">{tzs(s.charge)}</span><div style={{ marginTop: 3 }}><PayPill pay={s.pay} /></div></td>
                 <td><StatusPill s={s.status} />{t && <div className="sub mono" style={{ marginTop: 3 }}>{t.plate}</div>}</td>
               </tr>
             );
@@ -68,7 +68,7 @@ export default function Consignments() {
           <div className="ctop"><span className="mono wb sub">{s.no}{s.found_on_arrival && <span className="tag-found">Found</span>}</span><StatusPill s={s.status} /></div>
           <div><b>{goodsLabel(s)}</b> · {s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}</div>
           <div className="sub">{s.s_name} → {s.r_name} · {regShort(s.dest)}</div>
-          <div className="cbot"><b>TZS {tzs(s.charge)}</b><PayPill paid={s.pay === "paid"} /></div>
+          <div className="cbot"><b>TZS {tzs(s.charge)}</b><PayPill pay={s.pay} /></div>
         </button>
       ))}</div>
       {!shipments.length && (
