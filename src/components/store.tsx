@@ -22,6 +22,8 @@ interface Store {
   claimPayments: ClaimPayment[];
   /** false until migration 0008 has been run in Supabase */
   hasExtras: boolean;
+  /** false until migration 0009 (delivery notes, rental trucks) has been run */
+  hasV9: boolean;
   staff: Profile[];
   ready: boolean;
   can: (p: Perm) => boolean;
@@ -71,6 +73,7 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   const [claims, setClaims] = useState<Claim[]>([]);
   const [claimPayments, setClaimPayments] = useState<ClaimPayment[]>([]);
   const [hasExtras, setHasExtras] = useState(false);
+  const [hasV9, setHasV9] = useState(false);
   const [staff, setStaff] = useState<Profile[]>([]);
   const [ready, setReady] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ m: string; e?: boolean } | null>(null);
@@ -110,6 +113,8 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     const num = (r: Record<string, unknown>) => ({ ...r, ...(["amount", "goods_value", "compensation"].reduce((o, k) => (k in r ? { ...o, [k]: Number(r[k]) } : o), {})) });
     EXTRA.forEach((tb, i) => setters[tb](((extra[i].data || []) as Record<string, unknown>[]).map(num) as unknown as Row[]));
     setHasExtras(!extra[0].error);
+    const v9 = await sb.from("trips").select("rent_cost").limit(1);
+    setHasV9(!v9.error);
     setReady(true);
   }, [sb, initialCompany.id, toast, setters]);
 
@@ -189,13 +194,13 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   }, [sb, company.id, fail]);
 
   const value = useMemo<Store>(() => ({
-    me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, hasExtras, staff, ready,
+    me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, hasExtras, hasV9, staff, ready,
     can: (p) => canRole(me.role, p),
     toast, insert, patch, patchMany, remove, patchCompany, reloadStaff,
     tripById: (id) => (id ? trips.find((t) => t.id === id) : undefined),
     shipById: (id) => (id ? shipments.find((s) => s.id === id) : undefined),
     tripShips: (t) => shipments.filter((s) => s.trip_id === t.id),
-  }), [me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, hasExtras, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
+  }), [me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, hasExtras, hasV9, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
 
   return (
     <Ctx.Provider value={value}>

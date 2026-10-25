@@ -126,6 +126,25 @@ Unpaid receivers are told the amount and how to pay (from **Settings → How cus
 come with ID to collect. Goods can't be released until paid — the database refuses it. Unpaid goods
 waiting 2+ days are flagged on the Overview, and each one has a **Payment reminder** message.
 
+## Delivery notes
+At the destination, **Release goods** (Arrivals or the consignment) asks who is collecting: name, phone,
+ID type and number, and remarks; unpaid goods take the payment in the same step. Saving prints an
+80 mm delivery note (DN-…) with the goods, packages, collector, ID and signature lines, and keeps the
+details on the consignment for reprinting. If someone other than the receiver collects, staff see a
+warning. Undoing a collection clears the delivery note.
+
+## Own and rental trucks
+In **Settings → Vehicles** each truck is *Our own* or *Rental* with the owner and rent (per trip or per
+month). A truck hired for one trip can be entered as rental when loading starts. Each trip keeps its
+rent; only the Admin can change it. **Reports → Trucks & rentals** shows collections after rent.
+
+## Reports (Admin and CEO)
+Reports has a period (today, 7 days, 30 days, this month, all time or chosen dates) and tabs:
+Overview · Paid & unpaid (with unpaid by age and who owes) · Trucks & rentals · Claims & refunds ·
+Discounts · Monthly bills · Deliveries. Every table has **Download (Excel)** (CSV that opens in Excel).
+
+Requires migration `0009_delivery_rentals.sql`.
+
 ## Trucks by date and manifests
 **Loading bay** and **Arrivals** have *Trucks by date*: pick a day and see every truck loaded, departed
 or arrived that day with consignments, packages, money and what's still to collect; mark a truck

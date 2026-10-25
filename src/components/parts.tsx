@@ -32,7 +32,8 @@ export function tripTotals(list: Shipment[]) {
   const billed = list.reduce((a, x) => a + Number(x.charge || 0), 0);
   const paid = list.filter((x) => x.pay === "paid").reduce((a, x) => a + Number(x.charge || 0), 0);
   return {
-    n: list.length, pkgs: pkgsOf(list), billed, paid, due: billed - paid,
+    n: list.length, pkgs: pkgsOf(list), billed, paid,
+    due: list.filter((x) => x.pay === "unpaid").reduce((a, x) => a + Number(x.charge || 0), 0),
     senders: new Set(list.map((x) => intlPhone(x.s_phone))).size,
     receivers: new Set(list.map((x) => intlPhone(x.r_phone))).size,
     unpaidN: list.filter((x) => x.pay === "unpaid").length,
@@ -66,7 +67,7 @@ export function TripCard({ trip, onOpen }: { trip: Trip; onOpen: (id: string) =>
   const x = tripTotals(tripShips(trip));
   return (
     <div className="trip" tabIndex={0} role="button" onClick={() => onOpen(trip.id)} onKeyDown={(e) => e.key === "Enter" && onOpen(trip.id)}>
-      <div className="top"><span className="plate">{trip.plate}</span><TripPill s={trip.status} /></div>
+      <div className="top"><span className="plate">{trip.plate}{trip.ownership === "rental" && <span className="tag-rental">Rental</span>}</span><TripPill s={trip.status} /></div>
       <div className="route">{regShort(trip.origin)}<i>→</i>{regShort(trip.dest)}</div>
       <div className="sub">{trip.no} · {trip.driver || "No driver"}</div>
       <div className="tline">

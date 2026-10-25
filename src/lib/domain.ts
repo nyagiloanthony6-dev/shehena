@@ -35,7 +35,14 @@ export interface Vehicle {
   target: number;
   target_set_by: string | null;
   target_set_at: string | null;
+  /** own truck, or rented from an owner (rent per trip or per month) */
+  ownership?: Ownership;
+  owner_name?: string;
+  owner_phone?: string;
+  rent_amount?: number;
+  rent_basis?: "trip" | "month";
 }
+export type Ownership = "own" | "rental";
 export interface Trip {
   id: string;
   company_id: string;
@@ -55,6 +62,10 @@ export interface Trip {
   departed_by: string | null;
   arrived_at: string | null;
   arrived_by: string | null;
+  ownership?: Ownership;
+  owner_name?: string;
+  /** rent paid for this trip (rental trucks) */
+  rent_cost?: number;
 }
 /** One line of a consignment. `unit` is an optional price per package (charge = unit × pkgs). */
 export interface Item {
@@ -109,6 +120,12 @@ export interface Shipment {
   notices: Notice[];
   items?: Item[];
   /** Found on an arrived truck without having been recorded at loading. */
+  /** delivery note: who collected the goods at the destination */
+  dn_no?: string | null;
+  collector_name?: string;
+  collector_phone?: string;
+  collector_id?: string;
+  collect_note?: string;
   found_on_arrival?: boolean;
   found_note?: string;
   checked_by?: string | null;

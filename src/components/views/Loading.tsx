@@ -26,7 +26,8 @@ function TargetRow({ v }: { v: Vehicle }) {
 }
 
 export default function Loading() {
-  const { company, trips, shipments, vehicles, can, insert, me, toast } = useStore();
+  const { company, trips, shipments, vehicles, can, insert, me, toast, hasV9 } = useStore();
+  const [hire, setHire] = useState({ ownership: "own" as "own" | "rental", owner_name: "", rent: "" });
   const ui = useUi();
   const origin0 = company.default_origin || "DAR";
   const [f, setF] = useState({ vehicle: "", plate: "", driver: "", driver_phone: "", target: "", origin: origin0, dest: origin0 === "DOD" ? "DAR" : "DOD" });
@@ -46,15 +47,21 @@ export default function Loading() {
     if (trips.some((t) => t.plate === plate && t.status !== "arrived")) return setErr(`${plate} already has an open trip. Finish it first.`);
     setErr("");
     const saved = vehicles.find((v) => v.plate === plate);
+    // Saved trucks bring their own/rental details (the database does this too); a one-off hired truck uses the form.
+    const rent = saved
+      ? { ownership: saved.ownership || "own", owner_name: saved.owner_name || "", rent_cost: saved.ownership === "rental" && saved.rent_basis !== "month" ? Number(saved.rent_amount || 0) : 0 }
+      : { ownership: hire.ownership, owner_name: hire.ownership === "rental" ? hire.owner_name.trim() : "", rent_cost: hire.ownership === "rental" ? Number(hire.rent) || 0 : 0 };
     const target = can("target") ? Number(f.target) || 0 : saved?.target || 0;
     const t = await insert<Trip>("trips", {
       no: `TRIP-${ymd()}-${f.dest}-${Math.floor(Math.random() * 900) + 100}`, plate, driver: f.driver.trim(), driver_phone: f.driver_phone.trim(),
       target, target_set_by: can("target") && target ? me.full_name : saved?.target_set_by || null,
       origin: f.origin, dest: f.dest, status: "loading", created_by: me.id, created_by_name: me.full_name,
+      ...(hasV9 ? rent : {}),
     });
     if (!t) return;
     ui.setTripFormOpen(false);
     setF({ vehicle: "", plate: "", driver: "", driver_phone: "", target: "", origin: origin0, dest: f.dest });
+    setHire({ ownership: "own", owner_name: "", rent: "" });
     ui.openTrip(t.id);
     toast(`Loading ${plate}. Add consignments.`);
   }
@@ -85,6 +92,19 @@ export default function Loading() {
               <label className="f">To<select value={f.dest} onChange={(e) => set("dest", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
               <div style={{ display: "flex", alignItems: "end" }}><button className="btn primary" type="submit" style={{ width: "100%" }}>Start loading</button></div>
             </div>
+            {hasV9 && (() => {
+              const sv = vehicles.find((v) => v.plate === f.plate.trim().toUpperCase());
+              if (sv) return <p className="note">{sv.ownership === "rental" ? <>Rental truck · owner {sv.owner_name || "—"} · rent TZS {tzs(sv.rent_amount || 0)} {sv.rent_basis === "month" ? "per month" : "per trip"}</> : "Our own truck"}</p>;
+              return f.plate.trim() ? (
+                <div className="fields four" style={{ marginTop: 8 }}>
+                  <label className="f">This truck is<select value={hire.ownership} onChange={(e) => setHire({ ...hire, ownership: e.target.value as "own" | "rental" })} aria-label="Trip ownership"><option value="own">Our own truck</option><option value="rental">Hired for this trip</option></select></label>
+                  {hire.ownership === "rental" && <>
+                    <label className="f">Owner<input value={hire.owner_name} onChange={(e) => setHire({ ...hire, owner_name: e.target.value })} aria-label="Hired truck owner" /></label>
+                    <label className="f">Rent for this trip (TZS)<input type="number" min={0} step={10000} value={hire.rent} onChange={(e) => setHire({ ...hire, rent: e.target.value })} aria-label="Trip rent" /></label>
+                  </>}
+                </div>
+              ) : null;
+            })()}
             <div className="err" role="alert">{err}</div>
           </fieldset>
         </form>

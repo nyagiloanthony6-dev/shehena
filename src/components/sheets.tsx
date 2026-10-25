@@ -4,6 +4,7 @@ import { useStore } from "./store";
 import { useUi } from "./CargoApp";
 import { STICKER_SIZES, downloadReceiptAndStickers, downloadStickers, packages, saveStickerPrefs, stickerPrefs, type StickerPrefs } from "./stickers";
 import { downloadManifest } from "./manifest";
+import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
 import { PAY_LABEL, canRecordFound, settled } from "@/lib/domain";
 import { METHODS, STATUS, TSTATUS, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
@@ -11,7 +12,7 @@ import { METHODS, STATUS, TSTATUS, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPh
 export function ShipmentSheet({ id }: { id: string }) {
   const { shipById, tripById, can, patch, remove, me, company, toast } = useStore();
   const ui = useUi();
-  const [method, setMethod] = useState(METHODS[0]);
+  const [releasing, setReleasing] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const s = shipById(id);
   if (!s) return <div className="sheet-h"><p className="sub">This consignment no longer exists.</p><button className="btn sm" onClick={ui.close}>Close</button></div>;
@@ -35,18 +36,13 @@ export function ShipmentSheet({ id }: { id: string }) {
         {t && <p className="note">Vehicle <b className="mono">{t.plate}</b> · trip <a href="#" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.no}</a> · driver {t.driver || "—"}</p>}
         <div className="actions">
           {s.status === "received" && can("load") && <button className="btn" onClick={() => ui.go("trips")}>Load onto a vehicle</button>}
-          {s.status === "arrived" && can("dispatch") && settled(s) && <button className="btn primary" onClick={async () => { if (await P({ status: "collected", collected_at: now(), collected_by: me.full_name })) toast("Goods released to the customer"); }}>Release goods to customer</button>}
-          {s.status === "arrived" && can("pay") && s.pay === "unpaid" && (
-            <div className="confirm go" style={{ width: "100%" }}>
-              <span><b>TZS {tzs(s.charge)} unpaid.</b> Take payment before releasing the goods.</span>
-              <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: "auto" }} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
-              <button className="btn sm primary" onClick={async () => { const at = now(); if (await P({ pay: "paid", method, paid_at: at, paid_by: me.full_name, status: "collected", collected_at: at, collected_by: me.full_name })) toast("Payment recorded and goods released"); }}>Record payment &amp; release</button>
-            </div>
-          )}
+          {s.status === "arrived" && can("dispatch") && (settled(s) || can("pay")) && !releasing && <button className="btn primary" onClick={() => setReleasing(true)}>{s.pay === "unpaid" ? `Take TZS ${tzs(s.charge)} & release` : "Release goods to customer"}</button>}
           {s.status === "collected" && can("undo") && <button className="btn sm" onClick={() => P({ status: "arrived", collected_at: null, collected_by: null })}>Undo collected</button>}
         </div>
+        {releasing && s.status === "arrived" && <ReleaseForm s={s} onDone={() => setReleasing(false)} />}
         {s.status === "collected" && <p className="note">Collected {fmtDate(s.collected_at)}{s.collected_by ? " · released by " + s.collected_by : ""}</p>}
       </div>
+      <DeliveryNoteCard s={s} />
 
       <PaymentCard s={s} />
 
@@ -87,6 +83,7 @@ export function TripSheet({ id }: { id: string }) {
   const arriveTrip = useArriveTrip();
   const t = tripById(id);
   const [target, setTarget] = useState(String(t?.target || ""));
+  const [rent, setRent] = useState(String(t?.rent_cost || ""));
   if (!t) return <div className="sheet-h"><p className="sub">This trip no longer exists.</p><button className="btn sm" onClick={ui.close}>Close</button></div>;
   const list = tripShips(t);
   const idx = TSTATUS.findIndex((x) => x[0] === t.status);
@@ -119,7 +116,15 @@ export function TripSheet({ id }: { id: string }) {
           <dt>Driver</dt><dd>{t.driver || "—"} {t.driver_phone && <>· <span className="mono">{prettyPhone(t.driver_phone)}</span></>}</dd>
           <dt>Loaded by</dt><dd>{t.created_by_name || "—"}</dd>
           {t.departed_by && <><dt>Dispatched by</dt><dd>{t.departed_by}</dd></>}
+          {t.ownership && <><dt>Truck</dt><dd>{t.ownership === "rental" ? <>Rental{t.owner_name ? ` · owner ${t.owner_name}` : ""} · rent TZS {tzs(t.rent_cost || 0)} this trip</> : "Our own truck"}</dd></>}
         </dl>
+        {t.ownership === "rental" && can("settings") && (
+          <div className="actions" style={{ alignItems: "center" }}>
+            <span className="sub">Rent this trip TZS</span>
+            <input type="number" min={0} step={10000} value={rent} onChange={(e) => setRent(e.target.value)} style={{ width: 140 }} aria-label="Trip rent cost" />
+            <button className="btn sm" onClick={async () => { if (await patch<Trip>("trips", t.id, { rent_cost: Number(rent) || 0 })) toast("Rent saved"); }}>Save rent</button>
+          </div>
+        )}
         <div style={{ marginTop: 12 }}><Meter trip={t} /></div>
         {can("target") && (
           <div className="actions" style={{ alignItems: "center" }}>

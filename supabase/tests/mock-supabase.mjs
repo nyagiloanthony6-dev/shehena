@@ -57,9 +57,9 @@ function applyFilters(rows, params) {
 const visible = (c, table, rows) => c.service ? rows : SERVICE_ONLY.includes(table) ? [] : table === "platform_settings" ? rows : !c.profile ? [] :
   rows.filter((r) => (table === "companies" ? r.id : r.company_id) === c.profile.company_id);
 const DEFAULTS = {
-  vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null },
-  trips: { driver: "", driver_phone: "", target: 0, target_set_by: null, status: "loading", departed_at: null, departed_by: null, arrived_at: null, arrived_by: null },
-  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null, account_id: null, gross_charge: null, discount: 0, discount_reason: "", discount_by: null, discount_at: null },
+  vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null, ownership: "own", owner_name: "", owner_phone: "", rent_amount: 0, rent_basis: "trip" },
+  trips: { driver: "", driver_phone: "", target: 0, target_set_by: null, status: "loading", departed_at: null, departed_by: null, arrived_at: null, arrived_by: null, ownership: "own", owner_name: "", rent_cost: 0 },
+  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null, account_id: null, gross_charge: null, discount: 0, discount_reason: "", discount_by: null, discount_at: null, dn_no: null, collector_name: "", collector_phone: "", collector_id: "", collect_note: "" },
   bill_accounts: { phone: "", notes: "", active: true },
   bill_payments: { method: "", reference: "", note: "" },
   claims: { shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },

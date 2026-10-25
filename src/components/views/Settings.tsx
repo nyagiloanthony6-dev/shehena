@@ -140,13 +140,37 @@ function AddStaff() {
   );
 }
 
+type Rent = { ownership: "own" | "rental"; owner_name: string; owner_phone: string; rent_amount: string; rent_basis: "trip" | "month" };
+const rentOf = (v?: Vehicle): Rent => ({ ownership: v?.ownership || "own", owner_name: v?.owner_name || "", owner_phone: v?.owner_phone || "", rent_amount: v?.rent_amount ? String(v.rent_amount) : "", rent_basis: v?.rent_basis || "trip" });
+const rentValues = (r: Rent): Partial<Vehicle> => r.ownership === "own"
+  ? { ownership: "own", owner_name: "", owner_phone: "", rent_amount: 0, rent_basis: "trip" }
+  : { ownership: "rental", owner_name: r.owner_name.trim(), owner_phone: r.owner_phone.trim(), rent_amount: Number(r.rent_amount) || 0, rent_basis: r.rent_basis };
+/** Own truck, or rented: owner and rent per trip or per month. */
+function RentalFields({ r, set }: { r: Rent; set: (r: Rent) => void }) {
+  return (
+    <div className="fields four" style={{ marginTop: 8 }}>
+      <label className="f">Truck is<select value={r.ownership} onChange={(e) => set({ ...r, ownership: e.target.value as Rent["ownership"] })} aria-label="Ownership"><option value="own">Our own truck</option><option value="rental">Rental (hired)</option></select></label>
+      {r.ownership === "rental" && <>
+        <label className="f">Owner<input value={r.owner_name} onChange={(e) => set({ ...r, owner_name: e.target.value })} aria-label="Truck owner" /></label>
+        <label className="f">Owner phone<input value={r.owner_phone} onChange={(e) => set({ ...r, owner_phone: e.target.value })} inputMode="tel" /></label>
+        <label className="f">Rent (TZS)
+          <div style={{ display: "flex", gap: 6 }}>
+            <input type="number" min={0} step={10000} value={r.rent_amount} onChange={(e) => set({ ...r, rent_amount: e.target.value })} aria-label="Rent amount" />
+            <select value={r.rent_basis} onChange={(e) => set({ ...r, rent_basis: e.target.value as Rent["rent_basis"] })} style={{ width: "auto" }} aria-label="Rent basis"><option value="trip">per trip</option><option value="month">per month</option></select>
+          </div></label>
+      </>}
+    </div>
+  );
+}
+
 function VehicleRow({ v }: { v: Vehicle }) {
-  const { patch, remove, me, toast } = useStore();
+  const { patch, remove, me, toast, hasV9 } = useStore();
   const [f, setF] = useState({ driver: v.driver, driver_phone: v.driver_phone, target: String(v.target || "") });
+  const [r, setR] = useState<Rent>(rentOf(v));
   const [confirm, setConfirm] = useState(false);
   return (
     <div style={{ padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
-      <div className="mono" style={{ fontWeight: 600, marginBottom: 6 }}>{v.plate}</div>
+      <div className="mono" style={{ fontWeight: 600, marginBottom: 6 }}>{v.plate}{v.ownership === "rental" && <span className="tag-rental">Rental</span>}</div>
       <div className="fields four">
         <label className="f">Driver<input value={f.driver} onChange={(e) => setF({ ...f, driver: e.target.value })} /></label>
         <label className="f">Driver phone<input value={f.driver_phone} onChange={(e) => setF({ ...f, driver_phone: e.target.value })} inputMode="tel" /></label>
@@ -154,7 +178,7 @@ function VehicleRow({ v }: { v: Vehicle }) {
         <div style={{ display: "flex", gap: 6, alignItems: "end", flexWrap: "wrap" }}>
           <button className="btn sm primary" onClick={async () => {
             const tg = Number(f.target) || 0;
-            const vals: Partial<Vehicle> = { driver: f.driver.trim(), driver_phone: f.driver_phone.trim(), target: tg };
+            const vals: Partial<Vehicle> = { driver: f.driver.trim(), driver_phone: f.driver_phone.trim(), target: tg, ...(hasV9 ? rentValues(r) : {}) };
             if (tg !== Number(v.target || 0)) { vals.target_set_by = me.full_name; vals.target_set_at = new Date().toISOString(); }
             if (await patch<Vehicle>("vehicles", v.id, vals)) toast(`${v.plate} saved`);
           }}>Save</button>
@@ -163,14 +187,16 @@ function VehicleRow({ v }: { v: Vehicle }) {
             : <button className="btn sm danger" onClick={() => setConfirm(true)}>Remove</button>}
         </div>
       </div>
+      {hasV9 && <RentalFields r={r} set={setR} />}
       {v.target_set_by && <div className="sub" style={{ marginTop: 4 }}>Target set by {v.target_set_by} · {fmtDay(v.target_set_at)}</div>}
     </div>
   );
 }
 
 function AddVehicle() {
-  const { insert, me, toast, vehicles } = useStore();
+  const { insert, me, toast, vehicles, hasV9 } = useStore();
   const [f, setF] = useState({ plate: "", driver: "", driver_phone: "", target: "" });
+  const [r, setR] = useState<Rent>(rentOf());
   const [err, setErr] = useState("");
   return (
     <form noValidate style={{ marginTop: 14 }} onSubmit={async (e) => {
@@ -179,8 +205,8 @@ function AddVehicle() {
       if (!plate) return setErr("Enter the plate number.");
       if (vehicles.some((v) => v.plate === plate)) return setErr(`${plate} is already saved.`);
       const tg = Number(f.target) || 0;
-      const v = await insert<Vehicle>("vehicles", { plate, driver: f.driver.trim(), driver_phone: f.driver_phone.trim(), target: tg, target_set_by: tg ? me.full_name : null, target_set_at: tg ? new Date().toISOString() : null });
-      if (v) { setErr(""); setF({ plate: "", driver: "", driver_phone: "", target: "" }); toast(`${plate} added`); }
+      const v = await insert<Vehicle>("vehicles", { plate, driver: f.driver.trim(), driver_phone: f.driver_phone.trim(), target: tg, target_set_by: tg ? me.full_name : null, target_set_at: tg ? new Date().toISOString() : null, ...(hasV9 ? rentValues(r) : {}) });
+      if (v) { setErr(""); setF({ plate: "", driver: "", driver_phone: "", target: "" }); setR(rentOf()); toast(`${plate} added`); }
     }}>
       <div className="lbl" style={{ marginBottom: 8 }}>Add a vehicle</div>
       <div className="fields four">
@@ -189,6 +215,7 @@ function AddVehicle() {
         <label className="f">Driver phone<input value={f.driver_phone} onChange={(e) => setF({ ...f, driver_phone: e.target.value })} inputMode="tel" /></label>
         <label className="f">Target per trip (TZS)<input type="number" min={0} step={10000} value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} placeholder="e.g. 2000000" /></label>
       </div>
+      {hasV9 && <RentalFields r={r} set={setR} />}
       <div className="err" role="alert">{err}</div>
       <div className="actions"><button className="btn primary" type="submit">Add vehicle</button></div>
     </form>

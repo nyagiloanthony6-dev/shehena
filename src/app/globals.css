@@ -496,3 +496,4 @@ table.bands td{padding:4px 6px 4px 0;vertical-align:middle}
 .claim-other{background:var(--sunk);color:var(--muted)}
 .ledger table.manifest td{vertical-align:top}
 .bydate .ledger td{vertical-align:middle}
+.tag-rental{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--info-soft);color:var(--info);font-family:var(--f-body,inherit);vertical-align:middle;letter-spacing:.02em}

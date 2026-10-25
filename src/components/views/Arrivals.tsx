@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
+import { ReleaseForm } from "../release";
 import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip } from "../parts";
 import { METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
@@ -37,9 +38,8 @@ function RoadTruck({ t }: { t: Trip }) {
 
 /** One consignment waiting at the destination office. */
 function WaitingRow({ s }: { s: Shipment }) {
-  const { tripById, can, patch, me, toast } = useStore();
+  const { tripById, can } = useStore();
   const ui = useUi();
-  const [method, setMethod] = useState(METHODS[0]);
   const [paying, setPaying] = useState(false);
   const d = daysSince(s.arrived_at);
   const notified = sentLog(s, "arrived", "receiver").length > 0;
@@ -47,9 +47,8 @@ function WaitingRow({ s }: { s: Shipment }) {
   const lastReminder = reminders.length ? reminders[reminders.length - 1] : undefined;
   const reminderDue = s.pay === "unpaid" && notified && d >= 2 && (!lastReminder || daysSince(lastReminder.at) >= 2);
   const t = tripById(s.trip_id);
-  const at = () => new Date().toISOString();
   return (
-    <div className="nrow" style={{ alignItems: "start" }}>
+    <div className="nrow" style={{ alignItems: "start", flexWrap: "wrap" }}>
       <div style={{ minWidth: 0 }}>
         <button className="link" style={{ fontSize: 14.5, color: "var(--fg)" }} onClick={() => ui.openShip(s.id)}><b>{s.r_name}</b></button>{" "}
         <span className="mono sub">{prettyPhone(s.r_phone)}</span>
@@ -68,18 +67,12 @@ function WaitingRow({ s }: { s: Shipment }) {
           {reminderDue && <><span className="sub" style={{ alignSelf: "center" }}>Reminder:</span><SendButtons s={s} kind="reminder" to="receiver" /></>}
         </div>
         <div className="actions" style={{ margin: 0, justifyContent: "end" }}>
-          {settled(s) && can("dispatch") && (
-            <button className="btn sm primary" onClick={async () => { if (await patch<Shipment>("shipments", s.id, { status: "collected", collected_at: at(), collected_by: me.full_name })) toast(`Released to ${s.r_name}`); }}>Release goods</button>
+          {!paying && can("dispatch") && (settled(s) || can("pay")) && (
+            <button className={`btn sm${settled(s) ? " primary" : ""}`} onClick={() => setPaying(true)}>{settled(s) ? "Release goods" : "Take payment & release"}</button>
           )}
-          {s.pay === "unpaid" && can("pay") && (paying ? (
-            <>
-              <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: "auto" }} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
-              <button className="btn sm primary" onClick={async () => { const now = at(); if (await patch<Shipment>("shipments", s.id, { pay: "paid", method, paid_at: now, paid_by: me.full_name, status: "collected", collected_at: now, collected_by: me.full_name })) toast(`Paid and released to ${s.r_name}`); }}>Confirm TZS {tzs(s.charge)} &amp; release</button>
-              <button className="btn sm" onClick={() => setPaying(false)}>Cancel</button>
-            </>
-          ) : <button className="btn sm" onClick={() => setPaying(true)}>Take payment &amp; release</button>)}
         </div>
       </div>
+      {paying && <div style={{ flexBasis: "100%" }}><ReleaseForm s={s} onDone={() => setPaying(false)} /></div>}
     </div>
   );
 }
