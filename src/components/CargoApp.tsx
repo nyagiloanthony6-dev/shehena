@@ -13,7 +13,7 @@ import Bills, { AccountSheet } from "./views/Bills";
 import Claims, { ClaimSheet } from "./views/Claims";
 import Settings from "./views/Settings";
 import { signOut } from "@/app/login/actions";
-import { initials, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
+import { initials, regShort, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
 import { dayLabel, type Subscription } from "@/lib/billing";
 
 export type View = "home" | "list" | "new" | "trips" | "arrivals" | "bills" | "claims" | "reports" | "set";
@@ -23,8 +23,8 @@ const TABS: [View, string, Perm | null, string][] = [
   ["new", "Receive goods", "receive", "Receive"],
   ["trips", "Loading bay", null, "Loading"],
   ["arrivals", "Arrivals", null, "Arrivals"],
-  ["bills", "Monthly bills", null, "Bills"],
-  ["claims", "Claims", null, "Claims"],
+  ["bills", "Monthly bills", "money", "Bills"],
+  ["claims", "Claims", "money", "Claims"],
   ["reports", "Reports", "reports", "Reports"],
   ["set", "Settings", "settings", "Settings"],
 ];
@@ -167,7 +167,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
           {isOwner && <a className="side-owner" href="/owner">Owner console →</a>}
           <div className="side-user">
             <div className="avatar">{initials(st.me.full_name)}</div>
-            <div style={{ minWidth: 0 }}><div className="nm">{st.me.full_name}</div><span className="role">{ROLES[st.me.role]}</span></div>
+            <div style={{ minWidth: 0 }}><div className="nm">{st.me.full_name}</div><span className="role">{ROLES[st.me.role]}{st.me.role === "agent" && st.me.station ? ` · ${regShort(st.me.station)}` : ""}</span></div>
             <form action={signOut} style={{ marginLeft: "auto" }}><button className="iconbtn" type="submit" title="Sign out" aria-label="Sign out"><Icon name="logout" /></button></form>
           </div>
           <div className="credit">Developed by <b>Serengeti Labs</b></div>
@@ -176,7 +176,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
           <header className="mtop">
             <div className="brandrow" style={{ minWidth: 0 }}><Mark /><div style={{ minWidth: 0 }}><div className="mco">{st.company.name}</div><div className="sub">{st.company.branch}</div></div></div>
             <div className="mtop-r">
-              <span className="role">{ROLES[st.me.role]}</span>
+              <span className="role">{ROLES[st.me.role]}{st.me.role === "agent" && st.me.station ? ` · ${regShort(st.me.station)}` : ""}</span>
               {st.can("settings") && <button className="iconbtn" onClick={() => go("set")} title="Settings" aria-label="Settings"><Icon name="set" /></button>}
               <form action={signOut}><button className="iconbtn" type="submit" title="Sign out" aria-label="Sign out"><Icon name="logout" /></button></form>
             </div>
@@ -219,7 +219,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
         </div>
         <nav className="bottomnav" aria-label="Main">
           {items.filter(([k]) => MOBILE_MAIN.includes(k)).map(([k, , , short]) => navBtn(k, short))}
-          <button onClick={() => setMore(true)} aria-current={!MOBILE_MAIN.includes(view) ? "page" : undefined} aria-label="More"><Icon name="more" /><span>More</span></button>
+          {items.some(([k]) => !MOBILE_MAIN.includes(k)) && <button onClick={() => setMore(true)} aria-current={!MOBILE_MAIN.includes(view) ? "page" : undefined} aria-label="More"><Icon name="more" /><span>More</span></button>}
         </nav>
         {more && (
           <>

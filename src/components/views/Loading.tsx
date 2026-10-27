@@ -29,7 +29,8 @@ export default function Loading() {
   const { company, trips, shipments, vehicles, can, insert, me, toast, hasV9 } = useStore();
   const [hire, setHire] = useState({ ownership: "own" as "own" | "rental", owner_name: "", rent: "" });
   const ui = useUi();
-  const origin0 = company.default_origin || "DAR";
+  const station = me.role === "agent" ? me.station || null : null;
+  const origin0 = station || company.default_origin || "DAR";
   const [f, setF] = useState({ vehicle: "", plate: "", driver: "", driver_phone: "", target: "", origin: origin0, dest: origin0 === "DOD" ? "DAR" : "DOD" });
   const [err, setErr] = useState("");
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -88,7 +89,7 @@ export default function Loading() {
               <label className="f">Driver phone<input value={f.driver_phone} onChange={(e) => set("driver_phone", e.target.value)} inputMode="tel" /></label>
               <label className="f">Target collection (TZS) <small>{can("target") ? "per trip" : "set by Admin or CEO"}</small>
                 <input type="number" min={0} step={10000} value={f.target} readOnly={!can("target")} onChange={(e) => set("target", e.target.value)} placeholder={can("target") ? "e.g. 2000000" : "Pick a saved vehicle"} /></label>
-              <label className="f">From<select value={f.origin} onChange={(e) => set("origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
+              <label className="f">From{station && <small>your office</small>}<select value={f.origin} disabled={!!station} onChange={(e) => set("origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
               <label className="f">To<select value={f.dest} onChange={(e) => set("dest", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
               <div style={{ display: "flex", alignItems: "end" }}><button className="btn primary" type="submit" style={{ width: "100%" }}>Start loading</button></div>
             </div>

@@ -55,7 +55,15 @@ function applyFilters(rows, params) {
 }
 // Row visibility = same company (mirrors the RLS policies).
 const visible = (c, table, rows) => c.service ? rows : SERVICE_ONLY.includes(table) ? [] : table === "platform_settings" ? rows : !c.profile ? [] :
-  rows.filter((r) => (table === "companies" ? r.id : r.company_id) === c.profile.company_id);
+  rows.filter((r) => (table === "companies" ? r.id : r.company_id) === c.profile.company_id).filter((r) => {
+    // branch staff (mirrors migration 0010)
+    if (c.profile.role !== "agent") return true;
+    const st = c.profile.station;
+    if (table === "shipments") return r.created_by === c.profile.id || (r.status !== "received" && r.dest === st);
+    if (table === "trips") return r.origin === st || r.dest === st;
+    if (["bill_payments", "claims", "claim_payments"].includes(table)) return false;
+    return true;
+  });
 const DEFAULTS = {
   vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null, ownership: "own", owner_name: "", owner_phone: "", rent_amount: 0, rent_basis: "trip" },
   trips: { driver: "", driver_phone: "", target: 0, target_set_by: null, status: "loading", departed_at: null, departed_by: null, arrived_at: null, arrived_by: null, ownership: "own", owner_name: "", rent_cost: 0 },
@@ -65,7 +73,7 @@ const DEFAULTS = {
   claims: { shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },
   claim_payments: { method: "", reference: "" },
   companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all" },
-  profiles: { active: true },
+  profiles: { active: true, station: null },
 };
 
 http.createServer(async (req, res) => {
@@ -145,8 +153,10 @@ http.createServer(async (req, res) => {
         return wantRows || single ? out(out2) : send(res, 201);
       }
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier"], trips: ["admin", "cashier"], vehicles: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin", "cashier"], claims: ["admin", "cashier"], claim_payments: ["admin", "cashier"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin", "cashier"], claims: ["admin", "cashier"], claim_payments: ["admin", "cashier"] }[table] || [];
         if (!allowed.includes(role) || list.some((r) => r.company_id !== c.profile.company_id)) return send(res, 403, { message: "new row violates row-level security policy" });
+        if (role === "agent" && list.some((r) => (table === "shipments" && r.origin !== c.profile.station && !(r.found_on_arrival && r.dest === c.profile.station)) || (table === "trips" && r.origin !== c.profile.station)))
+          return send(res, 403, { message: "new row violates row-level security policy" });
         if (table === "trips" && role === "cashier") list.forEach((r) => { const v = db.vehicles.find((x) => x.company_id === r.company_id && x.plate === r.plate); r.target = v?.target || 0; });
       }
       db[table].push(...list);
@@ -163,7 +173,7 @@ http.createServer(async (req, res) => {
     if (req.method === "PATCH") {
       const b = await readBody(req);
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier"], trips: ["admin", "cashier", "ceo"], vehicles: ["admin", "ceo"], companies: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin"], claims: ["admin"], claim_payments: ["admin"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "ceo", "agent"], vehicles: ["admin", "ceo"], companies: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin"], claims: ["admin"], claim_payments: ["admin"] }[table] || [];
         if (SERVICE_ONLY.includes(table) || table === "platform_settings") return send(res, 403, { message: "permission denied" });
         if (!allowed.includes(role)) return out([]);
         if (role === "cashier" && "target" in b) return send(res, 400, { message: "Only the Admin or CEO can change a target" });

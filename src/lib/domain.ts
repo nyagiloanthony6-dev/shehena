@@ -1,6 +1,7 @@
 // Shared types, reference data and helpers for Shehena.
 
-export type Role = "admin" | "cashier" | "ceo";
+/** agent = branch staff at one destination office (profiles.station) */
+export type Role = "admin" | "cashier" | "ceo" | "agent";
 export type ShipStatus = "received" | "loaded" | "transit" | "arrived" | "collected";
 export type TripStatus = "loading" | "departed" | "arrived";
 export type NoticeKind = "received" | "departed" | "arrived" | "reminder";
@@ -25,6 +26,8 @@ export interface Profile {
   role: Role;
   active: boolean;
   created_at?: string;
+  /** branch staff only: the office (region code) they work at */
+  station?: string | null;
 }
 export interface Vehicle {
   id: string;
@@ -169,19 +172,22 @@ export const STATUS: [ShipStatus, string][] = [
   ["received", "At office"], ["loaded", "Loaded"], ["transit", "In transit"], ["arrived", "Arrived"], ["collected", "Collected"],
 ];
 export const TSTATUS: [TripStatus, string][] = [["loading", "Loading"], ["departed", "On the road"], ["arrived", "Arrived"]];
-export const ROLES: Record<Role, string> = { admin: "Admin", cashier: "Cashier", ceo: "CEO" };
+export const ROLES: Record<Role, string> = { admin: "Admin", cashier: "Cashier", ceo: "CEO", agent: "Branch staff" };
 
-export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims";
+export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims" | "money";
 const PERMS: Record<Role, Perm[]> = {
   // accounts = open/close monthly bill customers; claims = record claims and payments
-  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target", "accounts", "claims"],
-  cashier: ["receive", "pay", "load", "dispatch", "notify", "claims"],
-  ceo: ["reports", "target"],
+  // money = see monthly bills and claims
+  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target", "accounts", "claims", "money"],
+  cashier: ["receive", "pay", "load", "dispatch", "notify", "claims", "money"],
+  ceo: ["reports", "target", "money"],
+  // branch staff: their office's arrivals and the goods they receive; nothing else
+  agent: ["receive", "pay", "load", "dispatch", "notify"],
 };
 export const can = (role: Role | undefined, p: Perm) => !!role && PERMS[role].includes(p);
 /** Recording goods found on arrival: the Admin always; cashiers unless the Admin restricted it. */
 export const canRecordFound = (role: Role | undefined, company: Pick<Company, "found_goods_by">) =>
-  role === "admin" || (role === "cashier" && company.found_goods_by !== "admin");
+  role === "admin" || ((role === "cashier" || role === "agent") && company.found_goods_by !== "admin");
 
 export const regName = (c: string) => (REGIONS.find((r) => r[0] === c) || [c, c])[1];
 export const regShort = (c: string) => regName(c).replace(/ \(.*\)/, "");

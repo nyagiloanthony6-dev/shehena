@@ -77,6 +77,8 @@ function CompanyForm() {
 function StaffRow({ p }: { p: Profile }) {
   const { me, toast, reloadStaff } = useStore();
   const [pw, setPw] = useState<string | null>(null);
+  const [roleDraft, setRoleDraft] = useState<Role | null>(null);
+  const [station, setStation] = useState<string>("");
   const [pending, start] = useTransition();
   const self = p.id === me.id;
   const run = (fn: () => Promise<{ ok?: string; error?: string }>) => start(async () => {
@@ -87,7 +89,7 @@ function StaffRow({ p }: { p: Profile }) {
     <div className="lrow" style={{ flexWrap: "wrap" }}>
       <div>
         <b>{p.full_name}</b> {self && <span className="sub">(you)</span>}
-        <div className="sub">{p.email}{!p.active && " · Disabled"}</div>
+        <div className="sub">{p.email}{p.role === "agent" && p.station ? ` · ${ROLES.agent}, ${REGIONS.find(([c]) => c === p.station)?.[1] || p.station}` : ""}{!p.active && " · Disabled"}</div>
       </div>
       <div className="pwrow" style={{ justifyContent: "end" }}>
         {pw !== null ? (
@@ -98,9 +100,20 @@ function StaffRow({ p }: { p: Profile }) {
           </>
         ) : (
           <>
-            <select value={p.role} disabled={self || pending} onChange={(e) => run(() => setStaffRole(p.id, e.target.value as Role))} style={{ width: "auto" }} aria-label={`Role of ${p.full_name}`}>
+            <select value={roleDraft ?? p.role} disabled={self || pending} onChange={(e) => {
+              const r = e.target.value as Role;
+              if (r === "agent") { setRoleDraft("agent"); setStation(p.station || ""); } else { setRoleDraft(null); run(() => setStaffRole(p.id, r)); }
+            }} style={{ width: "auto" }} aria-label={`Role of ${p.full_name}`}>
               {(Object.keys(ROLES) as Role[]).map((r) => <option key={r} value={r}>{ROLES[r]}</option>)}
             </select>
+            {(roleDraft === "agent" || p.role === "agent") && (
+              <>
+                <select value={station || p.station || ""} disabled={pending} onChange={(e) => setStation(e.target.value)} style={{ width: "auto" }} aria-label={`Office of ${p.full_name}`}>
+                  <option value="">Office…</option>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}
+                </select>
+                {(roleDraft === "agent" || (station && station !== p.station)) && <button className="btn sm primary" disabled={pending || !(station || p.station)} onClick={() => run(() => setStaffRole(p.id, "agent", station || p.station))}>Save</button>}
+              </>
+            )}
             <button className="btn sm" onClick={() => setPw("")}>Set password</button>
             {!self && <button className={`btn sm${p.active ? " danger" : ""}`} disabled={pending} onClick={() => run(() => setStaffActive(p.id, !p.active))}>{p.active ? "Disable" : "Enable"}</button>}
           </>
@@ -112,7 +125,7 @@ function StaffRow({ p }: { p: Profile }) {
 
 function AddStaff() {
   const { toast, reloadStaff } = useStore();
-  const [f, setF] = useState({ full_name: "", email: "", role: "cashier" as Role, password: "" });
+  const [f, setF] = useState({ full_name: "", email: "", role: "cashier" as Role, password: "", station: "" });
   const [err, setErr] = useState("");
   const [pending, start] = useTransition();
   return (
@@ -122,7 +135,7 @@ function AddStaff() {
         const r = await createStaff(f);
         if (r.error) return setErr(r.error);
         setErr(""); toast(r.ok || "Staff member added");
-        setF({ full_name: "", email: "", role: "cashier", password: "" });
+        setF({ full_name: "", email: "", role: "cashier", password: "", station: "" });
         await reloadStaff();
       });
     }}>
@@ -130,9 +143,11 @@ function AddStaff() {
       <div className="fields four">
         <label className="f">Full name<input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></label>
         <label className="f">Email<input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="off" /></label>
-        <label className="f">Role<select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}><option value="cashier">Cashier</option><option value="admin">Admin</option><option value="ceo">CEO</option></select></label>
+        <label className="f">Role<select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}><option value="cashier">Cashier</option><option value="agent">Branch staff (one office)</option><option value="admin">Admin</option><option value="ceo">CEO</option></select></label>
         <label className="f">Password <small>8+ characters</small><input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="new-password" /></label>
+        {f.role === "agent" && <label className="f">Office <small>where they work</small><select value={f.station} onChange={(e) => setF({ ...f, station: e.target.value })} aria-label="Branch office"><option value="">Choose…</option>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>}
       </div>
+      {f.role === "agent" && <p className="note" style={{ marginTop: 6 }}>Branch staff see only goods loaded to their office and goods they receive themselves. They receive goods at their office, load and dispatch trucks leaving it, mark trucks arriving, notify customers, take payment and release goods with a delivery note. They don&apos;t see reports, monthly bills, claims or settings.</p>}
       <div className="err" role="alert">{err}</div>
       <div className="actions"><button className="btn primary" type="submit" disabled={pending}>{pending ? "Adding…" : "Add staff member"}</button></div>
       <p className="note">Give the person their email and password. They can change the password with &quot;Forgot password?&quot; on the sign-in page.</p>

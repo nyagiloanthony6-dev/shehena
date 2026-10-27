@@ -16,6 +16,7 @@ load trucks against collection targets, dispatch, and notify customers by SMS / 
 | **Admin** | Everything: staff accounts, vehicles, company settings, targets, delete records, undo payments |
 | **Cashier** | Receive goods, issue receipts, record payments, load trucks, dispatch, send notices |
 | **CEO** | Overview, monthly collections, reports by truck / trip / paid & unpaid, set targets. Read-only otherwise |
+| **Branch staff** | Works at one office (e.g. Dodoma). Sees only goods loaded to that office and goods they received themselves. Receives goods at their office, loads and dispatches trucks leaving it, marks trucks arriving, notifies customers, takes payment and releases with a delivery note. No reports, bills, claims or settings |
 
 These rules are enforced **in the database**, not just hidden in the screens.
 
@@ -125,6 +126,10 @@ When a truck is marked **arrived**, the trip shows arrival notices with unpaid r
 Unpaid receivers are told the amount and how to pay (from **Settings → How customers pay**), then to
 come with ID to collect. Goods can't be released until paid — the database refuses it. Unpaid goods
 waiting 2+ days are flagged on the Overview, and each one has a **Payment reminder** message.
+
+## Branch staff (destination offices)
+Add them in **Settings → Staff** with the role *Branch staff* and their office. The database limits what
+they can see and change (migration `0010_branch_staff.sql`); the Admin, cashiers and CEO see everything.
 
 ## Delivery notes
 At the destination, **Release goods** (Arrivals or the consignment) asks who is collecting: name, phone,

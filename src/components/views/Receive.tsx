@@ -29,13 +29,16 @@ const blank = (origin: string) => ({
 
 export default function Receive() {
   const { company, shipments, trips, me, insert, toast, accounts, hasExtras, can } = useStore();
+  // Branch staff always receive at their own office; it can't be changed.
+  const station = me.role === "agent" ? me.station || null : null;
+  const home = station || company.default_origin || "DAR";
   const activeAccounts = accounts.filter((a) => a.active);
   const ui = useUi();
   // "Found on arrival" mode: goods discovered on an arrived truck that were never recorded at loading.
   const trip = ui.foundTrip ? trips.find((t) => t.id === ui.foundTrip && t.status === "arrived") || null : null;
   const found = !!trip && canRecordFound(me.role, company);
   const [foundNote, setFoundNote] = useState("");
-  const [f, setF] = useState(() => blank(company.default_origin || "DAR"));
+  const [f, setF] = useState(() => blank(home));
   const [lines, setLines] = useState<Line[]>([blankLine()]);
   const setLine = (i: number, k: keyof Line, v: string) => setLines((L) => L.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
   const items = toItems(lines);
@@ -109,7 +112,7 @@ export default function Receive() {
     }
     setBusy(false);
     if (!saved) return;
-    setF(blank(company.default_origin || "DAR"));
+    setF(blank(home));
     setLines([blankLine()]);
     setFoundNote("");
     if (found) ui.recordFound(null);
@@ -155,7 +158,7 @@ export default function Receive() {
           ) : (
           <fieldset><legend>Route</legend>
             <div className="fields">
-              <label className="f">From<select value={f.origin} onChange={(e) => set("origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
+              <label className="f">From{station && <small>your office</small>}<select value={f.origin} disabled={!!station} onChange={(e) => set("origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
               <label className="f">To<select value={f.dest} onChange={(e) => set("dest", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
             </div>
           </fieldset>
@@ -210,7 +213,7 @@ export default function Receive() {
           <div className="err" role="alert">{err}</div>
           <div className="actions">
             <button className="btn primary" type="submit" disabled={busy}>{busy ? "Saving…" : found ? "Save found goods & issue receipt" : "Save & issue receipt"}</button>
-            <button className="btn" type="button" onClick={() => { setF(blank(company.default_origin || "DAR")); setLines([blankLine()]); setErr(""); }}>Clear</button>
+            <button className="btn" type="button" onClick={() => { setF(blank(home)); setLines([blankLine()]); setErr(""); }}>Clear</button>
           </div>
         </div>
         <aside className="preview"><div className="lbl" style={{ marginBottom: 8 }}>Receipt preview</div><Slip s={preview} company={company} account={account?.name} /></aside>
