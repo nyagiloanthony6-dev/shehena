@@ -13,7 +13,7 @@ import Bills, { AccountSheet } from "./views/Bills";
 import Claims, { ClaimSheet } from "./views/Claims";
 import Settings from "./views/Settings";
 import { signOut } from "@/app/login/actions";
-import { initials, regShort, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
+import { initials, officesOf, regShort, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
 import { dayLabel, type Subscription } from "@/lib/billing";
 
 export type View = "home" | "list" | "new" | "trips" | "arrivals" | "bills" | "claims" | "reports" | "set";
@@ -152,7 +152,8 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
       <Icon name={k} /><span>{label}</span>{k === "trips" && loadingN > 0 && <span className="nbadge">{loadingN}</span>}{k === "arrivals" && roadN > 0 && <span className="nbadge">{roadN}</span>}
     </button>
   );
-  const needsSetup = st.can("settings") && (!st.company.phone || !st.company.branch);
+  const noOffices = "offices" in st.company && officesOf(st.company).length < 2;
+  const needsSetup = st.can("settings") && (!st.company.phone || !st.company.branch || noOffices);
 
   return (
     <UiCtx.Provider value={ui}>
@@ -197,7 +198,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
             )}
             {needsSetup && view !== "set" && (
               <div className="banner" style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", background: "var(--accent-soft)", color: "var(--fg)" }}>
-                <span><b>Finish your company details.</b> Add your branch and office phone. They appear on receipts and customer messages.</span>
+                <span><b>Finish your company details.</b> {!st.company.phone || !st.company.branch ? "Add your branch and office phone. They appear on receipts and customer messages. " : ""}{noOffices ? "Add the towns you deliver to under Offices and routes." : ""}</span>
                 <button className="btn sm primary" onClick={() => go("set")}>Open settings</button>
               </div>
             )}

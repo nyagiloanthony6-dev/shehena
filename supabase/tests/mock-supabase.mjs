@@ -72,7 +72,7 @@ const DEFAULTS = {
   bill_payments: { method: "", reference: "", note: "" },
   claims: { shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },
   claim_payments: { method: "", reference: "" },
-  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all" },
+  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [] },
   profiles: { active: true, station: null },
 };
 

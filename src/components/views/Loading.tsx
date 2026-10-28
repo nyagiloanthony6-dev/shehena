@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
+import { RegionOptions } from "../RegionOptions";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { TripCard, TrucksByDate } from "../parts";
-import { REGIONS, TSTATUS, fmtDay, pkgsOf, sumCharge, tzs, ymd, type Trip, type Vehicle } from "@/lib/domain";
+import { REGIONS, TSTATUS, fmtDay, pkgsOf, sumCharge, tzs, ymd, type Trip, type Vehicle, officesOf } from "@/lib/domain";
 
 function TargetRow({ v }: { v: Vehicle }) {
   const { patch, me, toast } = useStore();
@@ -89,8 +90,8 @@ export default function Loading() {
               <label className="f">Driver phone<input value={f.driver_phone} onChange={(e) => set("driver_phone", e.target.value)} inputMode="tel" /></label>
               <label className="f">Target collection (TZS) <small>{can("target") ? "per trip" : "set by Admin or CEO"}</small>
                 <input type="number" min={0} step={10000} value={f.target} readOnly={!can("target")} onChange={(e) => set("target", e.target.value)} placeholder={can("target") ? "e.g. 2000000" : "Pick a saved vehicle"} /></label>
-              <label className="f">From{station && <small>your office</small>}<select value={f.origin} disabled={!!station} onChange={(e) => set("origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
-              <label className="f">To<select value={f.dest} onChange={(e) => set("dest", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
+              <label className="f">From{station && <small>your office</small>}<select value={f.origin} disabled={!!station} onChange={(e) => set("origin", e.target.value)}><RegionOptions offices={officesOf(company)} /></select></label>
+              <label className="f">To<select value={f.dest} onChange={(e) => set("dest", e.target.value)}><RegionOptions offices={officesOf(company)} /></select></label>
               <div style={{ display: "flex", alignItems: "end" }}><button className="btn primary" type="submit" style={{ width: "100%" }}>Start loading</button></div>
             </div>
             {hasV9 && (() => {

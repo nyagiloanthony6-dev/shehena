@@ -17,7 +17,15 @@ export interface Company {
   payment_instructions: string;
   /** Who may record goods found on an arrived truck: Admin and cashiers, or the Admin only. */
   found_goods_by?: "all" | "admin";
+  /** region codes where the company has an office; head office = default_origin */
+  offices?: string[];
 }
+/** The company's offices, head office first. */
+export const officesOf = (c: Pick<Company, "offices" | "default_origin">) => {
+  const list = (c.offices || []).filter((x) => REGIONS.some(([r]) => r === x));
+  const head = c.default_origin || "DAR";
+  return [head, ...list.filter((x) => x !== head)];
+};
 export interface Profile {
   id: string;
   company_id: string;

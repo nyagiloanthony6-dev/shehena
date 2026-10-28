@@ -1,10 +1,11 @@
 "use client";
 import { useMemo, useState } from "react";
 import { downloadReceiptAndStickers, packages, stickerPrefs } from "../stickers";
+import { RegionOptions } from "../RegionOptions";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Slip } from "../parts";
-import { METHODS, REGIONS, canRecordFound, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment } from "@/lib/domain";
+import { METHODS, REGIONS, canRecordFound, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment, officesOf } from "@/lib/domain";
 
 type Line = { name: string; pkgs: string; kg: string; unit: string; charge: string };
 const blankLine = (): Line => ({ name: "", pkgs: "1", kg: "", unit: "", charge: "" });
@@ -158,8 +159,8 @@ export default function Receive() {
           ) : (
           <fieldset><legend>Route</legend>
             <div className="fields">
-              <label className="f">From{station && <small>your office</small>}<select value={f.origin} disabled={!!station} onChange={(e) => set("origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
-              <label className="f">To<select value={f.dest} onChange={(e) => set("dest", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
+              <label className="f">From{station && <small>your office</small>}<select value={f.origin} disabled={!!station} onChange={(e) => set("origin", e.target.value)}><RegionOptions offices={officesOf(company)} /></select></label>
+              <label className="f">To<select value={f.dest} onChange={(e) => set("dest", e.target.value)}><RegionOptions offices={officesOf(company)} /></select></label>
             </div>
           </fieldset>
           )}

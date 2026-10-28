@@ -1,7 +1,8 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useStore } from "../store";
-import { REGIONS, ROLES, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
+import { RegionOptions } from "../RegionOptions";
+import { REGIONS, ROLES, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
 import { dayLabel, type Subscription } from "@/lib/billing";
 import { downloadSubscriptionReceipt } from "../billingPdf";
@@ -41,6 +42,43 @@ function SubscriptionCard({ sub }: { sub: Subscription }) {
   );
 }
 
+/** Head office and the towns the company delivers to (its branches). */
+function OfficesForm() {
+  const { company, patchCompany, toast, staff } = useStore();
+  const [head, setHead] = useState(company.default_origin || "DAR");
+  const [list, setList] = useState<string[]>(() => officesOf(company).filter((x) => x !== (company.default_origin || "DAR")));
+  const [pick, setPick] = useState("");
+  if (!("offices" in company)) return null;
+  const name = (c: string) => REGIONS.find(([r]) => r === c)?.[1] || c;
+  const staffAt = (c: string) => staff.filter((p) => p.role === "agent" && p.station === c && p.active).length;
+  const changed = head !== company.default_origin || [head, ...list].join() !== officesOf(company).join();
+  return (
+    <fieldset style={{ maxWidth: 760 }}><legend>Offices and routes</legend>
+      <p className="sub" style={{ marginTop: 0 }}>Where you send goods from, and the towns you deliver to. These are your branches: branch staff are assigned to one, and they are listed first when receiving goods and loading trucks.</p>
+      <div className="fields">
+        <label className="f">Head office <small>where you send goods from</small>
+          <select value={head} onChange={(e) => { const v = e.target.value; setHead(v); setList((L) => L.filter((x) => x !== v)); }} aria-label="Head office">{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
+        <label className="f">Add a town you deliver to
+          <div style={{ display: "flex", gap: 6 }}>
+            <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Add office"><option value="">Choose…</option>{REGIONS.filter(([c]) => c !== head && !list.includes(c)).map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select>
+            <button type="button" className="btn sm" disabled={!pick} onClick={() => { setList((L) => [...L, pick]); setPick(""); }}>Add</button>
+          </div></label>
+      </div>
+      <div className="officelist">
+        <span className="office head">{name(head)} <small>head office{staffAt(head) ? ` · ${staffAt(head)} branch staff` : ""}</small></span>
+        {list.map((c) => (
+          <span className="office" key={c}>{name(c)}{staffAt(c) ? <small> · {staffAt(c)} branch staff</small> : null}
+            <button type="button" onClick={() => setList((L) => L.filter((x) => x !== c))} aria-label={`Remove ${name(c)}`} title={staffAt(c) ? "Branch staff still work here" : "Remove"}>✕</button></span>
+        ))}
+        {!list.length && <span className="sub">No destinations yet. Add the towns you deliver to.</span>}
+      </div>
+      <div className="actions"><button className="btn primary" disabled={!changed} onClick={async () => {
+        if (await patchCompany({ default_origin: head, offices: [head, ...list] })) toast("Offices saved");
+      }}>Save offices</button></div>
+    </fieldset>
+  );
+}
+
 function CompanyForm() {
   const { company, patchCompany, toast } = useStore();
   const [f, setF] = useState({ name: company.name, branch: company.branch, phone: company.phone, default_origin: company.default_origin, message_lang: company.message_lang, payment_instructions: company.payment_instructions || "", found_goods_by: company.found_goods_by || "all" });
@@ -58,7 +96,7 @@ function CompanyForm() {
           <label className="f full">Company name<input value={f.name} onChange={(e) => set("name", e.target.value)} /></label>
           <label className="f">Branch<input value={f.branch} onChange={(e) => set("branch", e.target.value)} placeholder="e.g. Kariakoo, Dar es Salaam" /></label>
           <label className="f">Office phone<input value={f.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" /></label>
-          <label className="f">Default origin<select value={f.default_origin} onChange={(e) => set("default_origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
+          {!("offices" in company) && <label className="f">Default origin<select value={f.default_origin} onChange={(e) => set("default_origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>}
           <label className="f">Message language<select value={f.message_lang} onChange={(e) => set("message_lang", e.target.value)}><option value="sw">Kiswahili</option><option value="en">English</option></select></label>
           <label className="f full">Goods found on arrival <small>found on a truck but not recorded at loading</small>
             <select value={f.found_goods_by} onChange={(e) => set("found_goods_by", e.target.value)}>
@@ -75,7 +113,7 @@ function CompanyForm() {
 }
 
 function StaffRow({ p }: { p: Profile }) {
-  const { me, toast, reloadStaff } = useStore();
+  const { me, toast, reloadStaff, company } = useStore();
   const [pw, setPw] = useState<string | null>(null);
   const [roleDraft, setRoleDraft] = useState<Role | null>(null);
   const [station, setStation] = useState<string>("");
@@ -109,7 +147,7 @@ function StaffRow({ p }: { p: Profile }) {
             {(roleDraft === "agent" || p.role === "agent") && (
               <>
                 <select value={station || p.station || ""} disabled={pending} onChange={(e) => setStation(e.target.value)} style={{ width: "auto" }} aria-label={`Office of ${p.full_name}`}>
-                  <option value="">Office…</option>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}
+                  <option value="">Office…</option><RegionOptions offices={officesOf(company)} onlyOffices />
                 </select>
                 {(roleDraft === "agent" || (station && station !== p.station)) && <button className="btn sm primary" disabled={pending || !(station || p.station)} onClick={() => run(() => setStaffRole(p.id, "agent", station || p.station))}>Save</button>}
               </>
@@ -124,7 +162,7 @@ function StaffRow({ p }: { p: Profile }) {
 }
 
 function AddStaff() {
-  const { toast, reloadStaff } = useStore();
+  const { toast, reloadStaff, company } = useStore();
   const [f, setF] = useState({ full_name: "", email: "", role: "cashier" as Role, password: "", station: "" });
   const [err, setErr] = useState("");
   const [pending, start] = useTransition();
@@ -145,7 +183,7 @@ function AddStaff() {
         <label className="f">Email<input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="off" /></label>
         <label className="f">Role<select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as Role })}><option value="cashier">Cashier</option><option value="agent">Branch staff (one office)</option><option value="admin">Admin</option><option value="ceo">CEO</option></select></label>
         <label className="f">Password <small>8+ characters</small><input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="new-password" /></label>
-        {f.role === "agent" && <label className="f">Office <small>where they work</small><select value={f.station} onChange={(e) => setF({ ...f, station: e.target.value })} aria-label="Branch office"><option value="">Choose…</option>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>}
+        {f.role === "agent" && <label className="f">Office <small>where they work</small><select value={f.station} onChange={(e) => setF({ ...f, station: e.target.value })} aria-label="Branch office"><option value="">Choose…</option><RegionOptions offices={officesOf(company)} onlyOffices /></select></label>}
       </div>
       {f.role === "agent" && <p className="note" style={{ marginTop: 6 }}>Branch staff see only goods loaded to their office and goods they receive themselves. They receive goods at their office, load and dispatch trucks leaving it, mark trucks arriving, notify customers, take payment and release goods with a delivery note. They don&apos;t see reports, monthly bills, claims or settings.</p>}
       <div className="err" role="alert">{err}</div>
@@ -244,6 +282,7 @@ export default function Settings({ sub }: { sub?: Subscription | null }) {
       <div className="sectionhead"><h1>Settings</h1></div>
       {sub && <SubscriptionCard sub={sub} />}
       <CompanyForm />
+      <OfficesForm />
       <fieldset style={{ maxWidth: 760 }}><legend>Staff accounts</legend>
         <p className="sub" style={{ marginTop: 0 }}>Everyone signs in with their own email and password. Admins manage staff and settings; cashiers receive goods, take payments and load trucks; the CEO sees reports and sets targets.</p>
         {staff.map((p) => <StaffRow key={p.id + p.role + p.active} p={p} />)}

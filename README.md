@@ -127,6 +127,12 @@ Unpaid receivers are told the amount and how to pay (from **Settings → How cus
 come with ID to collect. Goods can't be released until paid — the database refuses it. Unpaid goods
 waiting 2+ days are flagged on the Overview, and each one has a **Payment reminder** message.
 
+## Offices (branches)
+Registration asks where the company sends goods from (head office) and the towns it delivers to.
+The Admin changes them in **Settings → Offices and routes**. Branch staff are assigned to one of these
+offices, and receiving and loading list the company's offices first. Requires `0011_offices.sql`
+(existing companies start with their head office plus every town they've already sent goods to).
+
 ## Branch staff (destination offices)
 Add them in **Settings → Staff** with the role *Branch staff* and their office. The database limits what
 they can see and change (migration `0010_branch_staff.sql`); the Admin, cashiers and CEO see everything.

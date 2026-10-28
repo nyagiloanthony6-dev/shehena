@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseServer } from "@/lib/supabase/server";
 import type { FormState } from "../login/actions";
+import { REGIONS } from "@/lib/domain";
 
 /** Registers a new cargo company and its first Admin account. */
 export async function signUpCompany(_: FormState, fd: FormData): Promise<FormState> {
@@ -14,6 +15,10 @@ export async function signUpCompany(_: FormState, fd: FormData): Promise<FormSta
   const email = String(fd.get("email") || "").trim().toLowerCase();
   const password = String(fd.get("password") || "");
   if (!company || !fullName) return { error: "Enter the company name and your full name." };
+  const valid = (c: string) => REGIONS.some(([r]) => r === c);
+  const origin = valid(String(fd.get("origin") || "")) ? String(fd.get("origin")) : "DAR";
+  const dests = [...new Set(fd.getAll("dest").map(String).filter((c) => valid(c) && c !== origin))];
+  if (!dests.length) return { error: "Tick at least one town you deliver goods to." };
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: "Enter a valid email address." };
   if (password.length < 8) return { error: "Choose a password of at least 8 characters." };
 
@@ -24,7 +29,9 @@ export async function signUpCompany(_: FormState, fd: FormData): Promise<FormSta
   if (error || !created.user) {
     return { error: /already|registered|exists/i.test(error?.message || "") ? "An account with this email already exists. Sign in instead." : "Could not create the account. Try again." };
   }
-  const { data: co, error: coErr } = await admin.from("companies").insert({ name: company }).select("id").single();
+  // offices needs migration 0011; without it, register with the head office only.
+  let { data: co, error: coErr } = await admin.from("companies").insert({ name: company, default_origin: origin, offices: [origin, ...dests] }).select("id").single();
+  if (coErr && /offices/i.test(coErr.message)) ({ data: co, error: coErr } = await admin.from("companies").insert({ name: company, default_origin: origin }).select("id").single());
   if (coErr || !co) {
     await admin.auth.admin.deleteUser(created.user.id);
     return { error: "Could not create the company. Try again." };
