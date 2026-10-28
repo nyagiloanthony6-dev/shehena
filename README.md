@@ -66,8 +66,11 @@ Open **/owner** while signed in with an email listed in `OWNER_EMAILS`. From the
 Requires migration `0003_client_accounts.sql` and the `OWNER_EMAILS` environment variable.
 
 ## Billing client companies
-In the owner console, **Price bands** set the monthly fee by number of trucks (default TZS 80,000 for 1
-truck, 150,000 for 2–3, 250,000 for 4–6, 350,000 for 7–10, 450,000 for 11+). **Billing rules** set the free
+Clients pay **per active truck**: every truck that made a trip in Shehena in the last 30 days (any plate
+loaded, saved under Vehicles or hired for one trip; "T 101 AAA" and "t101aaa" count once), times the
+price per truck, never below the minimum monthly fee (defaults TZS 50,000 a truck, minimum 80,000; set
+in the owner console under **Price per truck**, migration `0013_per_truck_pricing.sql`). Idle trucks cost
+nothing. A custom fee on a company overrides the price list. Each payment keeps the truck count for its receipt. **Billing rules** set the free
 trial length, grace days, automatic suspension, and how clients pay you.
 - New companies start on a free trial. Open a company and **Record a payment** (months, amount, any setup
   fee, M-Pesa code) — paid-until moves forward and a PDF receipt is ready for the client.

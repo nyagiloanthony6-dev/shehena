@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isOwnerEmail } from "@/lib/owner";
-import { billingBands, refreshStatuses } from "@/lib/billing-server";
+import { activeTrucks, billingSettings, refreshStatuses } from "@/lib/billing-server";
 import { BILLING_DEFAULTS } from "@/lib/billing";
 import AuthShell from "@/components/AuthShell";
 import OwnerConsole, { type OwnerData } from "@/components/OwnerConsole";
@@ -29,7 +29,7 @@ export default async function OwnerPage() {
   }
   const admin = supabaseAdmin();
   await refreshStatuses();
-  const [companies, accounts, stats, staff, settings, audit, own, leads, bands, payments, agents, commissions, payouts] = await Promise.all([
+  const [companies, accounts, stats, staff, settings, audit, own, leads, active, pricing, payments, agents, commissions, payouts] = await Promise.all([
     admin.from("companies").select("id, name, branch, phone, created_at").order("created_at", { ascending: false }),
     admin.from("company_accounts").select("*"),
     admin.rpc("owner_company_stats"),
@@ -38,7 +38,8 @@ export default async function OwnerPage() {
     admin.from("owner_audit").select("*").order("at", { ascending: false }).limit(60),
     admin.from("profiles").select("id").eq("id", user.id).maybeSingle(),
     admin.from("leads").select("*").order("created_at", { ascending: false }).limit(300),
-    billingBands(),
+    activeTrucks(),
+    billingSettings(),
     admin.from("billing_payments").select("*").order("paid_on", { ascending: false }).limit(1000),
     admin.from("sales_agents").select("*").order("name"),
     admin.from("commissions").select("*").order("earned_on", { ascending: false }).limit(3000),
@@ -52,8 +53,8 @@ export default async function OwnerPage() {
     accounts: accounts.data || [],
     stats: stats.data || [],
     staff: staff.data || [],
-    settings: { signup_open: true, announcement: "", announcement_updated_at: null, ...BILLING_DEFAULTS, ...(settings.data || {}) },
-    bands,
+    settings: { signup_open: true, announcement: "", announcement_updated_at: null, ...BILLING_DEFAULTS, ...(settings.data || {}), truck_price: pricing.truck_price, min_fee: pricing.min_fee },
+    active,
     payments: n(payments.data, ["amount", "setup_fee"]) as never,
     agents: n(agents.data, ["signing_pct", "setup_pct", "commission_pct", "commission_months"]) as never,
     commissions: n(commissions.data, ["amount"]) as never,

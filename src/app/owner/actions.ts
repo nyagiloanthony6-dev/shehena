@@ -2,8 +2,8 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { currentOwner, type AccountStatus } from "@/lib/owner";
-import { billingSettings, refreshStatuses } from "@/lib/billing-server";
-import { AGENT_DEFAULTS, addDays, dayLabel, bandsProblem, commissionLines, periodEnd, refSlug, today, type Band, type CommissionKind } from "@/lib/billing";
+import { activeTrucks, billingSettings, refreshStatuses } from "@/lib/billing-server";
+import { AGENT_DEFAULTS, addDays, dayLabel, commissionLines, periodEnd, refSlug, today, type CommissionKind } from "@/lib/billing";
 
 type Result = { ok?: string; error?: string };
 const STATUSES: AccountStatus[] = ["trial", "active", "overdue", "suspended"];
@@ -178,10 +178,14 @@ export async function recordPayment(input: {
     const { data: acc } = await admin.from("company_accounts").select("paid_until, agent_id, agent_since").eq("company_id", input.companyId).maybeSingle();
     const { data: earlier } = await admin.from("billing_payments").select("amount, setup_fee").eq("company_id", input.companyId);
     const paid_on = input.paid_on || today();
-    const { data: pay, error } = await admin.from("billing_payments").insert({
+    const trucks = ((await activeTrucks(input.companyId))[input.companyId] || []).length;
+    const row = {
       company_id: input.companyId, amount, setup_fee, months, period_from: input.from, period_to,
       method: input.method.trim().slice(0, 40), reference: input.reference.trim().slice(0, 80), paid_on, recorded_by: by,
-    }).select("id").single();
+    };
+    let { data: pay, error } = await admin.from("billing_payments").insert({ ...row, trucks }).select("id").single();
+    // Before migration 0013 there is no trucks column; save the payment without it.
+    if (error && /trucks/i.test(error.message)) ({ data: pay, error } = await admin.from("billing_payments").insert(row).select("id").single());
     if (error || !pay) return { error: "Could not record the payment." };
     // The salesperson who brought this client earns on it, at their rates today.
     let earned = 0;
@@ -233,21 +237,17 @@ export async function deletePayment(id: number | string): Promise<Result> {
   } catch (e) { return fail(e); }
 }
 
-export async function saveBands(bands: Band[]): Promise<Result> {
+export async function savePricing(input: { truck_price: number; min_fee: number }): Promise<Result> {
   try {
     const by = await owner();
-    const clean = bands.map((b) => ({ min_trucks: Number(b.min_trucks), max_trucks: b.max_trucks == null || (b.max_trucks as unknown) === "" ? null : Number(b.max_trucks), monthly_fee: Number(b.monthly_fee) }));
-    const problem = bandsProblem(clean);
-    if (problem) return { error: problem };
-    const admin = supabaseAdmin();
-    const { data: old } = await admin.from("billing_bands").select("min_trucks, max_trucks, monthly_fee");
-    const { error: dErr } = await admin.from("billing_bands").delete().gte("min_trucks", 0);
-    if (dErr) return { error: "Could not save the price bands." };
-    const { error } = await admin.from("billing_bands").insert(clean);
-    if (error) { if (old?.length) await admin.from("billing_bands").insert(old); return { error: "Could not save the price bands." }; }
-    await audit(by, "billing.bands", null, { bands: clean });
+    const truck_price = Math.round(Number(input.truck_price)), min_fee = Math.round(Number(input.min_fee));
+    if (!(truck_price > 0)) return { error: "Enter the price per truck." };
+    if (!(min_fee >= 0)) return { error: "The minimum monthly fee must be 0 or more." };
+    const { error } = await supabaseAdmin().from("platform_settings").update({ truck_price, min_fee }).eq("id", 1);
+    if (error) return { error: /truck_price|min_fee|column/i.test(error.message) ? "Run migration 0013_per_truck_pricing.sql in Supabase first." : "Could not save the price." };
+    await audit(by, "billing.pricing", null, { truck_price, min_fee });
     revalidatePath("/owner");
-    return { ok: "Price bands saved. New fees apply to the next payment you record." };
+    return { ok: "Price saved. New fees apply to the next payment you record." };
   } catch (e) { return fail(e); }
 }
 

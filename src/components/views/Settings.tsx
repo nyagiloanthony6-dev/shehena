@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { RegionOptions } from "../RegionOptions";
 import { REGIONS, ROLES, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
-import { dayLabel, type Subscription } from "@/lib/billing";
+import { ACTIVE_DAYS, dayLabel, feeWorking, planLabel, type Subscription } from "@/lib/billing";
 import { downloadSubscriptionReceipt } from "../billingPdf";
 
 const SUB_LABEL = { trial: "Free trial", active: "Active", overdue: "Overdue", suspended: "Suspended" } as const;
@@ -20,11 +20,11 @@ function SubscriptionCard({ sub }: { sub: Subscription }) {
         </span>
       </div>
       <dl className="kv" style={{ marginTop: 12 }}>
-        <dt>Plan</dt><dd>{sub.band} <span className="sub">· you have {sub.trucks} truck{sub.trucks === 1 ? "" : "s"}</span></dd>
-        <dt>Monthly fee</dt><dd className="num">TZS {tzs(sub.fee)}{sub.custom && <span className="sub"> · agreed price</span>}</dd>
+        <dt>Active trucks</dt><dd>{sub.trucks}{sub.plates.length > 0 && <span className="sub mono"> · {sub.plates.join(", ")}</span>}</dd>
+        <dt>Monthly fee</dt><dd className="num">TZS {tzs(sub.fee)} <span className="sub">· {sub.custom ? "agreed price" : feeWorking(sub, sub.trucks)}</span></dd>
         <dt>How to pay</dt><dd>{sub.instructions || "Contact Serengeti Labs."}</dd>
       </dl>
-      <p className="note">The plan follows the number of trucks under Vehicles. Adding trucks may move you to the next band from your next payment.</p>
+      <p className="note">You pay TZS {tzs(sub.truck_price)} a month for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days{sub.min_fee > 0 ? <>, with a minimum of TZS {tzs(sub.min_fee)}</> : null}. Trucks that sit idle aren&apos;t charged; hired trucks count while they carry your goods. The fee is worked out when you pay.</p>
       {sub.payments.length > 0 && (
         <div className="ledger" style={{ marginTop: 10 }}><table className="small" style={{ minWidth: 0 }}>
           <thead><tr><th>Paid</th><th>Period</th><th className="r">TZS</th><th /></tr></thead>
@@ -33,7 +33,7 @@ function SubscriptionCard({ sub }: { sub: Subscription }) {
               <td>{dayLabel(p.paid_on)}<div className="sub">{[p.method, p.reference].filter(Boolean).join(" · ")}</div></td>
               <td>{dayLabel(p.period_from)} – {dayLabel(p.period_to)}<div className="sub">{p.months} month{p.months === 1 ? "" : "s"}</div></td>
               <td className="r num">{tzs(p.amount)}</td>
-              <td className="r"><button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, company.name, sub.band)}>Receipt</button></td>
+              <td className="r"><button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, company.name, p.trucks != null ? planLabel(p.trucks) : undefined)}>Receipt</button></td>
             </tr>))}
           </tbody>
         </table></div>
@@ -185,7 +185,7 @@ function AddStaff() {
         <label className="f">Password <small>8+ characters</small><input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="new-password" /></label>
         {f.role === "agent" && <label className="f">Office <small>where they work</small><select value={f.station} onChange={(e) => setF({ ...f, station: e.target.value })} aria-label="Branch office"><option value="">Choose…</option><RegionOptions offices={officesOf(company)} onlyOffices /></select></label>}
       </div>
-      {f.role === "agent" && <p className="note" style={{ marginTop: 6 }}>Branch staff see only goods loaded to their office and goods they receive themselves. They receive goods at their office, load and dispatch trucks leaving it, mark trucks arriving, notify customers, take payment and release goods with a delivery note. They don&apos;t see reports, monthly bills, claims or settings.</p>}
+      {f.role === "agent" && <p className="note" style={{ marginTop: 6 }}>Branch staff see only goods loaded to their office and goods they receive themselves. They receive goods at their office, load and dispatch trucks leaving it, mark trucks arriving, notify customers, take payment and release goods with a delivery note. They can also open monthly bill accounts and record claims for their office. They don&apos;t see reports or settings.</p>}
       <div className="err" role="alert">{err}</div>
       <div className="actions"><button className="btn primary" type="submit" disabled={pending}>{pending ? "Adding…" : "Add staff member"}</button></div>
       <p className="note">Give the person their email and password. They can change the password with &quot;Forgot password?&quot; on the sign-in page.</p>

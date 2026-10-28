@@ -4,13 +4,13 @@ import { useRouter } from "next/navigation";
 import { Mark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
-  createCompany, deletePayment, recordPayment, resetStaffPassword, saveBands, saveBillingSettings, setAccountBilling, setAnnouncement,
+  createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
   setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen,
 } from "@/app/owner/actions";
 import {
   AGENT_DEFAULTS, KIND_LABEL, refSlug, type Agent, type Commission, type Payout,
-  PAY_METHODS, bandFor, bandLabel, dayLabel, feeFor, periodEnd, sortBands, statusFor, today, addDays,
-  type Band, type BillingPayment, type BillingSettings,
+  ACTIVE_DAYS, PAY_METHODS, dayLabel, feeFor, feeWorking, listFee, periodEnd, planLabel, statusFor, today, addDays,
+  type BillingPayment, type BillingSettings,
 } from "@/lib/billing";
 import { downloadAgentStatement, downloadSubscriptionReceipt } from "./billingPdf";
 import { signOut } from "@/app/login/actions";
@@ -27,9 +27,9 @@ export interface OwnerData {
   me: string; hasCompany: boolean; error: string;
   companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[]; leads: Lead[]; siteUrl: string;
   settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null } & BillingSettings;
-  bands: Band[]; payments: BillingPayment[]; agents: Agent[]; commissions: Commission[]; payouts: Payout[];
+  active: Record<string, string[]>; payments: BillingPayment[]; agents: Agent[]; commissions: Commission[]; payouts: Payout[];
 }
-type Bill = { band: string; fee: number; due: string | null; suspend_on: string | null; pays: BillingPayment[] };
+type Bill = { plan: string; trucks: number; plates: string[]; working: string; fee: number; due: string | null; suspend_on: string | null; pays: BillingPayment[] };
 type Row = Company & { acc: Account; st: Stat; admins: Staff[]; people: Staff[]; bill: Bill };
 type Run = (fn: () => Promise<{ ok?: string; error?: string }>, after?: () => void) => void;
 
@@ -39,7 +39,7 @@ const ACTIONS: Record<string, string> = {
   "staff.password_reset": "Reset a password", "signup.open": "Opened self sign-up", "signup.close": "Closed self sign-up",
   "announcement.set": "Posted announcement", "announcement.clear": "Removed announcement", "lead.status": "Updated a demo request",
   "billing.payment": "Recorded a payment", "billing.payment_removed": "Removed a payment", "billing.account": "Changed billing details",
-  "billing.auto": "Switched to automatic status", "billing.bands": "Changed price bands", "billing.settings": "Changed billing settings",
+  "billing.auto": "Switched to automatic status", "billing.bands": "Changed price bands", "billing.pricing": "Changed the price per truck", "billing.settings": "Changed billing settings",
   "agent.create": "Added a salesperson", "agent.update": "Updated a salesperson", "agent.assign": "Changed a client's salesperson",
   "agent.earned": "Commission earned", "agent.line": "Added allowance / adjustment", "agent.line_removed": "Removed allowance / adjustment",
   "agent.payout": "Paid a salesperson", "agent.payout_removed": "Removed a payout",
@@ -85,11 +85,12 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
     const acc: Account = data.accounts.find((a) => a.company_id === c.id) || { company_id: c.id, status: "active", notes: "", status_changed_at: c.created_at, trial_ends: null, paid_until: null, custom_fee: null, auto_status: true, agent_id: null, agent_since: null };
     const st = data.stats.find((s) => s.company_id === c.id) || { company_id: c.id, staff: people.length, active_staff: 0, vehicles: 0, trips_month: 0, ship_month: 0, billed_month: 0, paid_month: 0, ship_total: 0, last_activity: c.created_at };
     const { due, suspend_on } = statusFor(acc, data.settings);
+    const plates = data.active[c.id] || [];
     return {
       ...c, acc, st,
       admins: people.filter((p) => p.role === "admin"),
       people,
-      bill: { band: bandLabel(bandFor(data.bands, st.vehicles)), fee: feeFor(acc, data.bands, st.vehicles), due, suspend_on: acc.auto_status ? suspend_on : null, pays: data.payments.filter((p) => p.company_id === c.id) },
+      bill: { plan: planLabel(plates.length), trucks: plates.length, plates, working: feeWorking(data.settings, plates.length), fee: feeFor(acc, data.settings, plates.length), due, suspend_on: acc.auto_status ? suspend_on : null, pays: data.payments.filter((p) => p.company_id === c.id) },
     };
   }), [data]);
   const count = (s: Status) => rows.filter((r) => r.acc.status === s).length;
@@ -145,7 +146,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
           <Announcement current={data.settings.announcement} updated={data.settings.announcement_updated_at} busy={pending} onSave={(t) => run(() => setAnnouncement(t))} />
         </div>
 
-        <Pricing bands={data.bands} settings={data.settings} rows={rows} busy={pending} run={run} />
+        <Pricing settings={data.settings} rows={rows} busy={pending} run={run} />
 
         <div className="filters" style={{ marginTop: 22 }}>
           <div className="chips">
@@ -155,7 +156,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
           <div className="searchbox" style={{ flex: "1 1 220px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Company, staff name or email" aria-label="Search companies" style={{ paddingLeft: 11 }} /></div>
         </div>
         <div className="ledger" style={{ marginTop: 12 }}><table>
-          <thead><tr><th>Company</th><th>Admin</th><th className="r">Staff</th><th className="r">Trucks</th><th className="r">This month</th><th>Last activity</th><th className="r">Plan</th><th>Status</th></tr></thead>
+          <thead><tr><th>Company</th><th>Admin</th><th className="r">Staff</th><th className="r">Trucks <span className="sub">saved · active</span></th><th className="r">This month</th><th>Last activity</th><th className="r">Plan</th><th>Status</th></tr></thead>
           <tbody>
             {shown.map((r) => {
               const d = daysAgo(r.st.last_activity) ?? 0;
@@ -164,10 +165,10 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
                   <td><b>{r.name}</b><div className="sub">{[r.branch, r.phone].filter(Boolean).join(" · ") || "No branch set"} · joined {fmtDate(r.created_at).slice(0, 11)}</div></td>
                   <td>{r.admins[0] ? <>{r.admins[0].full_name}<div className="sub">{r.admins[0].email}</div></> : <span className="sub">No admin</span>}</td>
                   <td className="r num">{r.st.active_staff}<span className="sub">/{r.st.staff}</span></td>
-                  <td className="r num">{r.st.vehicles}</td>
+                  <td className="r num">{r.st.vehicles} · <b>{r.bill.trucks}</b></td>
                   <td className="r num">{r.st.ship_month} cons.<div className="sub">TZS {tzs(r.st.billed_month)}</div></td>
                   <td><span style={d >= 14 && r.acc.status !== "suspended" ? { color: "var(--bad)", fontWeight: 600 } : undefined}>{ago(r.st.last_activity)}</span></td>
-                  <td className="r num">{tzs(r.bill.fee)}<div className="sub">{r.acc.custom_fee != null ? "custom fee" : r.bill.band}</div></td>
+                  <td className="r num">{tzs(r.bill.fee)}<div className="sub">{r.acc.custom_fee != null ? "custom fee" : r.bill.plan}</div></td>
                   <td><StatusPill s={r.acc.status} /><div className="sub">{dueText(r)}</div></td>
                 </tr>
               );
@@ -438,8 +439,8 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
   return (
     <div className="card"><h3>Subscription</h3>
       <dl className="kv">
-        <dt>Plan</dt><dd>{r.bill.band} · {r.st.vehicles} truck{r.st.vehicles === 1 ? "" : "s"} now</dd>
-        <dt>Monthly fee</dt><dd className="num">TZS {tzs(r.bill.fee)}{a.custom_fee != null && <span className="sub"> · custom</span>}</dd>
+        <dt>Active trucks</dt><dd>{r.bill.trucks} <span className="sub">made trips in the last {ACTIVE_DAYS} days{r.bill.plates.length ? `: ${r.bill.plates.join(", ")}` : ""}</span></dd>
+        <dt>Monthly fee</dt><dd className="num">TZS {tzs(r.bill.fee)} <span className="sub">· {a.custom_fee != null ? `custom (price list: TZS ${tzs(listFee(settings, r.bill.trucks))})` : r.bill.working}</span></dd>
         {a.trial_ends && <><dt>Trial ends</dt><dd>{dayLabel(a.trial_ends)}</dd></>}
         <dt>Paid until</dt><dd>{a.paid_until ? dayLabel(a.paid_until) : <span className="sub">No payment recorded</span>}</dd>
         {r.bill.suspend_on && a.status !== "suspended" && <><dt>Suspends on</dt><dd>{dayLabel(r.bill.suspend_on)} <span className="sub">if unpaid</span></dd></>}
@@ -474,7 +475,7 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
           <div className="lbl">Payments</div>
           {r.bill.pays.map((p) => (
             <div className="lrow" key={p.id} style={{ flexWrap: "wrap" }}>
-              <div><b className="num">TZS {tzs(p.amount)}</b>{p.setup_fee ? <span className="sub"> (incl. setup {tzs(p.setup_fee)})</span> : null} <span className="sub">· {p.months} mo · {dayLabel(p.period_from)} – {dayLabel(p.period_to)}</span>
+              <div><b className="num">TZS {tzs(p.amount)}</b>{p.setup_fee ? <span className="sub"> (incl. setup {tzs(p.setup_fee)})</span> : null} <span className="sub">· {p.trucks != null ? `${planLabel(p.trucks)} · ` : ""}{p.months} mo · {dayLabel(p.period_from)} – {dayLabel(p.period_to)}</span>
                 <div className="sub">Paid {dayLabel(p.paid_on)}{p.method && ` · ${p.method}`}{p.reference && ` · ${p.reference}`} · by {p.recorded_by}</div></div>
               {undo === p.id ? (
                 <div className="confirm">Remove this payment? Paid-until goes back.
@@ -482,7 +483,7 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
                   <button className="btn sm" onClick={() => setUndo(null)}>Cancel</button></div>
               ) : (
                 <div className="actions" style={{ margin: 0 }}>
-                  <button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, r.name, r.bill.band)}>Receipt</button>
+                  <button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, r.name, p.trucks != null ? planLabel(p.trucks) : undefined)}>Receipt</button>
                   <button className="btn sm" onClick={() => setUndo(p.id)} aria-label="Remove payment">Remove</button>
                 </div>
               )}
@@ -498,7 +499,7 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
           run(() => setAccountBilling(r.id, { custom_fee: cf, trial_ends: f.trial_ends || null, paid_until: f.paid_until || null }), () => setEdit(false));
         }}>
           <div className="fields">
-            <label className="f">Custom monthly fee <small>blank = band price</small><input inputMode="numeric" value={f.custom_fee} onChange={(e) => setF({ ...f, custom_fee: e.target.value })} placeholder={`Band price: TZS ${tzs(r.bill.fee)}`} /></label>
+            <label className="f">Custom monthly fee <small>blank = price per truck</small><input inputMode="numeric" value={f.custom_fee} onChange={(e) => setF({ ...f, custom_fee: e.target.value })} placeholder={`Price list: TZS ${tzs(listFee(settings, r.bill.trucks))}`} /></label>
             <label className="f">Trial ends<input type="date" value={f.trial_ends} onChange={(e) => setF({ ...f, trial_ends: e.target.value })} /></label>
             <label className="f">Paid until <small>correct by hand</small><input type="date" value={f.paid_until} onChange={(e) => setF({ ...f, paid_until: e.target.value })} /></label>
           </div>
@@ -511,37 +512,28 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
   );
 }
 
-type BandDraft = { min: string; max: string; fee: string };
-function Pricing({ bands, settings, rows, busy, run }: { bands: Band[]; settings: OwnerData["settings"]; rows: Row[]; busy: boolean; run: Run }) {
-  const toDraft = (b: Band[]) => sortBands(b).map((x) => ({ min: String(x.min_trucks), max: x.max_trucks == null ? "" : String(x.max_trucks), fee: String(x.monthly_fee) }));
-  const [d, setD] = useState<BandDraft[]>(toDraft(bands));
+function Pricing({ settings, rows, busy, run }: { settings: OwnerData["settings"]; rows: Row[]; busy: boolean; run: Run }) {
+  const [p, setP] = useState({ truck_price: String(settings.truck_price), min_fee: String(settings.min_fee) });
   const [s, setS] = useState({ trial_days: String(settings.trial_days), grace_days: String(settings.grace_days), auto_suspend: settings.auto_suspend, billing_instructions: settings.billing_instructions });
-  const setRow = (i: number, k: keyof BandDraft, v: string) => setD((L) => L.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
-  const parsed: Band[] = d.map((x) => ({ min_trucks: num(x.min), max_trucks: x.max.trim() === "" ? null : num(x.max), monthly_fee: num(x.fee) }));
-  const using = (b: Band) => rows.filter((r) => r.acc.custom_fee == null && r.st.vehicles >= b.min_trucks && (b.max_trucks == null || r.st.vehicles <= b.max_trucks)).length;
+  const draft = { truck_price: num(p.truck_price) || 0, min_fee: num(p.min_fee) || 0 };
+  const listed = rows.filter((r) => r.acc.custom_fee == null);
+  const examples = [1, 2, 3, 5, 10];
   return (
     <div className="rgrid" style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr)", marginTop: 16 }}>
-      <div className="panel">
-        <h2>Price bands</h2>
-        <p className="sub" style={{ marginTop: 4 }}>Monthly fee by the number of trucks a company has in Shehena. Changes apply to the next payment you record.</p>
-        <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small bands" style={{ minWidth: 0 }}>
-          <thead><tr><th>From trucks</th><th>To trucks</th><th>TZS a month</th><th className="r">Clients</th><th /></tr></thead>
-          <tbody>{d.map((x, i) => (
-            <tr key={i}>
-              <td><input inputMode="numeric" value={x.min} onChange={(e) => setRow(i, "min", e.target.value)} aria-label={`Band ${i + 1} from trucks`} /></td>
-              <td><input inputMode="numeric" value={x.max} onChange={(e) => setRow(i, "max", e.target.value)} placeholder="and more" aria-label={`Band ${i + 1} to trucks`} /></td>
-              <td><input inputMode="numeric" value={x.fee} onChange={(e) => setRow(i, "fee", e.target.value)} aria-label={`Band ${i + 1} monthly fee`} /></td>
-              <td className="r num">{using(parsed[i])}</td>
-              <td className="r">{d.length > 1 && <button className="btn sm" onClick={() => setD((L) => L.filter((_, j) => j !== i))} aria-label={`Remove band ${i + 1}`}>✕</button>}</td>
-            </tr>))}
-          </tbody>
-        </table></div>
-        <div className="actions">
-          <button className="btn sm" onClick={() => setD((L) => { const last = L[L.length - 1]; const from = last ? (num(last.max) || num(last.min) || 0) + 1 : 1; return [...L, { min: String(from), max: "", fee: "" }]; })}>+ Add band</button>
-          <button className="btn sm primary" disabled={busy} onClick={() => run(() => saveBands(parsed))}>Save bands</button>
+      <form className="panel" noValidate onSubmit={(e) => { e.preventDefault(); run(() => savePricing(draft)); }}>
+        <h2>Price per truck</h2>
+        <p className="sub" style={{ marginTop: 4 }}>Clients pay for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days: every plate loaded, saved under Vehicles or hired for one trip. Never less than the minimum. Changes apply to the next payment you record.</p>
+        <div className="fields" style={{ marginTop: 8 }}>
+          <label className="f">Price per active truck (TZS a month)<input inputMode="numeric" value={p.truck_price} onChange={(e) => setP({ ...p, truck_price: e.target.value })} aria-label="Price per truck" /></label>
+          <label className="f">Minimum monthly fee (TZS)<input inputMode="numeric" value={p.min_fee} onChange={(e) => setP({ ...p, min_fee: e.target.value })} aria-label="Minimum monthly fee" /></label>
         </div>
-        <p className="note">Leave &quot;To trucks&quot; empty on the last band for &quot;and more&quot;. A company with no trucks yet pays the first band.</p>
-      </div>
+        <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small" style={{ minWidth: 0 }}>
+          <thead><tr><th>Active trucks</th>{examples.map((n) => <th key={n} className="r">{n}</th>)}</tr></thead>
+          <tbody><tr><td>TZS a month</td>{examples.map((n) => <td key={n} className="r num">{tzs(listFee(draft, n))}</td>)}</tr></tbody>
+        </table></div>
+        <div className="actions"><button className="btn sm primary" type="submit" disabled={busy}>Save price</button></div>
+        <p className="note">At this price, clients on the price list would pay TZS {tzs(listed.reduce((a, r) => a + listFee(draft, r.bill.trucks), 0))} a month in total ({listed.reduce((a, r) => a + r.bill.trucks, 0)} active trucks). Clients with a custom fee keep it.</p>
+      </form>
       <form className="panel" noValidate onSubmit={(e) => { e.preventDefault(); run(() => saveBillingSettings({ trial_days: num(s.trial_days), grace_days: num(s.grace_days), auto_suspend: s.auto_suspend, billing_instructions: s.billing_instructions })); }}>
         <h2>Billing rules</h2>
         <div className="fields" style={{ marginTop: 8 }}>
@@ -711,7 +703,7 @@ function AgentSheet({ a, data, rows, busy, run, close }: { a: Agent; data: Owner
           const earned = lines.filter((c) => c.company_id === r.id).reduce((s, c) => s + c.amount, 0);
           return (
             <div className="lrow" key={r.id}>
-              <div><b>{r.name}</b> <StatusPill s={r.acc.status} /><div className="sub">since {dayLabel(r.acc.agent_since)} · {r.bill.band} · TZS {tzs(r.bill.fee)}/mo</div></div>
+              <div><b>{r.name}</b> <StatusPill s={r.acc.status} /><div className="sub">since {dayLabel(r.acc.agent_since)} · {r.bill.plan} · TZS {tzs(r.bill.fee)}/mo</div></div>
               <span className="num sub">earned {tzs(earned)}</span>
             </div>
           );

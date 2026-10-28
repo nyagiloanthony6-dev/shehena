@@ -67,7 +67,7 @@ const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
 /** Reminder for the Admin and CEO: trial ending, renewal coming up, or overdue. */
 function SubscriptionNotice({ sub, onDetails }: { sub: Subscription; onDetails?: () => void }) {
   const pay = sub.instructions ? <> <b>How to pay:</b> {sub.instructions}</> : <> Contact Serengeti Labs to pay.</>;
-  const fee = <>TZS {tzs(sub.fee)} a month ({sub.band})</>;
+  const fee = <>TZS {tzs(sub.fee)} a month ({sub.plan})</>;
   const more = onDetails ? <button className="btn sm" onClick={onDetails}>Details</button> : null;
   const left = sub.days_left ?? 0;
   if (sub.status === "overdue") return (

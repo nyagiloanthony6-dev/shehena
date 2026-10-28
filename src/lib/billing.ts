@@ -2,25 +2,25 @@
 // Pure helpers (safe in the browser) live here; database work is in billing-server.ts.
 
 export type AccountStatus = "trial" | "active" | "overdue" | "suspended";
-export interface Band { id?: number | string; min_trucks: number; max_trucks: number | null; monthly_fee: number }
 export interface BillingPayment {
   id: number | string; company_id: string; amount: number; months: number;
   period_from: string; period_to: string; method: string; reference: string; paid_on: string; recorded_by: string; created_at: string;
-  setup_fee?: number;
+  setup_fee?: number; trucks?: number | null;
 }
-export interface BillingSettings { trial_days: number; grace_days: number; auto_suspend: boolean; billing_instructions: string }
+export interface BillingSettings { trial_days: number; grace_days: number; auto_suspend: boolean; billing_instructions: string; truck_price: number; min_fee: number }
+export type Pricing = Pick<BillingSettings, "truck_price" | "min_fee">;
 export interface BillingAccount {
   company_id: string; status: AccountStatus; trial_ends: string | null; paid_until: string | null;
   custom_fee: number | null; auto_status: boolean; status_changed_at?: string;
 }
 /** What a client company sees about its own subscription. */
 export interface Subscription {
-  status: AccountStatus; trucks: number; band: string; fee: number; custom: boolean;
+  status: AccountStatus; trucks: number; plates: string[]; plan: string; fee: number; custom: boolean; truck_price: number; min_fee: number;
   trial_ends: string | null; paid_until: string | null; due: string | null; suspend_on: string | null; days_left: number | null;
-  instructions: string; payments: Pick<BillingPayment, "id" | "amount" | "setup_fee" | "months" | "period_from" | "period_to" | "method" | "reference" | "paid_on">[];
+  instructions: string; payments: Pick<BillingPayment, "id" | "amount" | "setup_fee" | "trucks" | "months" | "period_from" | "period_to" | "method" | "reference" | "paid_on">[];
 }
 
-export const BILLING_DEFAULTS: BillingSettings = { trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "" };
+export const BILLING_DEFAULTS: BillingSettings = { trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000 };
 export const PAY_METHODS = ["M-Pesa", "Mixx by Yas", "Airtel Money", "HaloPesa", "Bank transfer", "Cash"];
 
 // ---- dates as YYYY-MM-DD in Tanzania time (UTC+3), so "today" flips at local midnight
@@ -41,34 +41,22 @@ export function addMonths(s: string, n: number) {
 export const periodEnd = (from: string, months: number) => addDays(addMonths(from, months), -1);
 export const dayLabel = (s?: string | null) => s ? D(s).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "—";
 
-// ---- bands and fees
-export const sortBands = (b: Band[]) => [...b].sort((x, y) => x.min_trucks - y.min_trucks);
-export const bandFor = (bands: Band[], trucks: number) => {
-  const s = sortBands(bands);
-  return s.find((b) => trucks >= b.min_trucks && (b.max_trucks == null || trucks <= b.max_trucks)) || (trucks < (s[0]?.min_trucks ?? 0) ? s[0] : s[s.length - 1]) || null;
-};
-export const bandLabel = (b: Band | null) => {
-  if (!b) return "No plan";
-  const lo = Math.max(1, b.min_trucks);
-  if (b.max_trucks == null) return `${lo}+ trucks`;
-  return lo === b.max_trucks ? `${lo} truck${lo === 1 ? "" : "s"}` : `${lo}–${b.max_trucks} trucks`;
-};
-export const feeFor = (acc: Pick<BillingAccount, "custom_fee">, bands: Band[], trucks: number) =>
-  acc.custom_fee != null ? Number(acc.custom_fee) : Number(bandFor(bands, trucks)?.monthly_fee || 0);
-
-/** Problems with a set of bands, or "" if they're fine. */
-export function bandsProblem(bands: Band[]) {
-  if (!bands.length) return "Add at least one band.";
-  const s = sortBands(bands);
-  for (const [i, b] of s.entries()) {
-    if (!Number.isInteger(b.min_trucks) || b.min_trucks < 0) return "Truck numbers must be whole numbers of 0 or more.";
-    if (b.max_trucks != null && (!Number.isInteger(b.max_trucks) || b.max_trucks < b.min_trucks)) return `The band starting at ${b.min_trucks} trucks ends before it starts.`;
-    if (!(Number(b.monthly_fee) >= 0)) return "Each band needs a monthly fee.";
-    if (b.max_trucks == null && i < s.length - 1) return "Only the last band can be open-ended (\"and more\").";
-    const next = s[i + 1];
-    if (next && b.max_trucks != null && next.min_trucks !== b.max_trucks + 1) return `Bands must follow on: after ${b.max_trucks} truck${b.max_trucks === 1 ? "" : "s"} the next band should start at ${b.max_trucks + 1}.`;
-  }
-  return "";
+// ---- price per active truck
+/** A truck is active if it was loaded for a trip in Shehena in the last ACTIVE_DAYS days. */
+export const ACTIVE_DAYS = 30;
+/** "T 123 ABC", "t123abc" and "T-123-ABC" are the same truck. */
+export const normPlate = (p: string) => (p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+export const planLabel = (trucks: number) => trucks ? `${trucks} active truck${trucks === 1 ? "" : "s"}` : "no truck trips yet";
+/** Price list fee: trucks × price per truck, but never below the minimum monthly fee. */
+export const listFee = (p: Pricing, trucks: number) => Math.max(Number(p.min_fee) || 0, trucks * (Number(p.truck_price) || 0));
+export const feeFor = (acc: Pick<BillingAccount, "custom_fee">, p: Pricing, trucks: number) =>
+  acc.custom_fee != null ? Number(acc.custom_fee) : listFee(p, trucks);
+/** How the fee was worked out, in words. */
+export function feeWorking(p: Pricing, trucks: number) {
+  const n = (x: number) => Math.round(x).toLocaleString("en-US");
+  const per = trucks * Number(p.truck_price);
+  if (per >= Number(p.min_fee)) return `${trucks} truck${trucks === 1 ? "" : "s"} × TZS ${n(p.truck_price)}`;
+  return `minimum fee${trucks ? ` (${trucks} × ${n(p.truck_price)} = ${n(per)})` : ""}`;
 }
 
 /**

@@ -24,7 +24,7 @@ export default async function AppPage() {
         <h2>Account suspended</h2>
         <p className="sub">Access for your company is paused. Your records are safe and nothing has been deleted.</p>
         {sub && sub.fee > 0 && sub.due && (
-          <p className="sub">Your Shehena subscription was due on <b>{dayLabel(sub.due)}</b>. The monthly fee is <b>TZS {sub.fee.toLocaleString("en-US")}</b> ({sub.band}).</p>
+          <p className="sub">Your Shehena subscription was due on <b>{dayLabel(sub.due)}</b>. The monthly fee is <b>TZS {sub.fee.toLocaleString("en-US")}</b> for {sub.plan}.</p>
         )}
         {sub?.instructions && <p className="sub"><b>How to pay:</b> {sub.instructions}</p>}
         <p className="sub">{me.role === "cashier" ? "Please tell your Admin or CEO." : "Access comes back as soon as Serengeti Labs records your payment."}</p>
