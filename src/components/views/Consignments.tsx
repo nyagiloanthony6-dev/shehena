@@ -4,10 +4,17 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { PayPill, StatusPill } from "../parts";
-import { REGIONS, STATUS, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
+import { REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
 
 export default function Consignments() {
-  const { shipments, tripById, can } = useStore();
+  const { shipments, tripById, can, company } = useStore();
+  // Only the towns this company delivers to: its offices (not the head office), plus any other town it has actually sent goods to.
+  const destList = useMemo(() => {
+    const head = company.default_origin || "DAR";
+    const mine = officesOf(company).filter((c) => c !== head);
+    const used = [...new Set(shipments.map((s) => s.dest))].filter((c) => !mine.includes(c));
+    return REGIONS.filter(([c]) => mine.includes(c) || used.includes(c)).sort((a, b) => (mine.includes(a[0]) ? 0 : 1) - (mine.includes(b[0]) ? 0 : 1) || mine.indexOf(a[0]) - mine.indexOf(b[0]) || a[1].localeCompare(b[1]));
+  }, [company, shipments]);
   const ui = useUi();
   const [q, setQ] = useState("");
   const [dest, setDest] = useState("");
@@ -33,7 +40,7 @@ export default function Consignments() {
       <div className="filters">
         <div className="searchbox"><Icon name="search" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search waybill no., name, phone or item" aria-label="Search" /></div>
         <select value={dest} onChange={(e) => setDest(e.target.value)} aria-label="Destination" style={{ width: "auto", maxWidth: "100%" }}>
-          <option value="">All destinations</option>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}
+          <option value="">All destinations</option>{destList.map(([c, n]) => <option key={c} value={c}>{n}</option>)}
         </select>
       </div>
       <div className="filters" style={{ marginTop: 8 }}>
