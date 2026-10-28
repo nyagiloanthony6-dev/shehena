@@ -61,16 +61,19 @@ const visible = (c, table, rows) => c.service ? rows : SERVICE_ONLY.includes(tab
     const st = c.profile.station;
     if (table === "shipments") return r.created_by === c.profile.id || (r.status !== "received" && r.dest === st);
     if (table === "trips") return r.origin === st || r.dest === st;
-    if (["bill_payments", "claims", "claim_payments"].includes(table)) return false;
+    // bills and claims of their own office (mirrors migration 0012)
+    if (table === "bill_accounts" || table === "claims") return r.station === st;
+    if (table === "bill_payments") return db.bill_accounts.some((a) => a.id === r.account_id && a.station === st);
+    if (table === "claim_payments") return db.claims.some((x) => x.id === r.claim_id && x.station === st);
     return true;
   });
 const DEFAULTS = {
   vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null, ownership: "own", owner_name: "", owner_phone: "", rent_amount: 0, rent_basis: "trip" },
   trips: { driver: "", driver_phone: "", target: 0, target_set_by: null, status: "loading", departed_at: null, departed_by: null, arrived_at: null, arrived_by: null, ownership: "own", owner_name: "", rent_cost: 0 },
   shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null, account_id: null, gross_charge: null, discount: 0, discount_reason: "", discount_by: null, discount_at: null, dn_no: null, collector_name: "", collector_phone: "", collector_id: "", collect_note: "" },
-  bill_accounts: { phone: "", notes: "", active: true },
+  bill_accounts: { phone: "", notes: "", active: true, station: null },
   bill_payments: { method: "", reference: "", note: "" },
-  claims: { shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },
+  claims: { station: null, shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },
   claim_payments: { method: "", reference: "" },
   companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [] },
   profiles: { active: true, station: null },
@@ -153,7 +156,8 @@ http.createServer(async (req, res) => {
         return wantRows || single ? out(out2) : send(res, 201);
       }
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin", "cashier"], claims: ["admin", "cashier"], claim_payments: ["admin", "cashier"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin", "agent"], bill_payments: ["admin", "cashier", "agent"], claims: ["admin", "cashier", "agent"], claim_payments: ["admin", "cashier", "agent"] }[table] || [];
+        if (role === "agent" && (table === "bill_accounts" || table === "claims")) list.forEach((r) => { r.station = c.profile.station; });
         if (!allowed.includes(role) || list.some((r) => r.company_id !== c.profile.company_id)) return send(res, 403, { message: "new row violates row-level security policy" });
         if (role === "agent" && list.some((r) => (table === "shipments" && r.origin !== c.profile.station && !(r.found_on_arrival && r.dest === c.profile.station)) || (table === "trips" && r.origin !== c.profile.station)))
           return send(res, 403, { message: "new row violates row-level security policy" });

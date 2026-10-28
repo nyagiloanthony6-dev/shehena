@@ -98,6 +98,8 @@ function ClaimForm({ done }: { done: (id?: string) => void }) {
     const c = await insert<Claim>("claims", {
       shipment_id: ship?.id || null, waybill: ship?.no || f.waybill.trim(), customer_name: f.customer_name.trim(), customer_phone: f.customer_phone.trim(),
       kind: f.kind, description: f.description.trim(), goods_value: val, compensation: comp, reported_on: f.reported_on, closed: false, created_by_name: me.full_name,
+      // the office the claim belongs to: the consignment's destination, or the branch's own office (the database sets that too)
+      ...((me.role === "agent" ? me.station : ship?.dest) ? { station: me.role === "agent" ? me.station : ship!.dest } : {}),
     });
     setBusy(false);
     if (c) { toast(`Claim recorded for ${c.customer_name}.`); done(c.id); }

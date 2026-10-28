@@ -151,7 +151,7 @@ export const settled = (s: Pick<Shipment, "pay">) => s.pay === "paid" || s.pay =
 export const PAY_LABEL: Record<Pay, string> = { paid: "Paid", unpaid: "Not paid", bill: "Monthly bill" };
 
 /** A customer who pays monthly (mteja wa bili). */
-export interface BillAccount { id: string; company_id: string; name: string; phone: string; notes: string; active: boolean; created_at: string; created_by_name: string | null }
+export interface BillAccount { id: string; company_id: string; name: string; phone: string; notes: string; active: boolean; created_at: string; created_by_name: string | null; station?: string | null }
 export interface BillPayment { id: string; company_id: string; account_id: string; amount: number; paid_on: string; method: string; reference: string; note: string; recorded_by: string | null; created_at: string }
 /** Changamoto: lost, damaged or broken goods and the compensation owed to the customer. */
 export type ClaimKind = "lost" | "damaged" | "broken" | "other";
@@ -161,7 +161,7 @@ export const CLAIM_KINDS: [ClaimKind, string, string][] = [
 export interface Claim {
   id: string; company_id: string; shipment_id: string | null; waybill: string; customer_name: string; customer_phone: string;
   kind: ClaimKind; description: string; goods_value: number; compensation: number; reported_on: string; closed: boolean;
-  created_at: string; created_by_name: string | null;
+  created_at: string; created_by_name: string | null; station?: string | null;
 }
 export interface ClaimPayment { id: string; company_id: string; claim_id: string; amount: number; paid_on: string; method: string; reference: string; recorded_by: string | null; created_at: string }
 
@@ -182,15 +182,16 @@ export const STATUS: [ShipStatus, string][] = [
 export const TSTATUS: [TripStatus, string][] = [["loading", "Loading"], ["departed", "On the road"], ["arrived", "Arrived"]];
 export const ROLES: Record<Role, string> = { admin: "Admin", cashier: "Cashier", ceo: "CEO", agent: "Branch staff" };
 
-export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims" | "money";
+export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims" | "money" | "openAccount";
 const PERMS: Record<Role, Perm[]> = {
   // accounts = open/close monthly bill customers; claims = record claims and payments
   // money = see monthly bills and claims
-  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target", "accounts", "claims", "money"],
+  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target", "accounts", "claims", "money", "openAccount"],
   cashier: ["receive", "pay", "load", "dispatch", "notify", "claims", "money"],
   ceo: ["reports", "target", "money"],
   // branch staff: their office's arrivals and the goods they receive; nothing else
-  agent: ["receive", "pay", "load", "dispatch", "notify"],
+  // (bills and claims for their own office: the database limits them to it)
+  agent: ["receive", "pay", "load", "dispatch", "notify", "claims", "money", "openAccount"],
 };
 export const can = (role: Role | undefined, p: Perm) => !!role && PERMS[role].includes(p);
 /** Recording goods found on arrival: the Admin always; cashiers unless the Admin restricted it. */

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { StatusPill } from "../parts";
-import { METHODS, fmtDate, goodsLabel, intlPhone, prettyPhone, regShort, tzs, type BillAccount, type BillPayment, type Shipment } from "@/lib/domain";
+import { METHODS, officesOf, fmtDate, goodsLabel, intlPhone, prettyPhone, regShort, tzs, type BillAccount, type BillPayment, type Shipment } from "@/lib/domain";
 
 const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString();
 export const monthOf = (iso: string) => (iso.length === 10 ? iso : local(new Date(iso))).slice(0, 7);
@@ -38,11 +38,12 @@ export function useAccount(id: string) {
 }
 
 export default function Bills() {
-  const { accounts, can, hasExtras, insert, me, toast } = useStore();
+  const { accounts, can, hasExtras, insert, me, toast, company } = useStore();
+  const branch = me.role === "agent";
   const ui = useUi();
   const [month, setMonth] = useState(() => lastMonths(1)[0]);
   const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ name: "", phone: "", notes: "" });
+  const [f, setF] = useState({ name: "", phone: "", notes: "", station: "" });
   const [q, setQ] = useState("");
   const [showClosed, setShowClosed] = useState(false);
 
@@ -56,15 +57,17 @@ export default function Bills() {
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!f.name.trim()) return toast("Enter the customer's name.", true);
-    const a = await insert<BillAccount>("bill_accounts", { name: f.name.trim(), phone: f.phone.trim(), notes: f.notes.trim(), active: true, created_by_name: me.full_name });
-    if (a) { toast(`${a.name} can now send goods on a monthly bill.`); setF({ name: "", phone: "", notes: "" }); setAdding(false); }
+    // Branch staff's accounts belong to their office (the database sets this too); the Admin may pick one.
+    const station = branch ? me.station || null : f.station || null;
+    const a = await insert<BillAccount>("bill_accounts", { name: f.name.trim(), phone: f.phone.trim(), notes: f.notes.trim(), active: true, created_by_name: me.full_name, ...(station ? { station } : {}) });
+    if (a) { toast(`${a.name} can now send goods on a monthly bill.`); setF({ name: "", phone: "", notes: "", station: "" }); setAdding(false); }
   }
 
   return (
     <section>
       <div className="sectionhead">
         <div><h1>Monthly bills</h1><div className="sub">Wateja wa bili: customers who send goods now and pay once a month.</div></div>
-        {can("accounts") && <button className={`btn${adding ? "" : " primary"}`} onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "Open a bill account"}</button>}
+        {can("openAccount") && <button className={`btn${adding ? "" : " primary"}`} onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "Open a bill account"}</button>}
       </div>
 
       {adding && (
@@ -73,6 +76,8 @@ export default function Bills() {
             <div className="fields">
               <label className="f">Customer or business name<input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Duka la Juma, Kariakoo" aria-label="Account name" /></label>
               <label className="f">Phone<input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} inputMode="tel" aria-label="Account phone" /></label>
+              {!branch && <label className="f">Office <small>branch staff there can see and bill this customer</small>
+                <select value={f.station} onChange={(e) => setF({ ...f, station: e.target.value })} aria-label="Account office"><option value="">Head office only</option>{officesOf(company).map((c) => <option key={c} value={c}>{regShort(c)}</option>)}</select></label>}
               <label className="f full">Notes <small>terms agreed, contact person</small><input value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} placeholder="e.g. Pays by the 5th of each month" /></label>
             </div>
             <div className="actions"><button className="btn primary" type="submit">Open account</button></div>
@@ -120,7 +125,7 @@ function AccountRow({ a, month, onOpen }: { a: BillAccount; month: string; onOpe
   const m = x.inMonth(month);
   return (
     <tr className="row" tabIndex={0} onClick={onOpen} onKeyDown={(e) => e.key === "Enter" && onOpen()}>
-      <td><b>{a.name}</b>{!a.active && <span className="sub"> · closed</span>}<div className="sub mono">{a.phone ? prettyPhone(a.phone) : "—"}</div></td>
+      <td><b>{a.name}</b>{a.station && <span className="tag-rental">{regShort(a.station)}</span>}{!a.active && <span className="sub"> · closed</span>}<div className="sub mono">{a.phone ? prettyPhone(a.phone) : "—"}</div></td>
       <td className="r num">{m.ships.length}</td>
       <td className="r num">{tzs(m.ships.reduce((s, z) => s + Number(z.charge || 0), 0))}</td>
       <td className="r num" style={{ color: "var(--good)" }}>{tzs(m.pays.reduce((s, z) => s + Number(z.amount || 0), 0))}</td>
@@ -137,7 +142,7 @@ export function AccountSheet({ id }: { id: string }) {
   const [month, setMonth] = useState(() => lastMonths(1)[0]);
   const [pay, setPay] = useState({ amount: "", paid_on: today(), method: METHODS[1], reference: "", note: "" });
   const [edit, setEdit] = useState(false);
-  const [ef, setEf] = useState({ name: a?.name || "", phone: a?.phone || "", notes: a?.notes || "" });
+  const [ef, setEf] = useState({ name: a?.name || "", phone: a?.phone || "", notes: a?.notes || "", station: a?.station || "" });
   const [undo, setUndo] = useState<string | null>(null);
   if (!a) return <div className="sheet-h"><p className="sub">This account no longer exists.</p><button className="btn sm" onClick={ui.close}>Close</button></div>;
   const m = x.inMonth(month);
@@ -232,9 +237,10 @@ export function AccountSheet({ id }: { id: string }) {
               <div className="fields">
                 <label className="f">Name<input value={ef.name} onChange={(e) => setEf({ ...ef, name: e.target.value })} /></label>
                 <label className="f">Phone<input value={ef.phone} onChange={(e) => setEf({ ...ef, phone: e.target.value })} /></label>
+                <label className="f">Office<select value={ef.station} onChange={(e) => setEf({ ...ef, station: e.target.value })} aria-label="Edit account office"><option value="">Head office only</option>{officesOf(company).map((c) => <option key={c} value={c}>{regShort(c)}</option>)}</select></label>
                 <label className="f full">Notes<input value={ef.notes} onChange={(e) => setEf({ ...ef, notes: e.target.value })} /></label>
               </div>
-              <div className="actions"><button className="btn sm primary" onClick={async () => { if (!ef.name.trim()) return; if (await patch<BillAccount>("bill_accounts", a.id, { name: ef.name.trim(), phone: ef.phone.trim(), notes: ef.notes.trim() })) { toast("Account saved"); setEdit(false); } }}>Save</button><button className="btn sm" onClick={() => setEdit(false)}>Cancel</button></div>
+              <div className="actions"><button className="btn sm primary" onClick={async () => { if (!ef.name.trim()) return; if (await patch<BillAccount>("bill_accounts", a.id, { name: ef.name.trim(), phone: ef.phone.trim(), notes: ef.notes.trim(), ...("station" in a ? { station: ef.station || null } : {}) })) { toast("Account saved"); setEdit(false); } }}>Save</button><button className="btn sm" onClick={() => setEdit(false)}>Cancel</button></div>
             </>
           ) : (
             <div className="actions" style={{ marginTop: 0 }}>
