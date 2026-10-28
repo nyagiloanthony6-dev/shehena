@@ -11,7 +11,7 @@ const SUB_LABEL = { trial: "Free trial", active: "Active", overdue: "Overdue", s
 function SubscriptionCard({ sub }: { sub: Subscription }) {
   const { company } = useStore();
   return (
-    <fieldset style={{ maxWidth: 760 }}><legend>Shehena subscription</legend>
+    <fieldset><legend>Shehena subscription</legend>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <span className={`pill acc-${sub.status}`}>{SUB_LABEL[sub.status]}</span>
         <span className="sub">
@@ -53,7 +53,7 @@ function OfficesForm() {
   const staffAt = (c: string) => staff.filter((p) => p.role === "agent" && p.station === c && p.active).length;
   const changed = head !== company.default_origin || [head, ...list].join() !== officesOf(company).join();
   return (
-    <fieldset style={{ maxWidth: 760 }}><legend>Offices and routes</legend>
+    <fieldset><legend>Offices and routes</legend>
       <p className="sub" style={{ marginTop: 0 }}>Where you send goods from, and the towns you deliver to. These are your branches: branch staff are assigned to one, and they are listed first when receiving goods and loading trucks.</p>
       <div className="fields">
         <label className="f">Head office <small>where you send goods from</small>
@@ -90,7 +90,7 @@ function CompanyForm() {
       // Before migration 0007 the column doesn't exist; only send it when it's in use.
       const extra = company.found_goods_by === undefined && f.found_goods_by === "all" ? { found_goods_by: undefined } : {};
       if (await patchCompany({ ...f, ...extra, name: f.name.trim(), branch: f.branch.trim(), phone: f.phone.trim(), payment_instructions: f.payment_instructions.trim() } as never)) toast("Company details saved");
-    }} style={{ maxWidth: 760 }}>
+    }}>
       <fieldset><legend>Company on receipts and messages</legend>
         <div className="fields">
           <label className="f full">Company name<input value={f.name} onChange={(e) => set("name", e.target.value)} /></label>
@@ -275,24 +275,40 @@ function AddVehicle() {
   );
 }
 
-export default function Settings({ sub }: { sub?: Subscription | null }) {
+type SettingsTab = "company" | "staff" | "vehicles" | "subscription";
+export default function Settings({ sub, initialTab = "company" }: { sub?: Subscription | null; initialTab?: SettingsTab }) {
   const { staff, vehicles } = useStore();
+  const [tab, setTab] = useState<SettingsTab>(sub || initialTab !== "subscription" ? initialTab : "company");
+  const tabs: [SettingsTab, string][] = [
+    ["company", "Company & offices"], ["staff", `Staff · ${staff.length}`], ["vehicles", `Vehicles · ${vehicles.length}`],
+    ...(sub ? [["subscription", "Shehena subscription"] as [SettingsTab, string]] : []),
+  ];
   return (
-    <section>
-      <div className="sectionhead"><h1>Settings</h1></div>
-      {sub && <SubscriptionCard sub={sub} />}
-      <CompanyForm />
-      <OfficesForm />
-      <fieldset style={{ maxWidth: 760 }}><legend>Staff accounts</legend>
-        <p className="sub" style={{ marginTop: 0 }}>Everyone signs in with their own email and password. Admins manage staff and settings; cashiers receive goods, take payments and load trucks; the CEO sees reports and sets targets.</p>
-        {staff.map((p) => <StaffRow key={p.id + p.role + p.active} p={p} />)}
-        <AddStaff />
-      </fieldset>
-      <fieldset style={{ maxWidth: 760 }}><legend>Vehicles</legend>
-        {vehicles.map((v) => <VehicleRow key={v.id + v.target} v={v} />)}
-        {!vehicles.length && <p className="sub">No vehicles saved yet.</p>}
-        <AddVehicle />
-      </fieldset>
+    <section className="settings">
+      <div className="sectionhead"><div><h1>Settings</h1><div className="sub">Company details, offices, staff, vehicles and your Shehena subscription.</div></div></div>
+      <nav className="tabs" role="tablist" style={{ marginBottom: 16 }}>{tabs.map(([k, l]) =>
+        <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}</nav>
+      {tab === "company" && (
+        <div className="settings-grid">
+          <CompanyForm />
+          <OfficesForm />
+        </div>
+      )}
+      {tab === "staff" && (
+        <fieldset><legend>Staff accounts</legend>
+          <p className="sub" style={{ marginTop: 0 }}>Everyone signs in with their own email and password. Admins manage staff and settings; cashiers receive goods, take payments and load trucks; the CEO sees reports and sets targets; branch staff work at one office.</p>
+          <div className="staff-list">{staff.map((p) => <StaffRow key={p.id + p.role + p.active + (p.station || "")} p={p} />)}</div>
+          <AddStaff />
+        </fieldset>
+      )}
+      {tab === "vehicles" && (
+        <fieldset><legend>Vehicles</legend>
+          <div className="vehicle-list">{vehicles.map((v) => <VehicleRow key={v.id + v.target} v={v} />)}</div>
+          {!vehicles.length && <p className="sub">No vehicles saved yet.</p>}
+          <AddVehicle />
+        </fieldset>
+      )}
+      {tab === "subscription" && sub && <SubscriptionCard sub={sub} />}
     </section>
   );
 }

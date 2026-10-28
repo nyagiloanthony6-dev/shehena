@@ -90,6 +90,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
   const [tripFormOpen, setTripFormOpen] = useState(false);
   const [foundTrip, setFoundTrip] = useState<string | null>(null);
   const [more, setMore] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"company" | "subscription">("company");
   const [claimFor, setClaimFor] = useState<string | null>(null);
   const [hiddenNote, setHiddenNote] = useState("");
   useEffect(() => { try { setHiddenNote(localStorage.getItem("shehena.note") || ""); } catch { /* private mode */ } }, []);
@@ -104,6 +105,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
     const next = allowed(v) ? v : "home";
     if (next !== "new") setFoundTrip(null);
     if (next !== "claims") setClaimFor(null);
+    if (next !== "set") setSettingsTab("company");
     setSheet(null);
     setView(next);
     if (window.location.hash !== "#" + next) window.history.pushState(null, "", "#" + next);
@@ -186,7 +188,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
             {announcement && hiddenNote !== announcement && (
               <div className="notice" role="status"><span><b>Serengeti Labs:</b> {announcement}</span><button className="btn sm" onClick={hideNote}>Dismiss</button></div>
             )}
-            {sub ? (view !== "set" && <SubscriptionNotice sub={sub} onDetails={st.can("settings") ? () => go("set") : undefined} />) : (
+            {sub ? (view !== "set" && <SubscriptionNotice sub={sub} onDetails={st.can("settings") ? () => { setSettingsTab("subscription"); go("set"); } : undefined} />) : (
               <>
                 {status === "overdue" && st.can("settings") && (
                   <div className="notice warn" role="status"><span><b>Your Shehena subscription is overdue.</b> Please pay Serengeti Labs to avoid interruption.</span></div>
@@ -212,7 +214,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
                 {view === "bills" && <Bills />}
                 {view === "claims" && <Claims />}
                 {view === "reports" && <Reports />}
-                {view === "set" && <Settings sub={sub} />}
+                {view === "set" && <Settings sub={sub} initialTab={settingsTab} key={settingsTab} />}
               </>
             )}
             <div className="mcredit">{SYSTEM} · Developed by <b>Serengeti Labs</b></div>
