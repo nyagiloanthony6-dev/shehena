@@ -336,7 +336,7 @@ function PaymentCard({ s }: { s: Shipment }) {
           </div>
         )}
       </div>
-      {s.pay === "unpaid" && can("pay") && hasExtras && active.length > 0 && (
+      {s.pay === "unpaid" && can("bill") && hasExtras && active.length > 0 && (
         <div className="actions" style={{ alignItems: "center" }}>
           <span className="sub">or put on a monthly bill:</span>
           <select value={billTo} onChange={(e) => setBillTo(e.target.value)} style={{ width: "auto" }} aria-label="Bill account"><option value="">Choose customer…</option>{active.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>

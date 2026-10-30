@@ -185,7 +185,7 @@ function AddStaff() {
         <label className="f">Password <small>8+ characters</small><input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="new-password" /></label>
         {f.role === "agent" && <label className="f">Office <small>where they work</small><select value={f.station} onChange={(e) => setF({ ...f, station: e.target.value })} aria-label="Branch office"><option value="">Choose…</option><RegionOptions offices={officesOf(company)} onlyOffices /></select></label>}
       </div>
-      {f.role === "agent" && <p className="note" style={{ marginTop: 6 }}>Branch staff see only goods loaded to their office and goods they receive themselves. They receive goods at their office, load and dispatch trucks leaving it, mark trucks arriving, notify customers, take payment and release goods with a delivery note. They can also open monthly bill accounts and record claims for their office. They don&apos;t see reports or settings.</p>}
+      {f.role === "agent" && <p className="note" style={{ marginTop: 6 }}>Branch staff see only goods loaded to their office and goods they receive themselves. They receive goods at their office, load and dispatch trucks leaving it, mark trucks arriving, notify customers, take payment and release goods with a delivery note. They give discounts, put goods on a customer&apos;s monthly bill, open bill accounts and record claims for their office. Head-office cashiers don&apos;t handle monthly bills or claims. They don&apos;t see reports or settings.</p>}
       <div className="err" role="alert">{err}</div>
       <div className="actions"><button className="btn primary" type="submit" disabled={pending}>{pending ? "Adding…" : "Add staff member"}</button></div>
       <p className="note">Give the person their email and password. They can change the password with &quot;Forgot password?&quot; on the sign-in page.</p>
@@ -296,7 +296,7 @@ export default function Settings({ sub, initialTab = "company" }: { sub?: Subscr
       )}
       {tab === "staff" && (
         <fieldset><legend>Staff accounts</legend>
-          <p className="sub" style={{ marginTop: 0 }}>Everyone signs in with their own email and password. Admins manage staff and settings; cashiers receive goods, take payments and load trucks; the CEO sees reports and sets targets; branch staff work at one office.</p>
+          <p className="sub" style={{ marginTop: 0 }}>Everyone signs in with their own email and password. Admins manage staff and settings; cashiers (head office) receive goods, take payments and load trucks; the CEO sees reports and sets targets; branch staff work at one destination office, where they also handle monthly bills, claims and discounts.</p>
           <div className="staff-list">{staff.map((p) => <StaffRow key={p.id + p.role + p.active + (p.station || "")} p={p} />)}</div>
           <AddStaff />
         </fieldset>

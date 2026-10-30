@@ -56,6 +56,8 @@ function applyFilters(rows, params) {
 // Row visibility = same company (mirrors the RLS policies).
 const visible = (c, table, rows) => c.service ? rows : SERVICE_ONLY.includes(table) ? [] : table === "platform_settings" ? rows : !c.profile ? [] :
   rows.filter((r) => (table === "companies" ? r.id : r.company_id) === c.profile.company_id).filter((r) => {
+    // head-office cashiers don't see bills or claims (mirrors migration 0014)
+    if (c.profile.role === "cashier") return !["bill_accounts", "bill_payments", "claims", "claim_payments"].includes(table);
     // branch staff (mirrors migration 0010)
     if (c.profile.role !== "agent") return true;
     const st = c.profile.station;
@@ -156,11 +158,12 @@ http.createServer(async (req, res) => {
         return wantRows || single ? out(out2) : send(res, 201);
       }
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin", "agent"], bill_payments: ["admin", "cashier", "agent"], claims: ["admin", "cashier", "agent"], claim_payments: ["admin", "cashier", "agent"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin", "agent"], bill_payments: ["admin", "agent"], claims: ["admin", "agent"], claim_payments: ["admin", "agent"] }[table] || [];
         if (role === "agent" && (table === "bill_accounts" || table === "claims")) list.forEach((r) => { r.station = c.profile.station; });
         if (!allowed.includes(role) || list.some((r) => r.company_id !== c.profile.company_id)) return send(res, 403, { message: "new row violates row-level security policy" });
         if (role === "agent" && list.some((r) => (table === "shipments" && r.origin !== c.profile.station && !(r.found_on_arrival && r.dest === c.profile.station)) || (table === "trips" && r.origin !== c.profile.station)))
           return send(res, 403, { message: "new row violates row-level security policy" });
+        if (table === "shipments" && role === "cashier" && list.some((r) => r.pay === "bill")) return send(res, 400, { message: "Monthly bills are handled at the destination office or by the Admin" });
         if (table === "trips" && role === "cashier") list.forEach((r) => { const v = db.vehicles.find((x) => x.company_id === r.company_id && x.plate === r.plate); r.target = v?.target || 0; });
       }
       db[table].push(...list);
@@ -180,6 +183,7 @@ http.createServer(async (req, res) => {
         const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "ceo", "agent"], vehicles: ["admin", "ceo"], companies: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin"], claims: ["admin"], claim_payments: ["admin"] }[table] || [];
         if (SERVICE_ONLY.includes(table) || table === "platform_settings") return send(res, 403, { message: "permission denied" });
         if (!allowed.includes(role)) return out([]);
+        if (table === "shipments" && role === "cashier" && b.pay === "bill") return send(res, 400, { message: "Monthly bills are handled at the destination office or by the Admin" });
         if (role === "cashier" && "target" in b) return send(res, 400, { message: "Only the Admin or CEO can change a target" });
         if (role === "ceo" && Object.keys(b).some((k) => !["target", "target_set_by", "target_set_at"].includes(k))) return send(res, 400, { message: "The CEO can only change targets" });
       }

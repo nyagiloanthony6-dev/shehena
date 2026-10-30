@@ -182,16 +182,17 @@ export const STATUS: [ShipStatus, string][] = [
 export const TSTATUS: [TripStatus, string][] = [["loading", "Loading"], ["departed", "On the road"], ["arrived", "Arrived"]];
 export const ROLES: Record<Role, string> = { admin: "Admin", cashier: "Cashier", ceo: "CEO", agent: "Branch staff" };
 
-export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims" | "money" | "openAccount";
+export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims" | "money" | "openAccount" | "bill";
 const PERMS: Record<Role, Perm[]> = {
   // accounts = open/close monthly bill customers; claims = record claims and payments
   // money = see monthly bills and claims
-  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target", "accounts", "claims", "money", "openAccount"],
-  cashier: ["receive", "pay", "load", "dispatch", "notify", "claims", "money"],
+  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target", "accounts", "claims", "money", "openAccount", "bill"],
+  // head-office cashier: no monthly bills or claims (those are handled at the destination offices)
+  cashier: ["receive", "pay", "load", "dispatch", "notify"],
   ceo: ["reports", "target", "money"],
   // branch staff: their office's arrivals and the goods they receive; nothing else
   // (bills and claims for their own office: the database limits them to it)
-  agent: ["receive", "pay", "load", "dispatch", "notify", "claims", "money", "openAccount"],
+  agent: ["receive", "pay", "load", "dispatch", "notify", "claims", "money", "openAccount", "bill"],
 };
 export const can = (role: Role | undefined, p: Perm) => !!role && PERMS[role].includes(p);
 /** Recording goods found on arrival: the Admin always; cashiers unless the Admin restricted it. */

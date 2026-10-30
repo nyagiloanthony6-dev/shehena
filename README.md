@@ -14,7 +14,7 @@ load trucks against collection targets, dispatch, and notify customers by SMS / 
 | Role | Can do |
 |---|---|
 | **Admin** | Everything: staff accounts, vehicles, company settings, targets, delete records, undo payments |
-| **Cashier** | Receive goods, issue receipts, record payments, load trucks, dispatch, send notices |
+| **Cashier** | Head office (origin). Receive goods, issue receipts, record payments, load trucks, dispatch, send notices. No monthly bills or claims (migration `0014_cashier_scope.sql`) |
 | **CEO** | Overview, monthly collections, reports by truck / trip / paid & unpaid, set targets. Read-only otherwise |
 | **Branch staff** | Works at one office (e.g. Dodoma). Sees only goods loaded to that office and goods they received themselves. Receives goods at their office, loads and dispatches trucks leaving it, marks trucks arriving, notifies customers, takes payment and releases with a delivery note. Opens monthly bill accounts and records claims and their payments for their own office only. No reports or settings |
 
@@ -139,6 +139,10 @@ offices, and receiving and loading list the company's offices first. Requires `0
 ## Branch staff (destination offices)
 Add them in **Settings → Staff** with the role *Branch staff* and their office. The database limits what
 they can see and change (migration `0010_branch_staff.sql`); the Admin, cashiers and CEO see everything.
+
+When releasing unpaid goods, branch staff can take payment or put them on the customer's **monthly bill**,
+and give a **discount** with a reason, in the same step. Head-office cashiers don't see bills or claims and
+can't put goods on a bill (`0014_cashier_scope.sql`).
 
 Branch staff can also open **monthly bill accounts** and record **claims** for lost or damaged goods,
 and take payments on both (migration `0012_branch_bills_claims.sql`). Each account and claim is tagged

@@ -199,7 +199,7 @@ export default function Receive() {
                 <div className="seg">
                   <label><input type="radio" name="pay" checked={f.pay === "paid"} onChange={() => set("pay", "paid")} /><span>Paid</span></label>
                   <label><input type="radio" name="pay" checked={f.pay === "unpaid"} onChange={() => set("pay", "unpaid")} /><span>Not paid</span></label>
-                  {hasExtras && <label><input type="radio" name="pay" checked={f.pay === "bill"} onChange={() => set("pay", "bill")} /><span>Monthly bill</span></label>}
+                  {hasExtras && can("bill") && <label><input type="radio" name="pay" checked={f.pay === "bill"} onChange={() => set("pay", "bill")} /><span>Monthly bill</span></label>}
                 </div>
               </div>
               {f.pay === "bill" && (activeAccounts.length

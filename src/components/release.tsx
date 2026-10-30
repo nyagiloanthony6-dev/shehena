@@ -16,31 +16,43 @@ const dnNumber = () => {
  * and the payment when goods are still unpaid. Saves, then downloads the delivery note.
  */
 export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) {
-  const { patch, me, toast, company, tripById, hasV9, can } = useStore();
-  const [f, setF] = useState({ name: s.r_name, phone: s.r_phone, idType: ID_TYPES[0], idNo: "", note: "", method: METHODS[0] });
+  const { patch, me, toast, company, tripById, hasV9, hasExtras, can, accounts } = useStore();
+  const [f, setF] = useState({ name: s.r_name, phone: s.r_phone, idType: ID_TYPES[0], idNo: "", note: "", method: METHODS[0], how: "pay", account: "", disc: "", reason: "" });
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   const unpaid = s.pay === "unpaid";
   if (unpaid && !can("pay")) return <p className="note">This consignment is unpaid. Only staff who take payments can release it.</p>;
+  // Unpaid goods: pay now or put on the customer's monthly bill, with an optional discount.
+  const bills = hasExtras && can("bill") ? accounts.filter((a) => a.active) : [];
+  const onBill = unpaid && f.how === "bill";
+  const d0 = Number(s.discount || 0);
+  const gross = Number(s.gross_charge ?? Number(s.charge) + d0);
+  const discAllowed = unpaid && hasExtras;
+  const disc = discAllowed && f.disc.trim() !== "" ? Math.round(Number(f.disc) || 0) : d0;
+  const due = gross - disc;
 
   async function release(e: React.FormEvent) {
     e.preventDefault();
     if (!f.name.trim()) return toast("Enter the name of the person collecting.", true);
     if (!f.idNo.trim()) return toast("Enter their ID number (as on the ID shown).", true);
+    if (disc < 0 || disc > gross) return toast(`The discount must be between 0 and TZS ${tzs(gross)}.`, true);
+    if (disc !== d0 && disc > 0 && !f.reason.trim()) return toast("Write the reason for the discount.", true);
+    if (onBill && !f.account) return toast("Choose the customer's bill account.", true);
     setBusy(true);
     const at = new Date().toISOString();
     const dn = dnNumber();
     const details = { collector_name: f.name.trim(), collector_phone: f.phone.trim(), collector_id: `${f.idType} ${f.idNo.trim()}`, collect_note: f.note.trim() };
     const values: Partial<Shipment> = {
       status: "collected", collected_at: at, collected_by: me.full_name,
-      ...(unpaid ? { pay: "paid" as const, method: f.method, paid_at: at, paid_by: me.full_name } : {}),
+      ...(disc !== d0 ? { discount: disc, discount_reason: disc ? f.reason.trim() : "", discount_by: disc ? me.full_name : null, discount_at: disc ? at : null, gross_charge: gross, charge: due } : {}),
+      ...(onBill ? { pay: "bill" as const, account_id: f.account } : unpaid ? { pay: "paid" as const, method: f.method, paid_at: at, paid_by: me.full_name } : {}),
       // Before update 0009 is run these columns don't exist yet; the note is still printed.
       ...(hasV9 ? { dn_no: dn, ...details } : {}),
     };
     const ok = await patch<Shipment>("shipments", s.id, values);
     setBusy(false);
     if (!ok) return;
-    toast(`${unpaid ? `TZS ${tzs(s.charge)} received. ` : ""}Released to ${details.collector_name}. Delivery note ${dn} downloading.`);
+    toast(`${onBill ? `TZS ${tzs(due)} put on ${bills.find((a) => a.id === f.account)?.name || "the bill"}. ` : unpaid ? `TZS ${tzs(due)} received. ` : ""}Released to ${details.collector_name}. Delivery note ${dn} downloading.`);
     try { await downloadDeliveryNote({ ...s, ...values, dn_no: dn, ...details }, company, tripById(s.trip_id)); } catch { toast("Released, but the delivery note couldn't be made. Download it from the consignment.", true); }
     onDone();
   }
@@ -54,11 +66,16 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
         <label className="f">ID type<select value={f.idType} onChange={(e) => set("idType", e.target.value)} aria-label="ID type">{ID_TYPES.map((x) => <option key={x}>{x}</option>)}</select></label>
         <label className="f">ID number<input value={f.idNo} onChange={(e) => set("idNo", e.target.value)} aria-label="ID number" /></label>
         <label className="f full">Remarks <small>optional: condition of goods, packages short…</small><input value={f.note} onChange={(e) => set("note", e.target.value)} placeholder={`All ${s.pkgs} package${s.pkgs === 1 ? "" : "s"} received in good condition`} aria-label="Release remarks" /></label>
-        {unpaid && <label className="f">Payment of TZS {tzs(s.charge)}<select value={f.method} onChange={(e) => set("method", e.target.value)} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>}
+        {unpaid && bills.length > 0 && <label className="f">Payment<select value={f.how} onChange={(e) => set("how", e.target.value)} aria-label="Release payment"><option value="pay">Pays now</option><option value="bill">Monthly bill</option></select></label>}
+        {unpaid && !onBill && <label className="f">Payment of TZS {tzs(due)}<select value={f.method} onChange={(e) => set("method", e.target.value)} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>}
+        {onBill && <label className="f">Bill customer<select value={f.account} onChange={(e) => set("account", e.target.value)} aria-label="Release bill account"><option value="">Choose…</option>{bills.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
+        {discAllowed && <label className="f">Discount (TZS) <small>optional</small><input type="number" min={0} step={500} value={f.disc} onChange={(e) => set("disc", e.target.value)} placeholder={d0 ? String(d0) : "0"} aria-label="Release discount" /></label>}
+        {discAllowed && disc !== d0 && disc > 0 && <label className="f">Reason for discount<input value={f.reason} onChange={(e) => set("reason", e.target.value)} placeholder="e.g. Regular customer, asked at collection" aria-label="Release discount reason" /></label>}
       </div>
+      {discAllowed && disc !== d0 && <p className="note" style={{ margin: "6px 0 0" }}>TZS {tzs(gross)} − discount {tzs(disc)} = <b>TZS {tzs(due)}</b></p>}
       {f.name.trim() && f.name.trim().toLowerCase() !== s.r_name.toLowerCase() && <p className="note" style={{ margin: "6px 0 0", color: "var(--amber)" }}>Not the receiver ({s.r_name}). Make sure they were sent by the receiver.</p>}
       <div className="actions">
-        <button className="btn primary sm" type="submit" disabled={busy}>{busy ? "Saving…" : unpaid ? `Record TZS ${tzs(s.charge)} & release` : "Release & print delivery note"}</button>
+        <button className="btn primary sm" type="submit" disabled={busy}>{busy ? "Saving…" : onBill ? "Put on bill & release" : unpaid ? `Record TZS ${tzs(due)} & release` : "Release & print delivery note"}</button>
         <button className="btn sm" type="button" onClick={onDone}>Cancel</button>
       </div>
     </form>
