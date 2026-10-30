@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
-import { downloadReceiptAndStickers, packages, stickerPrefs } from "../stickers";
+import { printSlips, printerPrefs } from "../printer";
+import { PrinterLine } from "../PrinterSetup";
 import { RegionOptions } from "../RegionOptions";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
@@ -119,17 +120,22 @@ export default function Receive() {
     if (found) ui.recordFound(null);
     ui.go("list");
     ui.openShip(saved.id);
-    // Receipt for the sender and a sticker for every package, in one PDF.
-    if (stickerPrefs().auto) {
-      const n = packages(saved).length;
-      toast(`Saved ${saved.no}${found ? ` as found on ${trip!.plate}` : ""}. Receipt and ${n} sticker${n === 1 ? "" : "s"} downloading.`);
-      try { await downloadReceiptAndStickers(saved, company, activeAccounts.find((a) => a.id === saved!.account_id)?.name); } catch { toast("Saved, but the PDF couldn't be made. Use Receipt + stickers below.", true); }
-    } else toast(`Saved ${saved.no}. Send the notices below.`);
+    // Receipt for the sender and a sticker for every package, on this device's printer.
+    if (printerPrefs().auto) {
+      try {
+        const msg = await printSlips("receipt+stickers", saved, company, { account: activeAccounts.find((a) => a.id === saved!.account_id)?.name });
+        toast(`Saved ${saved.no}${found ? ` as found on ${trip!.plate}` : ""}. ${msg}`);
+      } catch (e) {
+        const m = (e as Error).message;
+        toast(`Saved ${saved.no}, but it didn't print${m === "NEEDS_PAIRING" ? ": choose the printer under Printer settings below." : m ? `: ${m}` : "."} Use the print buttons below.`, true);
+      }
+    } else toast(`Saved ${saved.no}. Print the receipt and send the notices below.`);
   }
 
   return (
     <section>
       <div className="sectionhead"><h1>{found ? "Record found goods" : "Receive goods"}</h1><span className="sub">{found ? "Goods that came off the truck but were never recorded at loading." : "Record the consignment, then hand the sender the receipt."}</span></div>
+      {!found && <div style={{ margin: "-6px 0 12px" }}><PrinterLine /></div>}
       {found && (
         <div className="notice warn" role="status">
           <span><b>Found on {trip!.plate}</b> · trip {trip!.no} · {regShort(trip!.origin)} → {regShort(trip!.dest)}, arrived {fmtDate(trip!.arrived_at)}. Enter the receiver and the proper charge.{me.role !== "admin" && " The Admin will check this record."}</span>

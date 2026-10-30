@@ -228,3 +228,18 @@ NextSMS) and the WhatsApp Business API — a natural next step.
 
 ---
 © Serengeti Labs
+
+## Thermal receipt printers
+Each device chooses how it prints under **Printer settings** (on the Receive goods page and on every
+consignment). Settings stay on that device, because each counter has its own printer.
+- **Printer installed on this device** (default): any thermal printer with its driver (e.g. XPrinter on
+  Windows). Slips are sized to the 58 or 80 mm roll with no blank paper. On a counter PC, start Chrome with
+  `--kiosk-printing` and slips print straight away without the print window.
+- **Bluetooth thermal printer**: prints straight from Chrome on Android, Windows or Mac (ESC/POS over
+  Bluetooth LE). Not on iPhone.
+- **USB thermal printer, direct**: ESC/POS over WebUSB from Chrome, when no driver is holding the printer.
+- **RawBT app (Android)**: hands the slip to the free RawBT app, which works with any Bluetooth or USB printer.
+- **PDF download**: as before.
+
+Receipts (1 or 2 copies), one sticker per package and delivery notes all print this way; saving goods
+or releasing them prints automatically unless turned off. **Print a test slip** checks the paper width.

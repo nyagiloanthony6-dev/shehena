@@ -2,6 +2,7 @@
 // Releasing goods at the destination: who collected them, payment if still owed, and the delivery note.
 import { useState } from "react";
 import { useStore } from "./store";
+import { printSlips } from "./printer";
 import { METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 
 export const ID_TYPES = ["NIDA", "Driving licence", "Voter ID", "Passport", "Work ID", "Other"];
@@ -52,8 +53,9 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
     const ok = await patch<Shipment>("shipments", s.id, values);
     setBusy(false);
     if (!ok) return;
-    toast(`${onBill ? `TZS ${tzs(due)} put on ${bills.find((a) => a.id === f.account)?.name || "the bill"}. ` : unpaid ? `TZS ${tzs(due)} received. ` : ""}Released to ${details.collector_name}. Delivery note ${dn} downloading.`);
-    try { await downloadDeliveryNote({ ...s, ...values, dn_no: dn, ...details }, company, tripById(s.trip_id)); } catch { toast("Released, but the delivery note couldn't be made. Download it from the consignment.", true); }
+    toast(`${onBill ? `TZS ${tzs(due)} put on ${bills.find((a) => a.id === f.account)?.name || "the bill"}. ` : unpaid ? `TZS ${tzs(due)} received. ` : ""}Released to ${details.collector_name}. Delivery note ${dn} printing.`);
+    try { await printSlips("delivery", { ...s, ...values, dn_no: dn, ...details } as Shipment, company, { trip: tripById(s.trip_id) }); }
+    catch (e) { const m = (e as Error).message; toast(`Released, but the delivery note didn't print${m === "NEEDS_PAIRING" ? " (choose the printer under Printer settings)" : ""}. Print it from the consignment.`, true); }
     onDone();
   }
 
@@ -84,7 +86,7 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
 
 /** On a collected consignment: the delivery note details and a reprint button. */
 export function DeliveryNoteCard({ s }: { s: Shipment }) {
-  const { company, tripById } = useStore();
+  const { company, tripById, toast } = useStore();
   if (s.status !== "collected") return null;
   return (
     <div className="card"><h3>Delivery note{s.dn_no ? ` · ${s.dn_no}` : ""}</h3>
@@ -95,7 +97,10 @@ export function DeliveryNoteCard({ s }: { s: Shipment }) {
         {s.collect_note ? <><dt>Remarks</dt><dd>{s.collect_note}</dd></> : null}
         <dt>Released by</dt><dd>{s.collected_by || "—"}</dd>
       </dl>
-      <div className="actions"><button className="btn sm" onClick={() => downloadDeliveryNote(s, company, tripById(s.trip_id))}>Delivery note (PDF)</button></div>
+      <div className="actions">
+        <button className="btn sm" onClick={async () => { try { toast(await printSlips("delivery", s, company, { trip: tripById(s.trip_id) })); } catch (e) { const m = (e as Error).message; toast(m === "NEEDS_PAIRING" ? "Choose the printer under Printer settings first." : m || "Couldn't print.", true); } }}>Print delivery note</button>
+        <button className="btn sm" onClick={() => downloadDeliveryNote(s, company, tripById(s.trip_id))}>Delivery note (PDF)</button>
+      </div>
     </div>
   );
 }
