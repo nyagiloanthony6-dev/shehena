@@ -5,7 +5,7 @@ import { Mark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
   createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
-  setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen, truckActivity, type TruckRow,
+  setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen, truckActivity, deleteCompany, type TruckRow,
 } from "@/app/owner/actions";
 import {
   AGENT_DEFAULTS, KIND_LABEL, refSlug, type Agent, type Commission, type Payout,
@@ -35,7 +35,7 @@ type Run = (fn: () => Promise<{ ok?: string; error?: string }>, after?: () => vo
 
 const STATUS_LABEL: Record<Status, string> = { trial: "Trial", active: "Active", overdue: "Overdue", suspended: "Suspended" };
 const ACTIONS: Record<string, string> = {
-  "company.create": "Created company", "company.status": "Changed status", "company.notes": "Updated notes",
+  "company.create": "Created company", "company.status": "Changed status", "company.notes": "Updated notes", "company.delete": "Deleted a company",
   "staff.password_reset": "Reset a password", "signup.open": "Opened self sign-up", "signup.close": "Closed self sign-up",
   "announcement.set": "Posted announcement", "announcement.clear": "Removed announcement", "lead.status": "Updated a demo request",
   "billing.payment": "Recorded a payment", "billing.payment_removed": "Removed a payment", "billing.account": "Changed billing details",
@@ -259,7 +259,7 @@ function AuditList({ items, companies }: { items: Audit[]; companies: Company[] 
       {items.map((a) => {
         const c = companies.find((x) => x.id === a.company_id);
         const d = a.detail || {};
-        const extra = a.action === "company.status" ? `${String(d.from)} → ${String(d.to)}` : a.action === "staff.password_reset" ? String(d.email || "") : a.action === "announcement.set" ? `“${String(d.text || "").slice(0, 60)}”` : "";
+        const extra = a.action === "company.status" ? `${String(d.from)} → ${String(d.to)}` : a.action === "staff.password_reset" ? String(d.email || "") : a.action === "announcement.set" ? `“${String(d.text || "").slice(0, 60)}”` : a.action === "company.delete" ? `${String(d.name)} (${String(d.staff)} staff, ${String(d.consignments)} consignments)` : "";
         return (
           <div className="lrow" key={a.id}>
             <div><b>{ACTIONS[a.action] || a.action}</b>{c ? <> · {c.name}</> : null}{extra ? <span className="sub"> · {extra}</span> : null}<div className="sub">{a.owner_email}</div></div>
@@ -319,6 +319,32 @@ function Trucks({ companyId }: { companyId: string }) {
   );
 }
 
+/** Permanently delete a suspended client. The owner must type the company name. */
+function DeleteCompany({ r, busy, run, close }: { r: Row; busy: boolean; run: Run; close: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const match = name.trim().toLowerCase() === r.name.trim().toLowerCase();
+  return (
+    <div className="card danger-zone"><h3>Delete company</h3>
+      {!open ? (
+        <>
+          <p className="sub" style={{ marginTop: 0 }}>Remove {r.name} from Shehena for good: its {r.people.length} staff sign-in{r.people.length === 1 ? "" : "s"}, consignments, trips, vehicles, bills and claims. Your payment records and salesperson commissions are kept.</p>
+          <div className="actions"><button className="btn sm danger" onClick={() => setOpen(true)}>Delete company…</button></div>
+        </>
+      ) : (
+        <div className="confirm" style={{ width: "100%", flexDirection: "column", alignItems: "stretch" }}>
+          <div><b>This can&apos;t be undone.</b> Everything {r.name} recorded is deleted and its staff can no longer sign in. Type <b>{r.name}</b> to confirm.</div>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={r.name} aria-label="Type the company name to confirm" autoComplete="off" />
+          <div className="actions" style={{ margin: 0 }}>
+            <button className="btn sm danger" disabled={busy || !match} onClick={() => run(() => deleteCompany(r.id, name), close)}>Delete {r.name}</button>
+            <button className="btn sm" onClick={() => { setOpen(false); setName(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
   r: Row; agents: Agent[]; settings: BillingSettings; audit: Audit[]; busy: boolean; close: () => void; run: Run;
 }) {
@@ -357,6 +383,8 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
         </div>
         <p className="note">Overdue warns the client&apos;s Admin and CEO. Suspended blocks all access for that company&apos;s staff. Changing the status by hand turns automatic status off until you record a payment or press &quot;Make automatic&quot;.</p>
       </div>
+
+      {r.acc.status === "suspended" && <DeleteCompany r={r} busy={busy} run={run} close={close} />}
 
       <div className="card"><h3>This month</h3>
         <dl className="kv">

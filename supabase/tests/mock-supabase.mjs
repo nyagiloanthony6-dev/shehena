@@ -119,7 +119,7 @@ http.createServer(async (req, res) => {
     if (!caller(req)?.service) return send(res, 401, { msg: "not admin" });
     const u = users.find((x) => x.id === m[1]);
     if (!u) return send(res, 404, { msg: "not found" });
-    if (req.method === "DELETE") { users.splice(users.indexOf(u), 1); return send(res, 200, {}); }
+    if (req.method === "DELETE") { users.splice(users.indexOf(u), 1); db.profiles = db.profiles.filter((x) => x.id !== u.id); return send(res, 200, {}); }
     const b = await readBody(req);
     if (b.password) u.password = b.password;
     if (b.ban_duration) u.banned = b.ban_duration !== "none";
@@ -197,6 +197,12 @@ http.createServer(async (req, res) => {
       if (!c.service && role !== "admin") return send(res, 204);
       const rows = applyFilters(visible(c, table, db[table]), url.searchParams);
       db[table] = db[table].filter((r) => !rows.includes(r));
+      if (table === "companies") for (const co of rows) {
+        for (const t of Object.keys(db)) if (Array.isArray(db[t]) && t !== "companies") {
+          if (["billing_payments", "commissions", "owner_audit", "leads"].includes(t)) db[t].forEach((r) => { if (r.company_id === co.id) r.company_id = null; });
+          else db[t] = db[t].filter((r) => r.company_id !== co.id);
+        }
+      }
       return send(res, 204);
     }
   }

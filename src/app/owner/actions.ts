@@ -421,3 +421,37 @@ export async function truckActivity(companyId: string, month: string): Promise<{
     return { rows: [...rows.values()].sort((a, b) => b.charged - a.charged || b.trips - a.trips) };
   } catch (e) { return { error: (e as Error).message }; }
 }
+
+// ---------------- delete a company (suspended only)
+
+/**
+ * Permanently delete a suspended client: its staff sign-ins and all its data. Serengeti Labs'
+ * payment records stay (with the company's name) and so do salesperson commissions.
+ * `typedName` must match the company name, as a guard against mistakes.
+ */
+export async function deleteCompany(companyId: string, typedName: string): Promise<Result> {
+  try {
+    const by = await owner();
+    const admin = supabaseAdmin();
+    const [{ data: co }, { data: acc }, { data: staff }] = await Promise.all([
+      admin.from("companies").select("id, name").eq("id", companyId).maybeSingle(),
+      admin.from("company_accounts").select("status").eq("company_id", companyId).maybeSingle(),
+      admin.from("profiles").select("id, email").eq("company_id", companyId),
+    ]);
+    if (!co) return { error: "That company no longer exists." };
+    if (acc?.status !== "suspended") return { error: "Suspend the company first. Only suspended companies can be deleted." };
+    if (typedName.trim().toLowerCase() !== String(co.name).trim().toLowerCase()) return { error: `Type the company name exactly: ${co.name}` };
+    if ((staff || []).some((p) => String(p.email || "").toLowerCase() === by.toLowerCase())) return { error: "You can't delete your own company from here." };
+    // Keep the payment records: they must survive the delete (migration 0015).
+    const { error: keepErr } = await admin.from("billing_payments").update({ company_name: co.name }).eq("company_id", companyId);
+    if (keepErr) return { error: "Run migration 0015_delete_company.sql in Supabase first, so your payment records are kept." };
+    const { count: ships } = await admin.from("shipments").select("id", { count: "exact", head: true }).eq("company_id", companyId);
+    // Staff sign-ins first, so their emails can be used again; their profiles go with them.
+    for (const p of staff || []) await admin.auth.admin.deleteUser(p.id);
+    const { error } = await admin.from("companies").delete().eq("id", companyId);
+    if (error) return { error: "Staff sign-ins were removed, but the company could not be deleted. Try again." };
+    await audit(by, "company.delete", null, { name: co.name, staff: (staff || []).length, consignments: ships || 0 });
+    revalidatePath("/owner");
+    return { ok: `${co.name} deleted, with ${(staff || []).length} staff sign-in${(staff || []).length === 1 ? "" : "s"} and ${ships || 0} consignment${ships === 1 ? "" : "s"}. Your payment records are kept.` };
+  } catch (e) { return fail(e); }
+}
