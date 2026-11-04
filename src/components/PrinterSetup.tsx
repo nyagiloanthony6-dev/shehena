@@ -56,12 +56,10 @@ export function PrinterSetup({ onDone }: { onDone?: () => void }) {
           <small style={{ marginTop: 4 }}>{mode[2]}</small>
         </label>
         {p.mode !== "pdf" && <label className="f">Paper<select value={p.cols} onChange={(e) => set({ cols: Number(e.target.value) as PrinterPrefs["cols"] })} aria-label="Paper width">{PAPER.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>}
-        {p.mode !== "pdf" && <label className="f">Receipts<select value={p.copies} onChange={(e) => set({ copies: Number(e.target.value) as 1 | 2 })} aria-label="Receipt copies"><option value={1}>1 copy</option><option value={2}>2 copies (sender + office)</option></select></label>}
         {p.mode === "pdf" && <label className="f">Sticker size<select value={sp.size} onChange={(e) => setS({ size: e.target.value as StickerPrefs["size"] })}>{STICKER_SIZES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>}
       </div>
       <div className="checks" style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-        <label className="check"><input type="checkbox" checked={p.auto} onChange={(e) => set({ auto: e.target.checked })} /> Print the receipt as soon as goods are saved</label>
-        {p.mode !== "pdf" && <label className="check"><input type="checkbox" checked={p.stickers} onChange={(e) => set({ stickers: e.target.checked })} /> Print a sticker for every package after the receipt</label>}
+        <label className="check"><input type="checkbox" checked={p.auto} onChange={(e) => set({ auto: e.target.checked })} /> Print the receipt (one slip) as soon as goods are saved</label>
         <label className="check"><input type="checkbox" checked={sp.showItem} onChange={(e) => setS({ showItem: e.target.checked })} /> Show the goods description on stickers</label>
         {p.mode !== "pdf" && p.mode !== "system" && <label className="check"><input type="checkbox" checked={p.cut} onChange={(e) => set({ cut: e.target.checked })} /> Cut the paper after each slip (printers with a cutter)</label>}
       </div>

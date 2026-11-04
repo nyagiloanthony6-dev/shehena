@@ -18,9 +18,7 @@ export type PrintMode = "system" | "bluetooth" | "usb" | "rawbt" | "pdf";
 export interface PrinterPrefs {
   mode: PrintMode;
   cols: 32 | 42 | 48;      // characters per line: 58 mm = 32, 80 mm = 48 (42 on some)
-  stickers: boolean;       // print package stickers on the thermal printer after the receipt
   auto: boolean;           // print as soon as goods are saved / released
-  copies: 1 | 2;           // receipts: 2 = one for the sender, one for the office
   cut: boolean;            // send a paper cut after each slip
   name?: string;           // name of the paired Bluetooth/USB printer (for display)
 }
@@ -34,13 +32,16 @@ export const PRINT_MODES: [PrintMode, string, string][] = [
 export const PAPER: [PrinterPrefs["cols"], string][] = [[48, "80 mm roll (48 characters)"], [42, "80 mm roll (42 characters)"], [32, "58 mm roll (32 characters)"]];
 
 const KEY = "shehena.printer";
-const DEFAULTS: PrinterPrefs = { mode: "system", cols: 48, stickers: true, auto: true, copies: 1, cut: true };
+const DEFAULTS: PrinterPrefs = { mode: "system", cols: 48, auto: true, cut: true };
 export function printerPrefs(): PrinterPrefs {
   try {
     const old = JSON.parse(localStorage.getItem("shehena.stickers") || "{}");
     // Before printers were added, receipts were PDFs; keep that for devices that turned auto off.
     const base = { ...DEFAULTS, ...(old.auto === false ? { auto: false } : {}) };
-    return { ...base, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+    // Older settings could add stickers or a second copy to the receipt; receipts are always one slip now.
+    const { stickers: _s, copies: _c, ...saved } = JSON.parse(localStorage.getItem(KEY) || "{}");
+    void _s; void _c;
+    return { ...base, ...saved };
   } catch { return DEFAULTS; }
 }
 export function savePrinterPrefs(p: PrinterPrefs) { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* private mode */ } }
@@ -376,10 +377,12 @@ export async function printSlips(kind: PrintKind, s: Shipment, company: Company,
   }
   const slips: Slip[] = [];
   if (kind === "delivery") slips.push(deliverySlip(s, company, opts.trip));
-  if (kind === "receipt" || kind === "receipt+stickers") for (let i = 0; i < p.copies; i++) slips.push(receiptSlip(s, company, opts.account));
-  if (kind === "stickers" || (kind === "receipt+stickers" && p.stickers)) slips.push(...stickerSlips(s, company));
-  const what = kind === "delivery" ? "Delivery note" : kind === "stickers" ? `${slips.length} sticker${slips.length === 1 ? "" : "s"}`
-    : `Receipt${slips.length > p.copies ? ` and ${slips.length - p.copies} sticker${slips.length - p.copies === 1 ? "" : "s"}` : ""}`;
+  // The receipt is always ONE slip for the customer; the package count is on it, but one sticker per
+  // package is printed only with "Print stickers".
+  if (kind === "receipt" || kind === "receipt+stickers") slips.push(receiptSlip(s, company, opts.account));
+  if (kind === "stickers" || kind === "receipt+stickers") slips.push(...stickerSlips(s, company));
+  const n = slips.length - (kind === "stickers" ? 0 : 1);
+  const what = kind === "delivery" ? "Delivery note" : kind === "stickers" ? `${n} sticker${n === 1 ? "" : "s"}` : `Receipt${n ? ` and ${n} sticker${n === 1 ? "" : "s"}` : ""}`;
   if (p.mode === "system") { await printDialog(slips, p.cols); return `${what} sent to the print window.`; }
   const data = escpos(slips, p);
   if (p.mode === "bluetooth") await btWrite(data);

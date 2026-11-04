@@ -241,5 +241,6 @@ consignment). Settings stay on that device, because each counter has its own pri
 - **RawBT app (Android)**: hands the slip to the free RawBT app, which works with any Bluetooth or USB printer.
 - **PDF download**: as before.
 
-Receipts (1 or 2 copies), one sticker per package and delivery notes all print this way; saving goods
-or releasing them prints automatically unless turned off. **Print a test slip** checks the paper width.
+Saving goods prints ONE receipt for the customer (the package count is on it); releasing goods prints
+the delivery note for the customer. Stickers are printed separately with **Print N stickers**, one per
+package. Automatic printing can be turned off. **Print a test slip** checks the paper width.

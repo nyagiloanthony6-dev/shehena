@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
-import { downloadReceiptAndStickers, packages } from "./stickers";
+import { packages } from "./stickers";
 import { printSlips, type PrintKind } from "./printer";
 import { PrinterSetup, modeLabel, usePrinterPrefs } from "./PrinterSetup";
 import { downloadManifest } from "./manifest";
@@ -235,12 +235,11 @@ export function PrintActions({ s }: { s: Shipment }) {
   return (
     <>
       <div className="actions" style={{ marginTop: 20 }}>
-        <button className="btn primary" disabled={busy || !prefs} onClick={() => run("receipt+stickers")}>{pdf ? `Receipt + ${n} sticker${n === 1 ? "" : "s"} (PDF)` : `Print receipt${prefs?.stickers ? ` + ${n} sticker${n === 1 ? "" : "s"}` : ""}`}</button>
-        <button className="btn" disabled={busy || !prefs} onClick={() => run("receipt")}>Receipt only</button>
-        <button className="btn" disabled={busy || !prefs} onClick={() => run("stickers")}>Stickers only</button>
-        {!pdf && <button className="btn" disabled={busy} onClick={async () => { setBusy(true); try { await downloadReceiptAndStickers(s, company, account); } catch { toast("Couldn't make the PDF.", true); } setBusy(false); }}>PDF</button>}
+        <button className="btn primary" disabled={busy || !prefs} onClick={() => run("receipt")}>{pdf ? "Receipt (PDF)" : "Print receipt"}</button>
+        <button className="btn" disabled={busy || !prefs} onClick={() => run("stickers")}>{pdf ? `${n} sticker${n === 1 ? "" : "s"} (PDF)` : `Print ${n} sticker${n === 1 ? "" : "s"}`}</button>
+        {!pdf && <button className="btn" disabled={busy} onClick={async () => { setBusy(true); try { await downloadReceipt(s, company, account); } catch { toast("Couldn't make the PDF.", true); } setBusy(false); }}>Receipt PDF</button>}
       </div>
-      <p className="note">Stickers show the waybill number, route, package number and a QR code. No amount, names or phone numbers.</p>
+      <p className="note">One receipt for the customer. Stickers are separate: one per package, to paste on the goods, with the waybill number, route, package number and a QR code (no amount, names or phone numbers).</p>
       <div className="printer-line sub">Printer: <b>{prefs ? modeLabel(prefs) : "…"}</b> · <button className="link" onClick={() => setSetup(!setup)} aria-expanded={setup}>{setup ? "Hide printer settings" : "Printer settings"}</button></div>
       {setup && <div className="paybox" style={{ marginTop: 8 }}><PrinterSetup onDone={() => setSetup(false)} /></div>}
     </>

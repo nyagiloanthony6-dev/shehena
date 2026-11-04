@@ -123,7 +123,7 @@ export default function Receive() {
     // Receipt for the sender and a sticker for every package, on this device's printer.
     if (printerPrefs().auto) {
       try {
-        const msg = await printSlips("receipt+stickers", saved, company, { account: activeAccounts.find((a) => a.id === saved!.account_id)?.name });
+        const msg = await printSlips("receipt", saved, company, { account: activeAccounts.find((a) => a.id === saved!.account_id)?.name });
         toast(`Saved ${saved.no}${found ? ` as found on ${trip!.plate}` : ""}. ${msg}`);
       } catch (e) {
         const m = (e as Error).message;
