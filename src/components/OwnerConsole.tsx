@@ -1,11 +1,11 @@
 "use client";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
   createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
-  setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen,
+  setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen, truckActivity, type TruckRow,
 } from "@/app/owner/actions";
 import {
   AGENT_DEFAULTS, KIND_LABEL, refSlug, type Agent, type Commission, type Payout,
@@ -271,6 +271,54 @@ function AuditList({ items, companies }: { items: Audit[]; companies: Company[] 
   );
 }
 
+const monthName = (ym: string) => new Date(ym + "-01T00:00:00Z").toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+function lastMonths(n: number) {
+  const t = today(); const y = Number(t.slice(0, 4)), m = Number(t.slice(5, 7));
+  return Array.from({ length: n }, (_, i) => { const d = new Date(Date.UTC(y, m - 1 - i, 1)); return d.toISOString().slice(0, 7); });
+}
+
+/** Each truck's trips in a month, and what the goods on those trips were charged and collected. */
+function Trucks({ companyId }: { companyId: string }) {
+  const months = useMemo(() => lastMonths(6), []);
+  const [month, setMonth] = useState(months[0]);
+  const [rows, setRows] = useState<TruckRow[] | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let live = true;
+    setRows(null); setErr("");
+    truckActivity(companyId, month).then((r) => { if (!live) return; if (r.error) setErr(r.error); else setRows(r.rows || []); });
+    return () => { live = false; };
+  }, [companyId, month]);
+  const sum = (k: keyof TruckRow) => (rows || []).reduce((a, r) => a + Number(r[k] || 0), 0);
+  return (
+    <div className="card"><h3>Trucks and collections</h3>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <select value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Truck month" style={{ width: "auto" }}>
+          {months.map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
+        </select>
+        {rows && <span className="sub">{rows.length} truck{rows.length === 1 ? "" : "s"} · {sum("trips")} trip{sum("trips") === 1 ? "" : "s"} · TZS {tzs(sum("charged"))} charged</span>}
+      </div>
+      {err ? <p className="sub" style={{ color: "var(--bad)" }}>{err}</p> : !rows ? <p className="sub">Loading…</p> : !rows.length ? <p className="sub">No trucks loaded in {monthName(month)}.</p> : (
+        <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small" style={{ minWidth: 0 }}>
+          <thead><tr><th>Truck</th><th className="r">Trips</th><th className="r">Consignments</th><th className="r">Charged</th><th className="r">Paid</th><th className="r">Owed</th></tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr key={r.plate}>
+              <td><b className="mono" style={{ whiteSpace: "nowrap" }}>{r.plate}</b><div className="sub">{r.ownership === "rental" ? `Rental${r.rent ? `, rent ${tzs(r.rent)}` : ""}` : "Own"}</div></td>
+              <td className="r num">{r.trips}</td>
+              <td className="r num">{r.consignments}<div className="sub">{r.packages} pkgs</div></td>
+              <td className="r num">{tzs(r.charged)}</td>
+              <td className="r num">{tzs(r.paid)}</td>
+              <td className="r num">{tzs(r.bill + r.unpaid)}{r.bill > 0 && <div className="sub">{tzs(r.bill)} bills</div>}</td>
+            </tr>))}
+          </tbody>
+          <tfoot><tr><td>Total</td><td className="r num">{sum("trips")}</td><td className="r num">{sum("consignments")}</td><td className="r num">{tzs(sum("charged"))}</td><td className="r num">{tzs(sum("paid"))}</td><td className="r num">{tzs(sum("bill") + sum("unpaid"))}</td></tr></tfoot>
+        </table></div>
+      )}
+      <p className="note">Trips are counted in the month the truck started loading. Charged = all consignments on those trips (after discounts); Paid = already paid. Owed = on monthly bills or still to be paid at collection.</p>
+    </div>
+  );
+}
+
 function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
   r: Row; agents: Agent[]; settings: BillingSettings; audit: Audit[]; busy: boolean; close: () => void; run: Run;
 }) {
@@ -286,6 +334,8 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
       </div>
 
       <Billing r={r} agents={agents} settings={settings} busy={busy} run={run} />
+
+      <Trucks companyId={r.id} />
 
       <div className="card"><h3>Account status</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>

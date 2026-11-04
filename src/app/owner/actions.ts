@@ -379,3 +379,45 @@ export async function deletePayout(id: number | string): Promise<Result> {
     return { ok: "Payout removed. Its lines are owed again." };
   } catch (e) { return fail(e); }
 }
+
+// ---------------- truck activity (read only)
+
+export type TruckRow = { plate: string; ownership: string; trips: number; consignments: number; packages: number; charged: number; paid: number; bill: number; unpaid: number; rent: number; last: string };
+/**
+ * A client's trucks for one month (YYYY-MM, Tanzania time): trips loaded per plate, and what the
+ * consignments on those trips were charged, paid, put on monthly bills or still owed.
+ */
+export async function truckActivity(companyId: string, month: string): Promise<{ rows?: TruckRow[]; error?: string }> {
+  try {
+    await owner();
+    if (!/^\d{4}-\d{2}$/.test(month)) return { error: "Choose a month." };
+    const [y, m] = month.split("-").map(Number);
+    const from = new Date(Date.UTC(y, m - 1, 1) - 3 * 3600e3).toISOString();
+    const to = new Date(Date.UTC(y, m, 1) - 3 * 3600e3).toISOString();
+    const admin = supabaseAdmin();
+    const { data: trips, error } = await admin.from("trips").select("*").eq("company_id", companyId).gte("created_at", from).limit(5000);
+    if (error) return { error: "Couldn't load the trips." };
+    const inMonth = (trips || []).filter((t) => t.created_at < to);
+    const ids = inMonth.map((t) => t.id);
+    const ships: { trip_id: string; charge: number; pay: string; pkgs: number }[] = [];
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data } = await admin.from("shipments").select("trip_id, charge, pay, pkgs").in("trip_id", ids.slice(i, i + 200));
+      ships.push(...((data || []) as typeof ships));
+    }
+    const rows = new Map<string, TruckRow>();
+    for (const t of inMonth) {
+      const key = String(t.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") || "?";
+      const r = rows.get(key) || { plate: String(t.plate || "?").trim().toUpperCase(), ownership: t.ownership || "own", trips: 0, consignments: 0, packages: 0, charged: 0, paid: 0, bill: 0, unpaid: 0, rent: 0, last: t.created_at };
+      r.trips++; r.rent += Number(t.rent_cost || 0);
+      if (t.ownership === "rental") r.ownership = "rental";
+      if (t.created_at > r.last) r.last = t.created_at;
+      for (const s of ships.filter((x) => x.trip_id === t.id)) {
+        const c = Number(s.charge || 0);
+        r.consignments++; r.packages += Number(s.pkgs || 0); r.charged += c;
+        if (s.pay === "paid") r.paid += c; else if (s.pay === "bill") r.bill += c; else r.unpaid += c;
+      }
+      rows.set(key, r);
+    }
+    return { rows: [...rows.values()].sort((a, b) => b.charged - a.charged || b.trips - a.trips) };
+  } catch (e) { return { error: (e as Error).message }; }
+}
