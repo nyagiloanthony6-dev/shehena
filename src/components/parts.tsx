@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
-import {
+import { sumPaid, sumBalance, balanceOf, isPart, paidOf,
   PAY_LABEL, type Pay, cwOf, isAir, kgFmt, terms, fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
   type Company, type NoticeKind, type NoticeTo, type Shipment, type Trip,
 } from "@/lib/domain";
@@ -11,8 +11,10 @@ export const StatusPill = ({ s }: { s: string }) => { const { company } = useSto
 export const TripPill = ({ s }: { s: string }) => { const { company } = useStore(); return <span className={`pill st-${s}`}>{tLabel(s, isAir(company))}</span>; };
 /** Second line under a trip's plate: the driver for trucks; the MAWB and airline for flights. */
 export const tripSub = (t: Trip) => t.mawb || t.airline ? [t.mawb ? `MAWB ${t.mawb}` : "", t.airline].filter(Boolean).join(" · ") : t.driver || "";
-export const PayPill = ({ pay, long }: { pay: Pay; long?: boolean }) => (
-  <span className={`pill pay-${pay}`}>{pay === "unpaid" && long ? "Not paid – due on collection" : PAY_LABEL[pay]}</span>
+export const PayPill = ({ pay, long, part }: { pay: Pay; long?: boolean; part?: boolean }) => (
+  part && pay === "unpaid"
+    ? <span className="pill pay-part">{long ? "Part paid – balance due on collection" : "Part paid"}</span>
+    : <span className={`pill pay-${pay}`}>{pay === "unpaid" && long ? "Not paid – due on collection" : PAY_LABEL[pay]}</span>
 );
 export const Example = () => null;
 
@@ -32,10 +34,10 @@ export function useArriveTrip() {
 
 export function tripTotals(list: Shipment[]) {
   const billed = list.reduce((a, x) => a + Number(x.charge || 0), 0);
-  const paid = list.filter((x) => x.pay === "paid").reduce((a, x) => a + Number(x.charge || 0), 0);
+  const paid = sumPaid(list);
   return {
     n: list.length, pkgs: pkgsOf(list), billed, paid, cw: list.reduce((a, x) => a + cwOf(x), 0),
-    due: list.filter((x) => x.pay === "unpaid").reduce((a, x) => a + Number(x.charge || 0), 0),
+    due: sumBalance(list),
     senders: new Set(list.map((x) => intlPhone(x.s_phone))).size,
     receivers: new Set(list.map((x) => intlPhone(x.r_phone))).size,
     unpaidN: list.filter((x) => x.pay === "unpaid").length,
@@ -152,8 +154,9 @@ export function Slip({ s, company, servedBy, account }: { s: Partial<Shipment>; 
       )}
       <div className="big"><span>{disc > 0 ? "Total to pay" : lines.length > 1 ? "Total charge" : "Charge"}</span><b>TZS {tzs(s.charge)}</b></div>
       <div className="big" style={{ marginTop: 6 }}><span>Payment</span>
-        <span className={`pill pay-${pay}`}>{pay === "paid" ? "Paid" + (s.method ? " · " + s.method : "") : pay === "bill" ? `Monthly bill${account ? " · " + account : ""}` : "Not paid – due on collection"}</span>
+        <span className={`pill pay-${isPart(s) ? "part" : pay}`}>{pay === "paid" ? "Paid" + (s.method ? " · " + s.method : "") : pay === "bill" ? `Monthly bill${account ? " · " + account : ""}` : isPart(s) ? "Part paid" : "Not paid – due on collection"}</span>
       </div>
+      {isPart(s) && <dl style={{ marginTop: 8 }}><dt>Paid now</dt><dd className="num">TZS {tzs(paidOf(s))}{s.method ? ` · ${s.method}` : ""}</dd><dt>Balance</dt><dd className="num"><b>TZS {tzs(balanceOf(s))}</b> due on collection</dd></dl>}
       <p className="sub" style={{ margin: "12px 0 0" }}>Served by {s.created_by_name || servedBy || "—"}. Keep this receipt. The receiver collects with ID and the waybill number.</p>
     </div>
   );
@@ -210,7 +213,8 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
   const disc = Number(s.discount || 0);
   if (disc > 0) { pair("Subtotal", "TZS " + tzs(s.gross_charge ?? Number(s.charge) + disc)); pair("Discount", "- TZS " + tzs(disc) + (s.discount_reason ? ` (${s.discount_reason})` : "")); }
   pair(disc > 0 ? "Total to pay" : lines.length > 1 ? "Total charge" : "Charge", "TZS " + tzs(s.charge));
-  pair("Payment", s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : s.pay === "bill" ? "MONTHLY BILL" + (account ? ` (${account})` : "") : "NOT PAID - due on collection");
+  pair("Payment", s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : s.pay === "bill" ? "MONTHLY BILL" + (account ? ` (${account})` : "") : isPart(s) ? `PART PAID - TZS ${tzs(paidOf(s))}${s.method ? ` (${s.method})` : ""}` : "NOT PAID - due on collection");
+  if (isPart(s)) pair("Balance", `TZS ${tzs(balanceOf(s))} due on collection`);
   pair("Served by", s.created_by_name || "-"); dash();
   line("Keep this receipt. The receiver collects with ID and the waybill number.", 7.5);
   return doc;
@@ -276,7 +280,7 @@ export function BulkNotices({ trip, kind }: { trip: Trip; kind: "departed" | "ar
           <div className="nrow" key={s.id}>
             <div style={{ minWidth: 0 }}>
               <b>{s.r_name}</b> <span className="mono sub">{prettyPhone(s.r_phone)}</span>
-              <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg{kind === "arrived" && <> · {s.pay === "unpaid" ? <span style={{ color: "var(--bad)" }}>Owes TZS {tzs(s.charge)}</span> : <span style={{ color: "var(--good)" }}>{PAY_LABEL[s.pay]}</span>}</>}</div>
+              <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg{kind === "arrived" && <> · {s.pay === "unpaid" ? <span style={{ color: "var(--bad)" }}>Owes TZS {tzs(balanceOf(s))}{isPart(s) ? " (part paid)" : ""}</span> : <span style={{ color: "var(--good)" }}>{PAY_LABEL[s.pay]}</span>}</>}</div>
               {l.length ? <span className="tick">✓ Sent via {l[l.length - 1].channel}</span> : <span className="pending">Not sent</span>}
             </div>
             <div className="actions" style={{ margin: 0 }}><SendButtons s={s} kind={kind} to="receiver" /></div>
@@ -330,7 +334,7 @@ export function TrucksByDate({ initial = "departed" }: { initial?: "loaded" | "d
               <td>{regShort(t.origin)} → {regShort(t.dest)}<div className="sub">{fmtDate(field(t)).slice(-5)}</div></td>
               <td><TripPill s={t.status} /></td>
               <td className="r num">{x.n}</td><td className="r num">{x.pkgs}</td><td className="r num">{tzs(x.billed)}</td>
-              <td className="r num" style={x.unpaidN ? { color: "var(--bad)" } : undefined}>{tzs(L.filter((s) => s.pay === "unpaid").reduce((a, s) => a + Number(s.charge || 0), 0))}</td>
+              <td className="r num" style={x.unpaidN ? { color: "var(--bad)" } : undefined}>{tzs(sumBalance(L))}</td>
               <td className="r" onClick={(e) => e.stopPropagation()}>{t.status === "departed" && can("dispatch") && <button className="btn sm primary" onClick={async () => { if (await arrive(t)) ui.openTrip(t.id); }}>{W.arrive}</button>}</td>
             </tr>); })}</tbody>
         </table></div>

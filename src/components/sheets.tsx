@@ -9,7 +9,7 @@ import { downloadManifest } from "./manifest";
 import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
 import { PAY_LABEL, canRecordFound, settled } from "@/lib/domain";
-import { METHODS, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { METHODS, balanceOf, isPart, paidOf, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 export function ShipmentSheet({ id }: { id: string }) {
   const { shipById, tripById, can, patch, remove, me, company, toast } = useStore();
@@ -42,7 +42,7 @@ export function ShipmentSheet({ id }: { id: string }) {
           : <p className="note">Vehicle <b className="mono">{t.plate}</b> · trip <a href="#" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.no}</a> · driver {t.driver || "—"}</p>)}
         <div className="actions">
           {s.status === "received" && can("load") && <button className="btn" onClick={() => ui.go("trips")}>{air ? "Add to a MAWB" : "Load onto a vehicle"}</button>}
-          {s.status === "arrived" && can("dispatch") && (settled(s) || can("pay")) && !releasing && <button className="btn primary" onClick={() => setReleasing(true)}>{s.pay === "unpaid" ? `Take TZS ${tzs(s.charge)} & release` : "Release goods to customer"}</button>}
+          {s.status === "arrived" && can("dispatch") && (settled(s) || can("pay")) && !releasing && <button className="btn primary" onClick={() => setReleasing(true)}>{s.pay === "unpaid" ? `Take TZS ${tzs(balanceOf(s))} & release` : "Release goods to customer"}</button>}
           {s.status === "collected" && can("undo") && <button className="btn sm" onClick={() => P({ status: "arrived", collected_at: null, collected_by: null })}>Undo collected</button>}
         </div>
         {releasing && s.status === "arrived" && <ReleaseForm s={s} onDone={() => setReleasing(false)} />}
@@ -216,7 +216,7 @@ export function TripSheet({ id }: { id: string }) {
                 <td>{goodsLabel(s)}</td>
                 <td className="r num">{s.pkgs}</td>
                 <td className="r num">{tzs(s.charge)}</td>
-                <td><PayPill pay={s.pay} /></td>
+                <td><PayPill pay={s.pay} part={isPart(s)} /></td>
               </tr>))}</tbody>
             <tfoot><tr><td colSpan={3}>Total</td><td className="r num">{n}</td><td className="r num">{tzs(list.reduce((a, s) => a + Number(s.charge || 0), 0))}</td><td /></tr></tfoot>
           </table></div>
@@ -307,9 +307,12 @@ function FoundOnTrip({ trip }: { trip: Trip }) {
 
 /** Payment of a consignment: paid / not paid / monthly bill, and discounts before payment. */
 function PaymentCard({ s }: { s: Shipment }) {
-  const { can, patch, me, toast, accounts, hasExtras } = useStore();
+  const { can, patch, me, toast, accounts, hasExtras, shipPayments, takePayment, hasPart } = useStore();
   const ui = useUi();
   const [method, setMethod] = useState(METHODS[0]);
+  const bal = balanceOf(s);
+  const [amount, setAmount] = useState("");
+  const pays = shipPayments.filter((x) => x.shipment_id === s.id).sort((a, b) => a.paid_at.localeCompare(b.paid_at));
   const [disc, setDisc] = useState<{ open: boolean; amount: string; reason: string }>({ open: false, amount: "", reason: "" });
   const [billTo, setBillTo] = useState("");
   const P = (v: Partial<Shipment>) => patch<Shipment>("shipments", s.id, v);
@@ -332,21 +335,34 @@ function PaymentCard({ s }: { s: Shipment }) {
     <div className="card"><h3>Payment</h3>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div>
-          <span className="mono" style={{ fontSize: 17, fontWeight: 600 }}>TZS {tzs(s.charge)}</span> <PayPill pay={s.pay} />
+          <span className="mono" style={{ fontSize: 17, fontWeight: 600 }}>TZS {tzs(s.charge)}</span> <PayPill pay={s.pay} part={isPart(s)} />
+          {isPart(s) && <div className="sub"><b>TZS {tzs(paidOf(s))}</b> paid · <b style={{ color: "var(--bad)" }}>TZS {tzs(bal)}</b> balance</div>}
           {d > 0 && <div className="sub">TZS {tzs(gross)} − discount TZS {tzs(d)}{s.discount_reason ? ` (“${s.discount_reason}”)` : ""}{s.discount_by ? ` · by ${s.discount_by}` : ""}</div>}
           {s.pay === "paid" && s.paid_at && <div className="sub">{s.method || ""} · {fmtDate(s.paid_at)}{s.paid_by ? " · by " + s.paid_by : ""}</div>}
           {s.pay === "bill" && <div className="sub">On the monthly bill of <a href="#" onClick={(e) => { e.preventDefault(); ui.openAccount(s.account_id!); }}>{acct?.name || "an account"}</a></div>}
         </div>
-        {s.pay === "paid" && can("undo") && <button className="btn sm" onClick={() => P({ pay: "unpaid", paid_at: null, method: null, paid_by: null })}>Mark not paid</button>}
+        {(s.pay === "paid" || isPart(s)) && can("undo") && <button className="btn sm" onClick={() => P({ pay: "unpaid", paid_at: null, method: null, paid_by: null, ...(isPart(s) ? { paid_amount: 0 } : {}) })}>{isPart(s) ? "Clear payments" : "Mark not paid"}</button>}
         {s.pay === "bill" && can("undo") && <button className="btn sm" onClick={() => P({ pay: "unpaid", account_id: null })}>Take off the bill</button>}
         {s.pay === "unpaid" && can("pay") && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            {hasPart && <input type="number" min={0} step={500} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={tzs(bal)} style={{ width: 120 }} aria-label="Payment amount" title="Leave empty to pay the full balance" />}
             <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: "auto" }} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
-            <button className="btn primary sm" onClick={async () => { if (await P({ pay: "paid", method, paid_at: now(), paid_by: me.full_name })) toast("Payment recorded"); }}>Record payment</button>
+            <button className="btn primary sm" onClick={async () => {
+              const a = amount.trim() === "" ? bal : Math.round(Number(amount) || 0);
+              if (!(a > 0) || a > bal) return toast(`Enter an amount from 1 to TZS ${tzs(bal)}.`, true);
+              if (await takePayment(s, a, method)) { setAmount(""); toast(a >= bal ? `TZS ${tzs(a)} received. Fully paid.` : `TZS ${tzs(a)} received. Balance TZS ${tzs(bal - a)}.`); }
+            }}>{hasPart ? "Record payment" : "Record payment"}</button>
           </div>
         )}
       </div>
-      {s.pay === "unpaid" && can("bill") && hasExtras && active.length > 0 && (
+      {s.pay === "unpaid" && hasPart && can("pay") && <p className="note" style={{ margin: "6px 0 0" }}>Enter part of the amount for a part payment, or leave it empty to take the full balance.</p>}
+      {pays.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div className="lbl">Payments</div>
+          {pays.map((x) => <div className="lrow" key={x.id}><div><b className="num">TZS {tzs(x.amount)}</b> <span className="sub">· {x.method || "—"}{x.station ? ` · at ${regShort(x.station)}` : ""}</span><div className="sub">{fmtDate(x.paid_at)}{x.paid_by ? ` · by ${x.paid_by}` : ""}</div></div></div>)}
+        </div>
+      )}
+      {s.pay === "unpaid" && !isPart(s) && can("bill") && hasExtras && active.length > 0 && (
         <div className="actions" style={{ alignItems: "center" }}>
           <span className="sub">or put on a monthly bill:</span>
           <select value={billTo} onChange={(e) => setBillTo(e.target.value)} style={{ width: "auto" }} aria-label="Bill account"><option value="">Choose customer…</option>{active.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>

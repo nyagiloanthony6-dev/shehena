@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { PayPill, StatusPill } from "../parts";
-import { isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
+import { sumPaid, sumBalance, isPart, isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
 
 export default function Consignments() {
   const { shipments, tripById, can, company } = useStore();
@@ -29,7 +29,7 @@ export default function Consignments() {
       (!ql || [s.no, s.s_name, s.r_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql) ||
         (qd.length >= 4 && (intlPhone(s.s_phone).includes(qd) || intlPhone(s.r_phone).includes(qd)))));
   }, [shipments, q, dest, status, pay]);
-  const paid = list.filter((x) => x.pay === "paid");
+  const paidSum = sumPaid(list), owed = sumBalance(list);
 
   return (
     <section>
@@ -49,7 +49,7 @@ export default function Consignments() {
       </div>
       {list.length > 0 && (
         <div className="sub" style={{ marginTop: 12 }}>
-          Showing <b>{list.length}</b> · TZS <b>{tzs(sumCharge(list))}</b> billed · <span style={{ color: "var(--good)" }}>TZS <b>{tzs(sumCharge(paid))}</b> paid</span> · <span style={{ color: "var(--bad)" }}>TZS <b>{tzs(sumCharge(list) - sumCharge(paid))}</b> unpaid</span>
+          Showing <b>{list.length}</b> · TZS <b>{tzs(sumCharge(list))}</b> billed · <span style={{ color: "var(--good)" }}>TZS <b>{tzs(paidSum)}</b> paid</span> · <span style={{ color: "var(--bad)" }}>TZS <b>{tzs(owed)}</b> unpaid</span>
         </div>
       )}
       {list.length > 0 && (
@@ -63,7 +63,7 @@ export default function Consignments() {
                 <td><b style={{ fontWeight: 600 }}>{goodsLabel(s)}</b><div className="sub">{s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}{s.kg ? ` · ${s.kg} kg` : ""}</div></td>
                 <td>{s.s_name}<div className="sub">to {s.r_name}</div></td>
                 <td className="route">{regShort(s.origin)}<i>→</i>{regShort(s.dest)}</td>
-                <td className="r"><span className="num amt">{tzs(s.charge)}</span><div style={{ marginTop: 3 }}><PayPill pay={s.pay} /></div></td>
+                <td className="r"><span className="num amt">{tzs(s.charge)}</span><div style={{ marginTop: 3 }}><PayPill pay={s.pay} part={isPart(s)} /></div></td>
                 <td><StatusPill s={s.status} />{t && <div className="sub mono" style={{ marginTop: 3 }}>{t.plate}</div>}</td>
               </tr>
             );
@@ -75,7 +75,7 @@ export default function Consignments() {
           <div className="ctop"><span className="mono wb sub">{s.no}{s.found_on_arrival && <span className="tag-found">Found</span>}</span><StatusPill s={s.status} /></div>
           <div><b>{goodsLabel(s)}</b> · {s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}</div>
           <div className="sub">{s.s_name} → {s.r_name} · {regShort(s.dest)}</div>
-          <div className="cbot"><b>TZS {tzs(s.charge)}</b><PayPill pay={s.pay} /></div>
+          <div className="cbot"><b>TZS {tzs(s.charge)}</b><PayPill pay={s.pay} part={isPart(s)} /></div>
         </button>
       ))}</div>
       {!shipments.length && (

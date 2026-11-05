@@ -1,5 +1,5 @@
 // Truck manifest (A4 landscape): every consignment on a trip, for the driver and the destination office.
-import { cwOf, isAir, kgFmt, goodsLabel, prettyPhone, regShort, tLabel, tzs, PAY_LABEL, type Company, type Shipment, type Trip } from "@/lib/domain";
+import { paidOf, balanceOf, cwOf, isAir, kgFmt, goodsLabel, prettyPhone, regShort, tLabel, tzs, PAY_LABEL, type Company, type Shipment, type Trip } from "@/lib/domain";
 
 const when = (iso?: string | null) => iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
 
@@ -37,8 +37,8 @@ export async function downloadManifest(t: Trip, list: Shipment[], company: Compa
   list.forEach((s, i) => {
     if (y > 190) { doc.addPage(); head(); tableHead(); }
     const v = air
-      ? [String(i + 1), s.no, cut(s.s_name || "—", 40), cut(s.r_name, 40), prettyPhone(s.r_phone), cut(regShort(s.dest), 16), cut(goodsLabel(s), 34), String(s.pkgs), kgFmt(cwOf(s)), tzs(s.charge), PAY_LABEL[s.pay] + (s.found_on_arrival ? " · found" : "")]
-      : [String(i + 1), s.no, cut(s.s_name || "—", 44), cut(s.r_name, 44), prettyPhone(s.r_phone), cut(regShort(s.dest), 18), cut(goodsLabel(s), 40), String(s.pkgs), tzs(s.charge), PAY_LABEL[s.pay] + (s.found_on_arrival ? " · found" : "")];
+      ? [String(i + 1), s.no, cut(s.s_name || "—", 40), cut(s.r_name, 40), prettyPhone(s.r_phone), cut(regShort(s.dest), 16), cut(goodsLabel(s), 34), String(s.pkgs), kgFmt(cwOf(s)), tzs(s.charge), (s.pay === "unpaid" && Number(s.paid_amount || 0) > 0 ? `Part paid, owes ${tzs(balanceOf(s))}` : PAY_LABEL[s.pay]) + (s.found_on_arrival ? " · found" : "")]
+      : [String(i + 1), s.no, cut(s.s_name || "—", 44), cut(s.r_name, 44), prettyPhone(s.r_phone), cut(regShort(s.dest), 18), cut(goodsLabel(s), 40), String(s.pkgs), tzs(s.charge), (s.pay === "unpaid" && Number(s.paid_amount || 0) > 0 ? `Part paid, owes ${tzs(balanceOf(s))}` : PAY_LABEL[s.pay]) + (s.found_on_arrival ? " · found" : "")];
     cols.forEach(([, x, a], j) => doc.text(v[j], x, y, { align: a }));
     doc.setDrawColor(225, 229, 236); doc.line(L - 2, y + 2, R + 2, y + 2); y += 6.5;
   });
@@ -46,7 +46,7 @@ export async function downloadManifest(t: Trip, list: Shipment[], company: Compa
   y += 4; if (y > 185) { doc.addPage(); head(); y = 36; }
   doc.setFont("helvetica", "bold"); doc.setFontSize(10);
   doc.text(`${list.length} consignments · ${list.reduce((a, s) => a + Number(s.pkgs || 0), 0)} ${air ? `pieces · ${kgFmt(list.reduce((a, s) => a + cwOf(s), 0))} kg chargeable` : "packages"}`, L, y);
-  doc.text(`Total TZS ${tzs(tot(() => true))}  ·  paid ${tzs(tot((s) => s.pay === "paid"))}  ·  on bills ${tzs(tot((s) => s.pay === "bill"))}  ·  to collect ${tzs(tot((s) => s.pay === "unpaid"))}`, R, y, { align: "right" });
+  doc.text(`Total TZS ${tzs(tot(() => true))}  ·  paid ${tzs(list.reduce((a, s) => a + paidOf(s), 0))}  ·  on bills ${tzs(tot((s) => s.pay === "bill"))}  ·  to collect ${tzs(list.reduce((a, s) => a + balanceOf(s), 0))}`, R, y, { align: "right" });
   y += 16; doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(80, 88, 104);
   doc.text("Loaded by: ____________________", L, y); doc.text(air ? "Airline agent: ____________________" : "Driver: ____________________", L + 95, y); doc.text("Received at destination: ____________________", L + 180, y);
   doc.save(`Manifest-${(air ? t.mawb || t.no : t.plate).replace(/\s+/g, "")}-${t.no}.pdf`);

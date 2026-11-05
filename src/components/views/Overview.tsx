@@ -4,7 +4,7 @@ import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { StatusPill, TripCard } from "../parts";
 import { YearPanel } from "../charts";
-import { isAir, terms, goodsLabel, regShort, stLabel, tzs } from "@/lib/domain";
+import { sumBalance, balanceOf, isPart, isAir, terms, goodsLabel, regShort, stLabel, tzs } from "@/lib/domain";
 
 export function Stats() {
   const { shipments, company } = useStore();
@@ -18,7 +18,7 @@ export function Stats() {
       <div className="stat"><div className="lbl">{air ? "At warehouse" : "At office"}</div><div className="v">{c("received") + c("loaded")}</div><div className="s">{c("loaded")} {air ? "on a MAWB" : "loaded"}, waiting to leave</div></div>
       <div className="stat"><div className="lbl">In transit</div><div className="v">{c("transit")}</div><div className="s">{air ? "in the air" : "on the road"}</div></div>
       <div className="stat"><div className="lbl">Awaiting pickup</div><div className="v">{c("arrived")}</div><div className="s">{air ? "landed" : "arrived"}, not collected</div></div>
-      <div className={`stat${unpaid.length ? " warn" : ""}`}><div className="lbl">Unpaid</div><div className="v">{tzs(unpaid.reduce((a, s) => a + Number(s.charge || 0), 0))}</div><div className="s">TZS on {unpaid.length} consignment{unpaid.length === 1 ? "" : "s"}</div></div>
+      <div className={`stat${unpaid.length ? " warn" : ""}`}><div className="lbl">Unpaid</div><div className="v">{tzs(sumBalance(unpaid))}</div><div className="s">TZS on {unpaid.length} consignment{unpaid.length === 1 ? "" : "s"}</div></div>
     </div>
   );
 }
@@ -30,7 +30,7 @@ export default function Overview() {
   const first = (me.full_name || "").split(" ")[0];
   const T = trips.filter((t) => t.status !== "arrived").sort((a, b) => (a.status > b.status ? -1 : 1) || b.created_at.localeCompare(a.created_at));
   const A = shipments.filter((s) => s.status === "arrived").sort((a, b) => (a.arrived_at || "").localeCompare(b.arrived_at || ""));
-  const U = shipments.filter((s) => s.pay === "unpaid").sort((a, b) => Number(b.charge) - Number(a.charge));
+  const U = shipments.filter((s) => s.pay === "unpaid").sort((a, b) => balanceOf(b) - balanceOf(a));
   const R = shipments.slice(0, 6);
   const newTrip = () => { ui.setTripFormOpen(true); ui.go("trips"); };
   const W = terms(company);
@@ -63,7 +63,7 @@ export default function Overview() {
               return (
                 <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
                   <div><b>{s.r_name}</b><div className="sub">{goodsLabel(s)} · {regShort(s.dest)}</div></div>
-                  <div className="r"><div className="sub">{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</div>{s.pay === "unpaid" && <div className="sub" style={{ color: "var(--bad)" }}>TZS {tzs(s.charge)} due{d >= 2 && !(s.notices || []).some((n) => n.kind === "reminder" && Date.now() - new Date(n.at).getTime() < 2 * 864e5) ? " · send reminder" : ""}</div>}</div>
+                  <div className="r"><div className="sub">{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</div>{s.pay === "unpaid" && <div className="sub" style={{ color: "var(--bad)" }}>TZS {tzs(balanceOf(s))} due{d >= 2 && !(s.notices || []).some((n) => n.kind === "reminder" && Date.now() - new Date(n.at).getTime() < 2 * 864e5) ? " · send reminder" : ""}</div>}</div>
                 </button>
               );
             })}
@@ -74,7 +74,7 @@ export default function Overview() {
             {U.slice(0, 5).map((s) => (
               <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
                 <div><b>{s.s_name}</b><div className="sub">{goodsLabel(s)} → {regShort(s.dest)} · {stLabel(s.status, isAir(company))}</div></div>
-                <div className="r"><b style={{ color: "var(--bad)" }}>{tzs(s.charge)}</b><div className="sub">TZS</div></div>
+                <div className="r"><b style={{ color: "var(--bad)" }}>{tzs(balanceOf(s))}</b><div className="sub">TZS{isPart(s) ? " balance" : ""}</div></div>
               </button>
             ))}
             {!U.length && <p className="quiet">Every consignment is paid.</p>}

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "./store";
 import { printSlips } from "./printer";
-import { METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
+import { paidOf, METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 
 export const ID_TYPES = ["NIDA", "Driving licence", "Voter ID", "Passport", "Work ID", "Other"];
 
@@ -17,26 +17,30 @@ const dnNumber = () => {
  * and the payment when goods are still unpaid. Saves, then downloads the delivery note.
  */
 export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) {
-  const { patch, me, toast, company, tripById, hasV9, hasExtras, can, accounts } = useStore();
+  const { patch, me, toast, company, tripById, hasV9, hasExtras, can, accounts, logPayment } = useStore();
   const [f, setF] = useState({ name: s.r_name, phone: s.r_phone, idType: ID_TYPES[0], idNo: "", note: "", method: METHODS[0], how: "pay", account: "", disc: "", reason: "" });
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   const unpaid = s.pay === "unpaid";
   if (unpaid && !can("pay")) return <p className="note">This consignment is unpaid. Only staff who take payments can release it.</p>;
   // Unpaid goods: pay now or put on the customer's monthly bill, with an optional discount.
-  const bills = hasExtras && can("bill") ? accounts.filter((a) => a.active) : [];
+  const before = paidOf(s); // part paid earlier (e.g. at the origin)
+  // A part-paid consignment can't go on a monthly bill; the balance is collected here.
+  const bills = hasExtras && can("bill") && !before ? accounts.filter((a) => a.active) : [];
   const onBill = unpaid && f.how === "bill";
   const d0 = Number(s.discount || 0);
   const gross = Number(s.gross_charge ?? Number(s.charge) + d0);
   const discAllowed = unpaid && hasExtras;
   const disc = discAllowed && f.disc.trim() !== "" ? Math.round(Number(f.disc) || 0) : d0;
   const due = gross - disc;
+  const balance = Math.max(0, due - before);
 
   async function release(e: React.FormEvent) {
     e.preventDefault();
     if (!f.name.trim()) return toast("Enter the name of the person collecting.", true);
     if (!f.idNo.trim()) return toast("Enter their ID number (as on the ID shown).", true);
     if (disc < 0 || disc > gross) return toast(`The discount must be between 0 and TZS ${tzs(gross)}.`, true);
+    if (due < before) return toast(`TZS ${tzs(before)} has already been paid; the discount can be at most TZS ${tzs(gross - before)}.`, true);
     if (disc !== d0 && disc > 0 && !f.reason.trim()) return toast("Write the reason for the discount.", true);
     if (onBill && !f.account) return toast("Choose the customer's bill account.", true);
     setBusy(true);
@@ -53,7 +57,8 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
     const ok = await patch<Shipment>("shipments", s.id, values);
     setBusy(false);
     if (!ok) return;
-    toast(`${onBill ? `TZS ${tzs(due)} put on ${bills.find((a) => a.id === f.account)?.name || "the bill"}. ` : unpaid ? `TZS ${tzs(due)} received. ` : ""}Released to ${details.collector_name}. Delivery note ${dn} printing.`);
+    if (unpaid && !onBill) await logPayment({ ...s, ...values } as Shipment, balance, f.method);
+    toast(`${onBill ? `TZS ${tzs(due)} put on ${bills.find((a) => a.id === f.account)?.name || "the bill"}. ` : unpaid ? `TZS ${tzs(balance)} received${before ? ` (balance; TZS ${tzs(before)} paid before)` : ""}. ` : ""}Released to ${details.collector_name}. Delivery note ${dn} printing.`);
     try { await printSlips("delivery", { ...s, ...values, dn_no: dn, ...details } as Shipment, company, { trip: tripById(s.trip_id) }); }
     catch (e) { const m = (e as Error).message; toast(`Released, but the delivery note didn't print${m === "NEEDS_PAIRING" ? " (choose the printer under Printer settings)" : ""}. Print it from the consignment.`, true); }
     onDone();
@@ -69,15 +74,15 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
         <label className="f">ID number<input value={f.idNo} onChange={(e) => set("idNo", e.target.value)} aria-label="ID number" /></label>
         <label className="f full">Remarks <small>optional: condition of goods, packages short…</small><input value={f.note} onChange={(e) => set("note", e.target.value)} placeholder={`All ${s.pkgs} package${s.pkgs === 1 ? "" : "s"} received in good condition`} aria-label="Release remarks" /></label>
         {unpaid && bills.length > 0 && <label className="f">Payment<select value={f.how} onChange={(e) => set("how", e.target.value)} aria-label="Release payment"><option value="pay">Pays now</option><option value="bill">Monthly bill</option></select></label>}
-        {unpaid && !onBill && <label className="f">Payment of TZS {tzs(due)}<select value={f.method} onChange={(e) => set("method", e.target.value)} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>}
+        {unpaid && !onBill && <label className="f">{before ? <>Balance TZS {tzs(balance)} <small>TZS {tzs(before)} paid before</small></> : <>Payment of TZS {tzs(due)}</>}<select value={f.method} onChange={(e) => set("method", e.target.value)} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>}
         {onBill && <label className="f">Bill customer<select value={f.account} onChange={(e) => set("account", e.target.value)} aria-label="Release bill account"><option value="">Choose…</option>{bills.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
         {discAllowed && <label className="f">Discount (TZS) <small>optional</small><input type="number" min={0} step={500} value={f.disc} onChange={(e) => set("disc", e.target.value)} placeholder={d0 ? String(d0) : "0"} aria-label="Release discount" /></label>}
         {discAllowed && disc !== d0 && disc > 0 && <label className="f">Reason for discount<input value={f.reason} onChange={(e) => set("reason", e.target.value)} placeholder="e.g. Regular customer, asked at collection" aria-label="Release discount reason" /></label>}
       </div>
-      {discAllowed && disc !== d0 && <p className="note" style={{ margin: "6px 0 0" }}>TZS {tzs(gross)} − discount {tzs(disc)} = <b>TZS {tzs(due)}</b></p>}
+      {discAllowed && disc !== d0 && <p className="note" style={{ margin: "6px 0 0" }}>TZS {tzs(gross)} − discount {tzs(disc)} = <b>TZS {tzs(due)}</b>{before ? <> − paid {tzs(before)} = balance <b>TZS {tzs(balance)}</b></> : null}</p>}
       {f.name.trim() && f.name.trim().toLowerCase() !== s.r_name.toLowerCase() && <p className="note" style={{ margin: "6px 0 0", color: "var(--amber)" }}>Not the receiver ({s.r_name}). Make sure they were sent by the receiver.</p>}
       <div className="actions">
-        <button className="btn primary sm" type="submit" disabled={busy}>{busy ? "Saving…" : onBill ? "Put on bill & release" : unpaid ? `Record TZS ${tzs(due)} & release` : "Release & print delivery note"}</button>
+        <button className="btn primary sm" type="submit" disabled={busy}>{busy ? "Saving…" : onBill ? "Put on bill & release" : unpaid ? `Record TZS ${tzs(balance)} & release` : "Release & print delivery note"}</button>
         <button className="btn sm" type="button" onClick={onDone}>Cancel</button>
       </div>
     </form>

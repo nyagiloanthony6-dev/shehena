@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { PayPill, StatusPill, TripPill } from "../parts";
 import { DailyChart, YearPanel } from "../charts";
-import { CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { sumPaid, sumBalance, balanceOf, CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 type Period = "today" | "7" | "30" | "month" | "all" | "custom";
 type Tab = "overview" | "pay" | "trucks" | "claims" | "discounts" | "bills" | "deliveries";
@@ -14,7 +14,7 @@ const TABS: [Tab, string][] = [
   ["discounts", "Discounts"], ["bills", "Monthly bills"], ["deliveries", "Deliveries"],
 ];
 // b = billed, pd = paid, u = unpaid at the counter, bl = on monthly bills
-const agg = (L: Shipment[]) => ({ b: sumCharge(L), pd: sumCharge(L.filter((x) => x.pay === "paid")), u: sumCharge(L.filter((x) => x.pay === "unpaid")), bl: sumCharge(L.filter((x) => x.pay === "bill")) });
+const agg = (L: Shipment[]) => ({ b: sumCharge(L), pd: sumPaid(L), u: sumBalance(L), bl: sumCharge(L.filter((x) => x.pay === "bill")) });
 const localDay = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 const daysSince = (iso?: string | null) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : 0);
 
@@ -55,10 +55,10 @@ export default function Reports() {
   const T = useMemo(() => trips.filter((t) => inPeriod(t.created_at)), [trips, range]); // eslint-disable-line react-hooks/exhaustive-deps
   const billed = sumCharge(S);
   const paid = S.filter((s) => s.pay === "paid");
-  const paidAmt = sumCharge(paid);
+  const paidAmt = sumPaid(S); // includes part payments
   const U = S.filter((x) => x.pay === "unpaid");
   const B = S.filter((x) => x.pay === "bill");
-  const unpaidAmt = sumCharge(U);
+  const unpaidAmt = sumBalance(U);
   const dispatched = trips.filter((t) => t.departed_at && inPeriod(t.departed_at));
 
   return (
@@ -87,7 +87,7 @@ export default function Reports() {
         const allUnpaid = shipments.filter((s) => s.pay === "unpaid");
         const byReceiver = Object.values(allUnpaid.reduce<Record<string, { name: string; phone: string; n: number; v: number; oldest: number }>>((a, s) => {
           const k = s.r_phone || s.r_name; const r = (a[k] = a[k] || { name: s.r_name, phone: s.r_phone, n: 0, v: 0, oldest: 0 });
-          r.n++; r.v += Number(s.charge || 0); r.oldest = Math.max(r.oldest, age(s)); return a;
+          r.n++; r.v += balanceOf(s); r.oldest = Math.max(r.oldest, age(s)); return a;
         }, {})).sort((a, b) => b.v - a.v);
         return (
           <>
@@ -329,12 +329,12 @@ function Overview({ S }: { S: Shipment[] }) {
   const { shipments } = useStore();
   const billed = sumCharge(S);
   const paid = S.filter((s) => s.pay === "paid");
-  const paidAmt = sumCharge(paid);
+  const paidAmt = sumPaid(S);
   const U = S.filter((x) => x.pay === "unpaid"), B = S.filter((x) => x.pay === "bill");
   const methods: Record<string, { n: number; v: number }> = {};
   paid.forEach((s) => { const k = s.method || "Not recorded"; methods[k] = methods[k] || { n: 0, v: 0 }; methods[k].n++; methods[k].v += Number(s.charge || 0); });
   const dests: Record<string, { n: number; p: number; b: number; u: number }> = {};
-  S.forEach((s) => { const d = (dests[s.dest] = dests[s.dest] || { n: 0, p: 0, b: 0, u: 0 }); d.n++; d.p += s.pkgs; d.b += Number(s.charge || 0); if (s.pay === "unpaid") d.u += Number(s.charge || 0); });
+  S.forEach((s) => { const d = (dests[s.dest] = dests[s.dest] || { n: 0, p: 0, b: 0, u: 0 }); d.n++; d.p += s.pkgs; d.b += Number(s.charge || 0); if (s.pay === "unpaid") d.u += balanceOf(s); });
   const staffRows: Record<string, { n: number; c: number }> = {};
   S.forEach((s) => { const k = s.created_by_name || "—"; (staffRows[k] = staffRows[k] || { n: 0, c: 0 }).n++; });
   paid.forEach((s) => { const k = s.paid_by || s.created_by_name || "—"; (staffRows[k] = staffRows[k] || { n: 0, c: 0 }).c += Number(s.charge || 0); });
@@ -345,7 +345,7 @@ function Overview({ S }: { S: Shipment[] }) {
         <div className="stat"><div className="lbl">Consignments</div><div className="v">{S.length}</div><div className="s">{pkgsOf(S)} packages</div></div>
         <div className="stat"><div className="lbl">Billed</div><div className="v">{tzs(billed)}</div><div className="s">TZS</div></div>
         <div className="stat"><div className="lbl">Collected</div><div className="v">{tzs(paidAmt)}</div><div className="s">TZS · {paid.length} paid</div></div>
-        <div className={`stat${sumCharge(U) ? " warn" : ""}`}><div className="lbl">Outstanding</div><div className="v">{tzs(sumCharge(U))}</div><div className="s">TZS · {U.length} unpaid{B.length ? ` · ${tzs(sumCharge(B))} on bills` : ""}</div></div>
+        <div className={`stat${sumBalance(U) ? " warn" : ""}`}><div className="lbl">Outstanding</div><div className="v">{tzs(sumBalance(U))}</div><div className="s">TZS · {U.length} unpaid{B.length ? ` · ${tzs(sumCharge(B))} on bills` : ""}</div></div>
         <div className="stat"><div className="lbl">Delivered</div><div className="v">{S.filter((s) => s.status === "collected").length}</div><div className="s">of these consignments</div></div>
         <div className="stat"><div className="lbl">Awaiting pickup</div><div className="v">{shipments.filter((s) => s.status === "arrived").length}</div><div className="s">at destinations now</div></div>
       </div>
@@ -363,7 +363,7 @@ function Overview({ S }: { S: Shipment[] }) {
             <tbody>{Object.entries(dests).sort((a, b) => b[1].b - a[1].b).map(([k, x]) =>
               <tr key={k}><td>{regShort(k)}</td><td className="r num">{x.n}</td><td className="r num">{x.p}</td><td className="r num">{tzs(x.b)}</td><td className="r num" style={x.u ? { color: "var(--bad)" } : undefined}>{tzs(x.u)}</td></tr>)}
               {!S.length && <tr><td colSpan={5} className="sub">No consignments in this period.</td></tr>}</tbody>
-            {S.length > 0 && <tfoot><tr><td>Total</td><td className="r num">{S.length}</td><td className="r num">{pkgsOf(S)}</td><td className="r num">{tzs(billed)}</td><td className="r num">{tzs(sumCharge(U))}</td></tr></tfoot>}
+            {S.length > 0 && <tfoot><tr><td>Total</td><td className="r num">{S.length}</td><td className="r num">{pkgsOf(S)}</td><td className="r num">{tzs(billed)}</td><td className="r num">{tzs(sumBalance(U))}</td></tr></tfoot>}
           </table></div>
         </div>
         <div className="panel"><h2>By staff member</h2><div className="sub">Consignments received and payments recorded</div>

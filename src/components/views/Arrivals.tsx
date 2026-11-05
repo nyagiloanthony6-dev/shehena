@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { ReleaseForm } from "../release";
 import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub } from "../parts";
-import { isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
 
@@ -25,7 +25,7 @@ function RoadTruck({ t }: { t: Trip }) {
       <div className="tline">
         <span><b>{list.length}</b> consignment{list.length === 1 ? "" : "s"}</span>
         <span>TZS <b>{tzs(sumCharge(list))}</b></span>
-        {unpaid.length > 0 && <span style={{ color: "var(--bad)" }}><b style={{ color: "inherit" }}>{unpaid.length}</b> to pay on arrival · TZS <b style={{ color: "inherit" }}>{tzs(sumCharge(unpaid))}</b></span>}
+        {unpaid.length > 0 && <span style={{ color: "var(--bad)" }}><b style={{ color: "inherit" }}>{unpaid.length}</b> to pay on arrival · TZS <b style={{ color: "inherit" }}>{tzs(sumBalance(unpaid))}</b></span>}
       </div>
       <div className="actions" style={{ marginTop: 4 }}>
         {can("dispatch") && (confirm
@@ -55,8 +55,8 @@ function WaitingRow({ s }: { s: Shipment }) {
         <span className="mono sub">{prettyPhone(s.r_phone)}</span>
         <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg · {regShort(s.dest)}{t ? ` · ${t.plate}` : ""}</div>
         <div className="sub" style={{ marginTop: 2, display: "flex", gap: "4px 10px", flexWrap: "wrap", alignItems: "center" }}>
-          <PayPill pay={s.pay} />
-          {s.pay === "unpaid" && <b style={{ color: "var(--bad)" }}>TZS {tzs(s.charge)} due</b>}
+          <PayPill pay={s.pay} part={isPart(s)} />
+          {s.pay === "unpaid" && <b style={{ color: "var(--bad)" }}>TZS {tzs(balanceOf(s))} {isPart(s) ? "balance" : "due"}</b>}
           <span>{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</span>
           {notified ? <span className="tick">✓ Notified</span> : <span style={{ color: "var(--amber)", fontWeight: 600 }}>Not notified yet</span>}
           {lastReminder && <span>Reminded {fmtDay(lastReminder.at)}</span>}
@@ -113,7 +113,7 @@ export default function Arrivals() {
         <div className="stat"><div className="lbl">{W.onRoad}</div><div className="v">{road.length}</div><div className="s">{W.vehicle}{road.length === 1 ? "" : "s"} to receive</div></div>
         <div className="stat"><div className="lbl">Waiting for pickup</div><div className="v">{waitingAll.length}</div><div className="s">consignments at destinations</div></div>
         <div className={`stat${notNotified.length ? " warn" : ""}`}><div className="lbl">Not notified</div><div className="v">{notNotified.length}</div><div className="s">customers not told yet</div></div>
-        <div className={`stat${unpaid.length ? " warn" : ""}`}><div className="lbl">To collect</div><div className="v">{tzs(sumCharge(unpaid))}</div><div className="s">TZS from {unpaid.length} customer{unpaid.length === 1 ? "" : "s"}</div></div>
+        <div className={`stat${unpaid.length ? " warn" : ""}`}><div className="lbl">To collect</div><div className="v">{tzs(sumBalance(unpaid))}</div><div className="s">TZS from {unpaid.length} customer{unpaid.length === 1 ? "" : "s"}</div></div>
         <div className="stat"><div className="lbl">Released today</div><div className="v">{collectedToday.length}</div><div className="s">TZS {tzs(sumCharge(collectedToday))}</div></div>
       </div>
 

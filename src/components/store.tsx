@@ -3,10 +3,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 type Change = RealtimePostgresChangesPayload<Record<string, unknown>>;
-import { can as canRole, type BillAccount, type BillPayment, type Claim, type ClaimPayment, type Company, type Perm, type Profile, type Shipment, type Trip, type Vehicle } from "@/lib/domain";
+import { can as canRole, type BillAccount, type BillPayment, type Claim, type ClaimPayment, type ShipPayment, type Company, type Perm, type Profile, type Shipment, type Trip, type Vehicle } from "@/lib/domain";
 
 type Row = { id: string };
-type Table = "shipments" | "trips" | "vehicles" | "bill_accounts" | "bill_payments" | "claims" | "claim_payments";
+type Table = "shipments" | "trips" | "vehicles" | "bill_accounts" | "bill_payments" | "claims" | "claim_payments" | "shipment_payments";
 /** Tables added by migration 0008; if it hasn't been run yet they just stay empty. */
 const EXTRA: Table[] = ["bill_accounts", "bill_payments", "claims", "claim_payments"];
 
@@ -20,6 +20,14 @@ interface Store {
   billPayments: BillPayment[];
   claims: Claim[];
   claimPayments: ClaimPayment[];
+  /** every payment towards consignments (part or full) */
+  shipPayments: ShipPayment[];
+  /** false until migration 0017 (part payments) has been run */
+  hasPart: boolean;
+  /** Take a payment (part or full) for a consignment; completes it when the balance reaches 0. */
+  takePayment: (s: Shipment, amount: number, method: string, extra?: Partial<Shipment>) => Promise<boolean>;
+  /** Only record a payment line (the consignment was already saved as paid / part paid). */
+  logPayment: (s: Shipment, amount: number, method: string) => Promise<void>;
   /** false until migration 0008 has been run in Supabase */
   hasExtras: boolean;
   /** false until migration 0009 (delivery notes, rental trucks) has been run */
@@ -50,7 +58,7 @@ const byNewest = (k: string) => (a: Record<string, unknown>, b: Record<string, u
   String(b[k] || "").localeCompare(String(a[k] || ""));
 const SORT: Record<Table, string> = {
   shipments: "received_at", trips: "created_at", vehicles: "plate",
-  bill_accounts: "name", bill_payments: "paid_on", claims: "created_at", claim_payments: "paid_on",
+  bill_accounts: "name", bill_payments: "paid_on", claims: "created_at", claim_payments: "paid_on", shipment_payments: "paid_at",
 };
 const ASC = new Set<Table>(["vehicles", "bill_accounts"]);
 
@@ -72,6 +80,8 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   const [billPayments, setBillPayments] = useState<BillPayment[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [claimPayments, setClaimPayments] = useState<ClaimPayment[]>([]);
+  const [shipPayments, setShipPayments] = useState<ShipPayment[]>([]);
+  const [hasPart, setHasPart] = useState(false);
   const [hasExtras, setHasExtras] = useState(false);
   const [hasV9, setHasV9] = useState(false);
   const [staff, setStaff] = useState<Profile[]>([]);
@@ -93,6 +103,7 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     bill_payments: setBillPayments as React.Dispatch<React.SetStateAction<Row[]>>,
     claims: setClaims as React.Dispatch<React.SetStateAction<Row[]>>,
     claim_payments: setClaimPayments as React.Dispatch<React.SetStateAction<Row[]>>,
+    shipment_payments: setShipPayments as React.Dispatch<React.SetStateAction<Row[]>>,
   }), []);
 
   const loadAll = useCallback(async () => {
@@ -115,6 +126,9 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     setHasExtras(!extra[0].error);
     const v9 = await sb.from("trips").select("rent_cost").limit(1);
     setHasV9(!v9.error);
+    const sp = await sb.from("shipment_payments").select("*").order("paid_at", { ascending: false }).limit(20000);
+    setHasPart(!sp.error);
+    setShipPayments(((sp.data || []) as Record<string, unknown>[]).map((r) => ({ ...r, amount: Number(r.amount) })) as unknown as ShipPayment[]);
     setReady(true);
   }, [sb, initialCompany.id, toast, setters]);
 
@@ -132,7 +146,7 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     loadAll();
     const filter = `company_id=eq.${initialCompany.id}`;
     const ch = sb.channel(`company-${initialCompany.id}`);
-    (["shipments", "trips", "vehicles", ...EXTRA] as Table[]).forEach((table) => {
+    (["shipments", "trips", "vehicles", "shipment_payments", ...EXTRA] as Table[]).forEach((table) => {
       ch.on("postgres_changes", { event: "*", schema: "public", table, filter }, (p: Change) => {
         const set = setters[table];
         if (p.eventType === "DELETE") set((l) => l.filter((x) => x.id !== (p.old as unknown as Row).id));
@@ -186,6 +200,33 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     return true;
   }, [sb, setters, fail]);
 
+  const logPayment = useCallback(async (s: Shipment, amount: number, method: string, at = new Date().toISOString()) => {
+    if (!hasPart || !(amount > 0)) return;
+    // Where the money was taken: the branch's office, or the origin before the goods leave, else the destination.
+    const station = me.station || (["arrived", "collected"].includes(String(s.status)) ? s.dest : s.origin);
+    const { data, error } = await sb.from("shipment_payments").insert({ company_id: company.id, shipment_id: s.id, amount: Math.round(amount), method, station, paid_at: at, paid_by: me.full_name }).select().single();
+    if (!error && data) setShipPayments((l) => upsert(l as unknown as Row[], { ...(data as Row), amount: Number((data as { amount: number }).amount) } as Row, "shipment_payments") as unknown as ShipPayment[]);
+  }, [sb, company.id, me.full_name, me.station, hasPart]);
+
+  const takePayment = useCallback(async (s: Shipment, amount: number, method: string, extra: Partial<Shipment> = {}) => {
+    const charge = Number(extra.charge ?? s.charge ?? 0);
+    const before = s.pay === "unpaid" ? Number(s.paid_amount || 0) : 0;
+    const amt = Math.round(Math.min(amount, charge - before));
+    if (!(amt > 0)) { toast("Enter an amount more than 0 and no more than the balance.", true); return false; }
+    const at = new Date().toISOString();
+    const full = before + amt >= charge;
+    // Before migration 0017 only full payments are possible.
+    if (!hasPart && !full) { toast("Part payments need an update in Supabase (migration 0017). Ask Serengeti Labs.", true); return false; }
+    const ok = await patch<Shipment>("shipments", s.id, {
+      ...extra, method, paid_by: me.full_name,
+      ...(hasPart ? { paid_amount: before + amt } : {}),
+      ...(full ? { pay: "paid" as const, paid_at: at } : {}),
+    });
+    if (!ok) return false;
+    await logPayment({ ...s, ...extra } as Shipment, amt, method, at);
+    return true;
+  }, [me.full_name, hasPart, patch, toast, logPayment]);
+
   const patchCompany = useCallback(async (values: Partial<Company>) => {
     setCompany((c) => ({ ...c, ...values }));
     const { error } = await sb.from("companies").update(values).eq("id", company.id);
@@ -194,13 +235,13 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   }, [sb, company.id, fail]);
 
   const value = useMemo<Store>(() => ({
-    me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, hasExtras, hasV9, staff, ready,
+    me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, takePayment, logPayment, hasExtras, hasV9, staff, ready,
     can: (p) => canRole(me.role, p),
     toast, insert, patch, patchMany, remove, patchCompany, reloadStaff,
     tripById: (id) => (id ? trips.find((t) => t.id === id) : undefined),
     shipById: (id) => (id ? shipments.find((s) => s.id === id) : undefined),
     tripShips: (t) => shipments.filter((s) => s.trip_id === t.id),
-  }), [me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, hasExtras, hasV9, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
+  }), [me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, takePayment, logPayment, hasExtras, hasV9, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
 
   return (
     <Ctx.Provider value={value}>

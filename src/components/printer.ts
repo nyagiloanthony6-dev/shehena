@@ -11,7 +11,7 @@
 //   rawbt     – Android phones with the free RawBT app (works with classic Bluetooth printers too).
 //   pdf       – the PDF files, as before.
 // Direct modes send ESC/POS commands (the language almost every thermal printer understands).
-import { PAY_LABEL, cwOf, isAir, kgFmt, fmtDate, itemsOf, prettyPhone, regName, regShort, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
+import { isPart, paidOf, balanceOf, PAY_LABEL, cwOf, isAir, kgFmt, fmtDate, itemsOf, prettyPhone, regName, regShort, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 import { packages, stickerPrefs } from "./stickers";
 
 export type PrintMode = "system" | "bluetooth" | "usb" | "rawbt" | "pdf";
@@ -59,7 +59,7 @@ type Line =
 type Slip = { lines: Line[]; label: string };
 
 const payText = (s: Shipment, account?: string) =>
-  s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : s.pay === "bill" ? "MONTHLY BILL" + (account ? ` (${account})` : "") : "NOT PAID - due on collection";
+  s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : s.pay === "bill" ? "MONTHLY BILL" + (account ? ` (${account})` : "") : isPart(s) ? `PART PAID TZS ${tzs(paidOf(s))}, BALANCE TZS ${tzs(balanceOf(s))} due on collection` : "NOT PAID - due on collection";
 
 function head(company: Company, title: string, no: string): Line[] {
   return [

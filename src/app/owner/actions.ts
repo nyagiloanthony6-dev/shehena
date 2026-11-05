@@ -401,9 +401,9 @@ export async function truckActivity(companyId: string, month: string): Promise<{
     if (error) return { error: "Couldn't load the trips." };
     const inMonth = (trips || []).filter((t) => t.created_at < to);
     const ids = inMonth.map((t) => t.id);
-    const ships: { trip_id: string; charge: number; pay: string; pkgs: number }[] = [];
+    const ships: { trip_id: string; charge: number; pay: string; pkgs: number; paid_amount?: number }[] = [];
     for (let i = 0; i < ids.length; i += 200) {
-      const { data } = await admin.from("shipments").select("trip_id, charge, pay, pkgs").in("trip_id", ids.slice(i, i + 200));
+      const { data } = await admin.from("shipments").select("*").in("trip_id", ids.slice(i, i + 200));
       ships.push(...((data || []) as typeof ships));
     }
     const rows = new Map<string, TruckRow>();
@@ -416,7 +416,9 @@ export async function truckActivity(companyId: string, month: string): Promise<{
       for (const s of ships.filter((x) => x.trip_id === t.id)) {
         const c = Number(s.charge || 0);
         r.consignments++; r.packages += Number(s.pkgs || 0); r.charged += c;
-        if (s.pay === "paid") r.paid += c; else if (s.pay === "bill") r.bill += c; else r.unpaid += c;
+        // Part payments count as paid; the rest is still owed.
+        const part = s.pay === "unpaid" ? Math.min(Number(s.paid_amount || 0), c) : 0;
+        if (s.pay === "paid") r.paid += c; else if (s.pay === "bill") r.bill += c; else { r.paid += part; r.unpaid += c - part; }
       }
       rows.set(key, r);
     }

@@ -37,12 +37,12 @@ const summary = (items: Item[]) => ({
 
 const blank = (origin: string, dest?: string) => ({
   s_phone: "", s_name: "", r_phone: "", r_name: "",
-  origin, dest: dest || (origin === "DOD" ? "DAR" : "DOD"), pay: "unpaid" as Pay, method: METHODS[0], notes: "",
+  origin, dest: dest || (origin === "DOD" ? "DAR" : "DOD"), pay: "unpaid" as Pay | "part", method: METHODS[0], notes: "", part: "",
   account_id: "", discount: "", discount_reason: "",
 });
 
 export default function Receive() {
-  const { company, shipments, trips, me, insert, toast, accounts, hasExtras, can } = useStore();
+  const { company, shipments, trips, me, insert, toast, accounts, hasExtras, can, hasPart, logPayment } = useStore();
   // Branch staff always receive at their own office; it can't be changed.
   const station = me.role === "agent" ? me.station || null : null;
   const home = station || company.default_origin || "DAR";
@@ -87,10 +87,12 @@ export default function Receive() {
 
   const disc = Math.max(0, Math.round(Number(f.discount) || 0));
   const net = Math.max(0, tot.charge - disc);
+  const partAmt = Math.round(Number(f.part) || 0);
   const account = activeAccounts.find((a) => a.id === f.account_id);
   const preview: Partial<Shipment> = {
     ...f, ...tot, items, gross_charge: tot.charge, charge: net, discount: disc, account_id: f.account_id || null, ...(found ? { origin: trip!.origin, dest: trip!.dest } : {}),
-    no: `${f.origin}-${f.dest}-…`, method: f.pay === "paid" ? f.method : null, created_by_name: me.full_name,
+    no: `${f.origin}-${f.dest}-…`, method: f.pay === "paid" || f.pay === "part" ? f.method : null, created_by_name: me.full_name,
+    pay: f.pay === "part" ? "unpaid" : f.pay, paid_amount: f.pay === "part" ? partAmt : 0,
   };
 
   async function submit(e: React.FormEvent) {
@@ -105,6 +107,7 @@ export default function Receive() {
     if (cfg.air && items.some((i) => !Number(i.kg) && !Number(i.vol))) miss.push("the weight (or the size) of every item");
     if (!found && f.origin === f.dest) miss.push("a destination different from the origin");
     if (f.pay === "bill" && !account) miss.push("the bill customer (account)");
+    if (f.pay === "part" && !(partAmt > 0 && partAmt < net)) miss.push(`the amount paid now (more than 0 and less than TZS ${tzs(net)})`);
     if (disc > tot.charge) miss.push("a discount no bigger than the charge");
     if (disc > 0 && !f.discount_reason.trim()) miss.push("the reason for the discount");
     if (miss.length) return setErr("Please add " + miss.join(", ") + ".");
@@ -112,8 +115,9 @@ export default function Receive() {
     const now = new Date().toISOString();
     const row: Partial<Shipment> = {
       s_name: f.s_name.trim(), s_phone: f.s_phone.trim(), r_name: f.r_name.trim(), r_phone: f.r_phone.trim(),
-      ...tot, items, origin: f.origin, dest: f.dest, pay: f.pay, method: f.pay === "paid" ? f.method : null,
-      paid_at: f.pay === "paid" ? now : null, paid_by: f.pay === "paid" ? me.full_name : null,
+      ...tot, items, origin: f.origin, dest: f.dest, pay: f.pay === "part" ? "unpaid" : f.pay, method: f.pay === "paid" || f.pay === "part" ? f.method : null,
+      paid_at: f.pay === "paid" ? now : null, paid_by: f.pay === "paid" || f.pay === "part" ? me.full_name : null,
+      ...(f.pay === "part" ? { paid_amount: partAmt } : {}),
       notes: f.notes.trim(), status: "received", received_at: now, notices: [], created_by: me.id, created_by_name: me.full_name,
       ...(f.pay === "bill" ? { account_id: f.account_id } : {}),
       // The database also works these out from the item lines and the discount.
@@ -132,6 +136,9 @@ export default function Receive() {
     }
     setBusy(false);
     if (!saved) return;
+    // Keep a record of the money taken now (full or part), for the payment history and reports.
+    if (f.pay === "paid") await logPayment(saved, Number(saved.charge), f.method);
+    else if (f.pay === "part") await logPayment(saved, partAmt, f.method);
     setF(blank(home, firstDest));
     setLines([blankLine(defRate)]);
     setFoundNote("");
@@ -247,6 +254,7 @@ export default function Receive() {
               <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 13, fontWeight: 500 }}>Status
                 <div className="seg">
                   <label><input type="radio" name="pay" checked={f.pay === "paid"} onChange={() => set("pay", "paid")} /><span>Paid</span></label>
+                  {hasPart && <label><input type="radio" name="pay" checked={f.pay === "part"} onChange={() => set("pay", "part")} /><span>Part paid</span></label>}
                   <label><input type="radio" name="pay" checked={f.pay === "unpaid"} onChange={() => set("pay", "unpaid")} /><span>Not paid</span></label>
                   {hasExtras && can("bill") && <label><input type="radio" name="pay" checked={f.pay === "bill"} onChange={() => set("pay", "bill")} /><span>Monthly bill</span></label>}
                 </div>
@@ -256,7 +264,9 @@ export default function Receive() {
                 : <div className="f sub">No bill customers yet. {can("accounts") ? <a href="#" onClick={(e) => { e.preventDefault(); ui.go("bills"); }}>Open a bill account</a> : "Ask the Admin to open one."}</div>)}
               {hasExtras && <label className="f">Discount (TZS) <small>optional</small><input type="number" min={0} step={500} value={f.discount} onChange={(e) => set("discount", e.target.value)} aria-label="Discount" /></label>}
               {hasExtras && disc > 0 && <label className="f">Reason for discount<input value={f.discount_reason} onChange={(e) => set("discount_reason", e.target.value)} placeholder="e.g. Regular customer" aria-label="Discount reason" /></label>}
-              {f.pay === "paid" && <label className="f">Payment method<select value={f.method} onChange={(e) => set("method", e.target.value)}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>}
+              {f.pay === "part" && <label className="f">Paid now (TZS)<input type="number" min={0} step={500} value={f.part} onChange={(e) => set("part", e.target.value)} aria-label="Amount paid now" /></label>}
+              {f.pay === "part" && partAmt > 0 && <div className="f sub" style={{ alignSelf: "end" }}>Balance TZS <b>{tzs(Math.max(0, net - partAmt))}</b> to pay at collection</div>}
+              {(f.pay === "paid" || f.pay === "part") && <label className="f">Payment method<select value={f.method} onChange={(e) => set("method", e.target.value)}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>}
               <label className="f full">Notes <small>optional</small><textarea rows={2} value={f.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Fragile, keep upright…" /></label>
             </div>
           </fieldset>

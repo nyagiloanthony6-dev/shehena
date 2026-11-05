@@ -127,6 +127,8 @@ export interface Shipment {
   charge: number;
   /** paid at the counter, unpaid (due on collection), or on a customer's monthly bill */
   pay: Pay;
+  /** paid so far (part payments at the origin and/or destination); balance = charge − paid_amount */
+  paid_amount?: number;
   account_id?: string | null;
   /** charge before discount; `charge` is what the customer owes after the discount */
   gross_charge?: number | null;
@@ -164,6 +166,18 @@ export interface Shipment {
 }
 
 export type Pay = "paid" | "unpaid" | "bill";
+/** One payment towards a consignment (part or full), with where it was taken. */
+export interface ShipPayment { id: string; company_id: string; shipment_id: string; amount: number; method: string; station: string | null; paid_at: string; paid_by: string | null }
+/** Money received so far for a consignment. */
+export const paidOf = (s: Partial<Pick<Shipment, "pay" | "charge" | "paid_amount">>) =>
+  s.pay === "paid" ? Number(s.charge || 0) : s.pay === "unpaid" ? Math.min(Number(s.paid_amount || 0), Number(s.charge || 0)) : 0;
+/** What is still to be paid at the counter (not counting monthly bills). */
+export const balanceOf = (s: Partial<Pick<Shipment, "pay" | "charge" | "paid_amount">>) =>
+  s.pay === "unpaid" ? Math.max(0, Number(s.charge || 0) - Number(s.paid_amount || 0)) : 0;
+/** Part paid: some money received, balance still due. */
+export const isPart = (s: Partial<Pick<Shipment, "pay" | "paid_amount">>) => s.pay === "unpaid" && Number(s.paid_amount || 0) > 0;
+export const sumPaid = (list: Shipment[]) => list.reduce((a, s) => a + paidOf(s), 0);
+export const sumBalance = (list: Shipment[]) => list.reduce((a, s) => a + balanceOf(s), 0);
 /** Nothing to collect at the counter: paid, or charged to a monthly bill. */
 export const settled = (s: Pick<Shipment, "pay">) => s.pay === "paid" || s.pay === "bill";
 export const PAY_LABEL: Record<Pay, string> = { paid: "Paid", unpaid: "Not paid", bill: "Monthly bill" };
@@ -307,7 +321,9 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   const payLine = s.pay === "paid"
     ? (sw ? "Malipo: IMELIPWA." : "Payment: PAID.")
     : s.pay === "bill" ? (sw ? `Malipo: kwenye bili ya mwezi - TZS ${tzs(s.charge)}.` : `Payment: on your monthly bill - TZS ${tzs(s.charge)}.`)
-    : (sw ? `Malipo: HAIJALIPWA - TZS ${tzs(s.charge)} ilipwe wakati wa kuchukua.` : `Payment: NOT PAID - TZS ${tzs(s.charge)} due on collection.`);
+    : isPart(s)
+      ? (sw ? `Malipo: UMELIPA TZS ${tzs(paidOf(s))}, BAKI TZS ${tzs(balanceOf(s))} ilipwe wakati wa kuchukua.` : `Payment: TZS ${tzs(paidOf(s))} PAID, balance TZS ${tzs(balanceOf(s))} due on collection.`)
+      : (sw ? `Malipo: HAIJALIPWA - TZS ${tzs(s.charge)} ilipwe wakati wa kuchukua.` : `Payment: NOT PAID - TZS ${tzs(s.charge)} due on collection.`);
   const O = regShort(s.origin), D = regShort(s.dest);
   const air = isAir(company);
   if (plate === "TBA") plate = "";
@@ -325,7 +341,7 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   if (kind === "arrived" && to === "sender") return sw
     ? `Habari ${s.s_name}, mzigo namba ${s.no} (${items}) uliotuma kwa ${s.r_name} umefika ${D}. ${co}${ph ? ", simu: " + ph : ""}`
     : `Hello ${s.s_name}, waybill ${s.no} (${items}) you sent to ${s.r_name} has arrived in ${D}. ${co}${ph ? ", tel: " + ph : ""}`;
-  const due = `TZS ${tzs(s.charge)}`;
+  const due = `TZS ${tzs(balanceOf(s))}${isPart(s) ? (sw ? ` (baki; umeshalipa TZS ${tzs(paidOf(s))})` : ` (balance; TZS ${tzs(paidOf(s))} already paid)`) : ""}`;
   const how = company.payment_instructions?.trim();
   if (kind === "reminder") return sw
     ? `Kumbusho: Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) upo ofisini ${D} tangu ${fmtDay(s.arrived_at)}. Kiasi cha kulipa ni ${due}.${how ? ` Lipa kupitia: ${how}.` : ""} Baada ya kulipa, fika na kitambulisho kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`

@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000 }],
   billing_bands: [[0, 1, 80000], [2, 3, 150000], [4, 6, 250000], [7, 10, 350000], [11, null, 450000]].map(([min_trucks, max_trucks, monthly_fee], i) => ({ id: i + 1, min_trucks, max_trucks, monthly_fee })),
   billing_payments: [], sales_agents: [], commissions: [], agent_payouts: [],
-  bill_accounts: [], bill_payments: [], claims: [], claim_payments: [] };
+  bill_accounts: [], bill_payments: [], claims: [], claim_payments: [], shipment_payments: [] };
 const ymd = (d = new Date()) => new Date(d.getTime() + 3 * 3600e3).toISOString().slice(0, 10);
 const plusDays = (s, n) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const SERVICE_ONLY = ["company_accounts", "owner_audit", "leads", "billing_bands", "billing_payments", "sales_agents", "commissions", "agent_payouts"];
@@ -67,12 +67,24 @@ const visible = (c, table, rows) => c.service ? rows : SERVICE_ONLY.includes(tab
     if (table === "bill_accounts" || table === "claims") return r.station === st;
     if (table === "bill_payments") return db.bill_accounts.some((a) => a.id === r.account_id && a.station === st);
     if (table === "claim_payments") return db.claims.some((x) => x.id === r.claim_id && x.station === st);
+    if (table === "shipment_payments") { const sh = db.shipments.find((x) => x.id === r.shipment_id); return !!sh && (sh.created_by === c.profile.id || (sh.status !== "received" && sh.dest === st)); }
     return true;
   });
+function syncPaid(n, old) {
+  const charge = Number(n.charge || 0);
+  if (n.pay === "paid") { n.paid_amount = charge; return ""; }
+  if (n.pay === "unpaid") {
+    if (old && old.pay === "paid") { n.paid_amount = 0; db.shipment_payments = db.shipment_payments.filter((x) => x.shipment_id !== n.id); }
+    if (Number(n.paid_amount || 0) > charge) return "Payments can't be more than the charge";
+    if (charge > 0 && Number(n.paid_amount || 0) >= charge) { n.pay = "paid"; n.paid_at = n.paid_at || new Date().toISOString(); }
+  }
+  if (n.pay === "bill" && Number(n.paid_amount || 0) > 0 && (!old || old.pay !== "bill")) return "This consignment is part paid; collect the balance instead of putting it on a monthly bill";
+  return "";
+}
 const DEFAULTS = {
   vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null, ownership: "own", owner_name: "", owner_phone: "", rent_amount: 0, rent_basis: "trip" },
   trips: { driver: "", driver_phone: "", target: 0, target_set_by: null, status: "loading", departed_at: null, departed_by: null, arrived_at: null, arrived_by: null, ownership: "own", owner_name: "", rent_cost: 0, mawb: "", airline: "" },
-  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null, account_id: null, gross_charge: null, discount: 0, discount_reason: "", discount_by: null, discount_at: null, dn_no: null, collector_name: "", collector_phone: "", collector_id: "", collect_note: "" },
+  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null, account_id: null, gross_charge: null, discount: 0, discount_reason: "", discount_by: null, discount_at: null, dn_no: null, collector_name: "", collector_phone: "", collector_id: "", collect_note: "", paid_amount: 0 },
   bill_accounts: { phone: "", notes: "", active: true, station: null },
   bill_payments: { method: "", reference: "", note: "" },
   claims: { station: null, shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },
@@ -158,7 +170,7 @@ http.createServer(async (req, res) => {
         return wantRows || single ? out(out2) : send(res, 201);
       }
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin", "agent"], bill_payments: ["admin", "agent"], claims: ["admin", "agent"], claim_payments: ["admin", "agent"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin", "agent"], bill_payments: ["admin", "agent"], claims: ["admin", "agent"], claim_payments: ["admin", "agent"], shipment_payments: ["admin", "cashier", "agent"] }[table] || [];
         if (role === "agent" && (table === "bill_accounts" || table === "claims")) list.forEach((r) => { r.station = c.profile.station; });
         if (!allowed.includes(role) || list.some((r) => r.company_id !== c.profile.company_id)) return send(res, 403, { message: "new row violates row-level security policy" });
         if (role === "agent" && list.some((r) => (table === "shipments" && r.origin !== c.profile.station && !(r.found_on_arrival && r.dest === c.profile.station)) || (table === "trips" && r.origin !== c.profile.station)))
@@ -166,6 +178,8 @@ http.createServer(async (req, res) => {
         if (table === "shipments" && role === "cashier" && list.some((r) => r.pay === "bill")) return send(res, 400, { message: "Monthly bills are handled at the destination office or by the Admin" });
         if (table === "trips" && role === "cashier") list.forEach((r) => { const v = db.vehicles.find((x) => x.company_id === r.company_id && x.plate === r.plate); r.target = v?.target || 0; });
       }
+      // part payments (mirrors migration 0017)
+      if (table === "shipments") for (const r of list) { const e = syncPaid(r, null); if (e) return send(res, 400, { message: e }); }
       db[table].push(...list);
       if (table === "companies") list.forEach((co) => db.company_accounts.push({ company_id: co.id, status: "trial", trial_ends: plusDays(ymd(), db.platform_settings[0].trial_days), paid_until: null, custom_fee: null, auto_status: true, notes: "", status_changed_at: new Date().toISOString(), created_at: new Date().toISOString() }));
       if (table === "leads") list.forEach((r, i) => { r.id = db.leads.length + i; r.created_at = new Date().toISOString(); r.status = r.status || "new"; });
@@ -188,9 +202,11 @@ http.createServer(async (req, res) => {
         if (role === "ceo" && Object.keys(b).some((k) => !["target", "target_set_by", "target_set_at"].includes(k))) return send(res, 400, { message: "The CEO can only change targets" });
       }
       const rows = applyFilters(visible(c, table, db[table]), url.searchParams);
-      if (table === "shipments" && rows.some((r) => ({ ...r, ...b }).status === "collected" && !["paid", "bill"].includes(({ ...r, ...b }).pay)))
+      const synced = new Map();
+      if (table === "shipments") for (const r of rows) { const n = { ...r, ...b }; const e = syncPaid(n, r); if (e) return send(res, 400, { message: e }); synced.set(r, n); }
+      if (table === "shipments" && rows.some((r) => { const n = synced.get(r) || { ...r, ...b }; return n.status === "collected" && !["paid", "bill"].includes(n.pay); }))
         return send(res, 400, { message: "Record the payment before releasing the goods" });
-      rows.forEach((r) => Object.assign(r, b));
+      rows.forEach((r) => Object.assign(r, synced.get(r) || b));
       return wantRows || single ? out(rows) : send(res, 204);
     }
     if (req.method === "DELETE") {

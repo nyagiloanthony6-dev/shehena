@@ -259,3 +259,14 @@ migration `0016_air_cargo.sql`). Air cargo companies get:
 - air cargo receipts, stickers ("piece n / N") and an air cargo manifest with chargeable kg; customer
   messages say "ndege" / "flight".
 Road companies see no change.
+
+## Part payments
+A customer can pay part of the charge at the origin and the rest later (more part payments, or the
+balance at the destination when collecting). Migration `0017_partial_payments.sql`.
+- Receiving goods: choose **Part paid** and enter the amount paid now; the receipt shows paid and balance.
+- On a consignment: **Record payment** takes any amount (empty = the full balance). Every payment is listed
+  with amount, method, office and who took it. When the balance reaches 0 the consignment is Paid.
+- Releasing: staff collect the balance (the amount paid before is shown); a part-paid consignment can't
+  go on a monthly bill. Discounts can't bring the charge below what was already paid.
+- Totals, arrivals, reports, manifests and customer messages count part payments as paid and the rest
+  as owed. The Admin can **Clear payments** to start again.
