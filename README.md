@@ -244,3 +244,18 @@ consignment). Settings stay on that device, because each counter has its own pri
 Saving goods prints ONE receipt for the customer (the package count is on it); releasing goods prints
 the delivery note for the customer. Stickers are printed separately with **Print N stickers**, one per
 package. Automatic printing can be turned off. **Print a test slip** checks the paper width.
+
+## Air cargo companies (international consolidators)
+A company chooses **Road transport** or **Air cargo** when it registers (and can change it in Settings;
+migration `0016_air_cargo.sql`). Air cargo companies get:
+- international origins (Guangzhou, Yiwu, Shenzhen, Shanghai, Hong Kong, Dubai, Istanbul, Mumbai, …)
+  alongside Tanzanian destinations;
+- receiving by weight: pieces, actual kg and the size of one piece (L × W × H cm). Shehena works out the
+  volume weight (÷ 6000 by default), the chargeable weight (the higher, to the next half kg) and the charge
+  at the company's price per kg (set in Settings, changeable per line);
+- **Flights** instead of the Loading bay: start a master air waybill (MAWB number, airline, flight),
+  add consignments (HAWBs), mark the flight departed and landed; statuses read At warehouse → On MAWB →
+  In the air → Landed → Collected;
+- air cargo receipts, stickers ("piece n / N") and an air cargo manifest with chargeable kg; customer
+  messages say "ndege" / "flight".
+Road companies see no change.

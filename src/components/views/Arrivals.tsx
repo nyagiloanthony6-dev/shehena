@@ -3,14 +3,15 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { ReleaseForm } from "../release";
-import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip } from "../parts";
-import { METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub } from "../parts";
+import { isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
 
 /** A truck on the road, with a one-tap "mark arrived". */
 function RoadTruck({ t }: { t: Trip }) {
-  const { tripShips, can } = useStore();
+  const { tripShips, can, company } = useStore();
+  const air = isAir(company);
   const ui = useUi();
   const arrive = useArriveTrip();
   const [confirm, setConfirm] = useState(false);
@@ -18,9 +19,9 @@ function RoadTruck({ t }: { t: Trip }) {
   const unpaid = list.filter((s) => s.pay === "unpaid");
   return (
     <div className="trip" style={{ cursor: "default" }}>
-      <div className="top"><span className="plate">{t.plate}</span><span className="pill st-departed">On the road</span></div>
+      <div className="top"><span className="plate">{t.plate}</span><span className="pill st-departed">{air ? "In the air" : "On the road"}</span></div>
       <div className="route">{regShort(t.origin)}<i>→</i>{regShort(t.dest)}</div>
-      <div className="sub">Left {fmtDate(t.departed_at)} · {t.driver || "No driver"}{t.driver_phone ? ` · ${prettyPhone(t.driver_phone)}` : ""}</div>
+      <div className="sub">{air ? "Departed" : "Left"} {fmtDate(t.departed_at)} · {air ? tripSub(t) || "—" : <>{t.driver || "No driver"}{t.driver_phone ? ` · ${prettyPhone(t.driver_phone)}` : ""}</>}</div>
       <div className="tline">
         <span><b>{list.length}</b> consignment{list.length === 1 ? "" : "s"}</span>
         <span>TZS <b>{tzs(sumCharge(list))}</b></span>
@@ -28,8 +29,8 @@ function RoadTruck({ t }: { t: Trip }) {
       </div>
       <div className="actions" style={{ marginTop: 4 }}>
         {can("dispatch") && (confirm
-          ? <><button className="btn sm primary" onClick={async () => { setConfirm(false); if (await arrive(t)) ui.openTrip(t.id); }}>Yes, it arrived in {regShort(t.dest)}</button><button className="btn sm" onClick={() => setConfirm(false)}>Not yet</button></>
-          : <button className="btn sm primary" onClick={() => setConfirm(true)}>Mark arrived</button>)}
+          ? <><button className="btn sm primary" onClick={async () => { setConfirm(false); if (await arrive(t)) ui.openTrip(t.id); }}>Yes, it {air ? "landed" : "arrived"} in {regShort(t.dest)}</button><button className="btn sm" onClick={() => setConfirm(false)}>Not yet</button></>
+          : <button className="btn sm primary" onClick={() => setConfirm(true)}>{air ? "Mark landed" : "Mark arrived"}</button>)}
         <button className="btn sm" onClick={() => ui.openTrip(t.id)}>View manifest</button>
       </div>
     </div>
@@ -79,6 +80,8 @@ function WaitingRow({ s }: { s: Shipment }) {
 
 export default function Arrivals() {
   const { trips, shipments, me, company, tripShips } = useStore();
+  const air = isAir(company);
+  const W = terms(company);
   const mayRecord = canRecordFound(me.role, company);
   const landed = trips.filter((t) => t.status === "arrived" && daysSince(t.arrived_at) <= 7).sort((a, b) => (b.arrived_at || "").localeCompare(a.arrived_at || ""));
   const toCheck = shipments.filter((s) => s.found_on_arrival && !s.checked_at).sort((a, b) => a.received_at.localeCompare(b.received_at));
@@ -104,10 +107,10 @@ export default function Arrivals() {
   return (
     <section>
       <div className="sectionhead">
-        <div><h1>Arrivals</h1><div className="sub">Trucks coming in, goods waiting for customers, and payments to collect before release.</div></div>
+        <div><h1>Arrivals</h1><div className="sub">{air ? "Flights coming in" : "Trucks coming in"}, goods waiting for customers, and payments to collect before release.</div></div>
       </div>
       <div className="stats">
-        <div className="stat"><div className="lbl">On the road</div><div className="v">{road.length}</div><div className="s">truck{road.length === 1 ? "" : "s"} to receive</div></div>
+        <div className="stat"><div className="lbl">{W.onRoad}</div><div className="v">{road.length}</div><div className="s">{W.vehicle}{road.length === 1 ? "" : "s"} to receive</div></div>
         <div className="stat"><div className="lbl">Waiting for pickup</div><div className="v">{waitingAll.length}</div><div className="s">consignments at destinations</div></div>
         <div className={`stat${notNotified.length ? " warn" : ""}`}><div className="lbl">Not notified</div><div className="v">{notNotified.length}</div><div className="s">customers not told yet</div></div>
         <div className={`stat${unpaid.length ? " warn" : ""}`}><div className="lbl">To collect</div><div className="v">{tzs(sumCharge(unpaid))}</div><div className="s">TZS from {unpaid.length} customer{unpaid.length === 1 ? "" : "s"}</div></div>
@@ -116,9 +119,9 @@ export default function Arrivals() {
 
       <div style={{ marginTop: 14 }}><TrucksByDate initial="departed" /></div>
 
-      <div className="group-h"><h2>Trucks on the road</h2><span className="sub">{road.length}</span></div>
+      <div className="group-h"><h2>{air ? "Flights in the air" : "Trucks on the road"}</h2><span className="sub">{road.length}</span></div>
       {road.length ? <div className="trips">{road.map((t) => <RoadTruck key={t.id} t={t} />)}</div>
-        : <p className="quiet">No trucks on the road. Trucks appear here once they&apos;re dispatched from the Loading bay.</p>}
+        : <p className="quiet">{air ? "No flights in the air. A MAWB appears here once its flight is marked departed." : <>No trucks on the road. Trucks appear here once they&apos;re dispatched from the Loading bay.</>}</p>}
 
       {me.role === "admin" && toCheck.length > 0 && (
         <>

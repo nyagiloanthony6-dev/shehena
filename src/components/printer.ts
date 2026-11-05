@@ -11,7 +11,7 @@
 //   rawbt     – Android phones with the free RawBT app (works with classic Bluetooth printers too).
 //   pdf       – the PDF files, as before.
 // Direct modes send ESC/POS commands (the language almost every thermal printer understands).
-import { PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, regShort, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
+import { PAY_LABEL, cwOf, isAir, kgFmt, fmtDate, itemsOf, prettyPhone, regName, regShort, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 import { packages, stickerPrefs } from "./stickers";
 
 export type PrintMode = "system" | "bluetooth" | "usb" | "rawbt" | "pdf";
@@ -72,15 +72,20 @@ function head(company: Company, title: string, no: string): Line[] {
 }
 
 export function receiptSlip(s: Shipment, company: Company, account?: string): Slip {
-  const L: Line[] = head(company, "CARGO RECEIPT", s.no);
+  const air = isAir(company);
+  const L: Line[] = head(company, air ? "AIR CARGO RECEIPT - HAWB" : "CARGO RECEIPT", s.no);
   L.push({ t: "pair", k: "Date", v: fmtDate(s.received_at) },
     { t: "pair", k: "Sender", v: `${s.s_name}, ${prettyPhone(s.s_phone)}` },
     { t: "pair", k: "Receiver", v: `${s.r_name}, ${prettyPhone(s.r_phone)}` },
     { t: "pair", k: "Route", v: `${regName(s.origin)} to ${regName(s.dest)}` }, { t: "rule" },
-    { t: "item", name: "Item", pkgs: "Pkgs", amount: "TZS", bold: true });
-  for (const l of itemsOf(s)) L.push({ t: "item", name: l.name, pkgs: String(l.pkgs), amount: tzs(l.charge) });
-  L.push({ t: "rule" }, { t: "pair", k: "Packages", v: String(s.pkgs) });
-  if (s.kg) L.push({ t: "pair", k: "Weight", v: `${s.kg} kg` });
+    { t: "item", name: "Item", pkgs: air ? "Pcs" : "Pkgs", amount: "TZS", bold: true });
+  for (const l of itemsOf(s)) {
+    L.push({ t: "item", name: l.name, pkgs: String(l.pkgs), amount: tzs(l.charge) });
+    if (air) L.push({ t: "text", text: `  ${kgFmt(l.cw ?? l.kg)} kg chargeable (${kgFmt(l.kg)} actual, ${kgFmt(l.vol)} vol)${l.rate ? ` @ ${tzs(l.rate)}/kg` : ""}` });
+  }
+  L.push({ t: "rule" }, { t: "pair", k: air ? "Pieces" : "Packages", v: String(s.pkgs) });
+  if (air) L.push({ t: "pair", k: "Actual kg", v: kgFmt(s.kg) }, { t: "pair", k: "Chargeable", v: `${kgFmt(cwOf(s))} kg`, bold: true });
+  else if (s.kg) L.push({ t: "pair", k: "Weight", v: `${s.kg} kg` });
   if (s.notes) L.push({ t: "pair", k: "Notes", v: s.notes });
   const disc = Number(s.discount || 0);
   if (disc > 0) L.push({ t: "pair", k: "Subtotal", v: "TZS " + tzs(s.gross_charge ?? Number(s.charge) + disc) },
@@ -108,7 +113,7 @@ export function stickerSlips(s: Shipment, company: Company): Slip[] {
       { t: "text", text: `from ${regShort(s.origin)}`, align: "center" },
       { t: "text", text: s.no, align: "center", bold: true },
       { t: "qr", data: `${s.no}#${k.n}/${total}` },
-      { t: "text", text: "PACKAGE", align: "center" },
+      { t: "text", text: isAir(company) ? "PIECE" : "PACKAGE", align: "center" },
       { t: "text", text: `${k.n} / ${total}`, align: "center", bold: true, size: 3 },
       ...(showItem ? [{ t: "text", text: k.item, align: "center" } as Line] : []),
     ],

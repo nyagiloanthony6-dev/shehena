@@ -19,7 +19,15 @@ export interface Company {
   found_goods_by?: "all" | "admin";
   /** region codes where the company has an office; head office = default_origin */
   offices?: string[];
+  /** road transporter (trucks) or international air cargo consolidator (flights, per-kg charges) */
+  mode?: CompanyMode;
+  /** air: default price per chargeable kg */
+  kg_rate?: number;
+  /** air: volume weight = L × W × H (cm) ÷ this, per piece (6000 is the airline standard) */
+  vol_divisor?: number;
 }
+export type CompanyMode = "road" | "air";
+export const isAir = (c?: Pick<Company, "mode"> | null) => c?.mode === "air";
 /** The company's offices, head office first. */
 export const officesOf = (c: Pick<Company, "offices" | "default_origin">) => {
   const list = (c.offices || []).filter((x) => REGIONS.some(([r]) => r === x));
@@ -77,6 +85,9 @@ export interface Trip {
   owner_name?: string;
   /** rent paid for this trip (rental trucks) */
   rent_cost?: number;
+  /** air: master air waybill and airline (the flight number is kept in `plate`) */
+  mawb?: string;
+  airline?: string;
 }
 /** One line of a consignment. `unit` is an optional price per package (charge = unit × pkgs). */
 export interface Item {
@@ -85,6 +96,13 @@ export interface Item {
   kg?: number | null;
   unit?: number | null;
   charge: number;
+  /** air: size of one piece in cm, volume weight and chargeable weight of the line (kg), price per kg */
+  l?: number | null;
+  w?: number | null;
+  h?: number | null;
+  vol?: number | null;
+  cw?: number | null;
+  rate?: number | null;
 }
 export interface Notice {
   kind: NoticeKind;
@@ -174,12 +192,47 @@ export const REGIONS: [string, string][] = [
   ["MTW", "Mtwara"], ["MWZ", "Mwanza"], ["NJO", "Njombe"], ["PWA", "Pwani (Kibaha)"], ["RUK", "Rukwa (Sumbawanga)"],
   ["RUV", "Ruvuma (Songea)"], ["SHY", "Shinyanga"], ["SIM", "Simiyu (Bariadi)"], ["SIN", "Singida"],
   ["SON", "Songwe (Vwawa)"], ["TAB", "Tabora"], ["TAN", "Tanga"], ["ZNZ", "Zanzibar"],
+  // Air cargo origins (international); shown to air cargo companies only.
+  ["CAN", "Guangzhou (China)"], ["YIW", "Yiwu (China)"], ["SZX", "Shenzhen (China)"], ["PVG", "Shanghai (China)"],
+  ["HKG", "Hong Kong"], ["DXB", "Dubai (UAE)"], ["IST", "Istanbul (Turkey)"], ["BOM", "Mumbai (India)"],
+  ["DEL", "New Delhi (India)"], ["NBO", "Nairobi (Kenya)"], ["JNB", "Johannesburg (South Africa)"], ["LHR", "London (UK)"],
 ];
+/** International (air) origins. */
+export const INTL = new Set(["CAN", "YIW", "SZX", "PVG", "HKG", "DXB", "IST", "BOM", "DEL", "NBO", "JNB", "LHR"]);
+/** The places a company can pick from: road companies only Tanzanian regions; air companies all. */
+export const regionsFor = (c?: Pick<Company, "mode"> | null) => isAir(c) ? REGIONS : REGIONS.filter(([r]) => !INTL.has(r));
 export const METHODS = ["Cash", "M-Pesa", "Mixx by Yas", "Airtel Money", "HaloPesa", "Bank"];
 export const STATUS: [ShipStatus, string][] = [
   ["received", "At office"], ["loaded", "Loaded"], ["transit", "In transit"], ["arrived", "Arrived"], ["collected", "Collected"],
 ];
 export const TSTATUS: [TripStatus, string][] = [["loading", "Loading"], ["departed", "On the road"], ["arrived", "Arrived"]];
+/** Air cargo words for the same steps: goods go on a master air waybill (MAWB), fly, and land. */
+export const STATUS_AIR: [ShipStatus, string][] = [
+  ["received", "At warehouse"], ["loaded", "On MAWB"], ["transit", "In the air"], ["arrived", "Landed"], ["collected", "Collected"],
+];
+export const TSTATUS_AIR: [TripStatus, string][] = [["loading", "Building MAWB"], ["departed", "In the air"], ["arrived", "Landed"]];
+export const statusList = (air?: boolean) => (air ? STATUS_AIR : STATUS);
+export const tripStatusList = (air?: boolean) => (air ? TSTATUS_AIR : TSTATUS);
+/** Words that differ between road and air companies. */
+export function terms(c?: Pick<Company, "mode"> | null) {
+  return isAir(c)
+    ? { vehicle: "flight", Vehicle: "Flight", vehicles: "flights", Vehicles: "Flights", plate: "Flight number", bay: "Flights", start: "Start a MAWB",
+        onRoad: "In the air", arrived: "Landed", arrive: "Mark landed", depart: "Mark departed", waybill: "HAWB", manifest: "AIR CARGO MANIFEST", receipt: "AIR CARGO RECEIPT", loadVerb: "add to a MAWB" }
+    : { vehicle: "truck", Vehicle: "Truck", vehicles: "trucks", Vehicles: "Trucks", plate: "Plate number", bay: "Loading bay", start: "Start loading a truck",
+        onRoad: "On the road", arrived: "Arrived", arrive: "Mark arrived", depart: "Mark departed", waybill: "Waybill", manifest: "TRUCK MANIFEST", receipt: "CARGO RECEIPT", loadVerb: "load onto a truck" };
+}
+
+// ---- air cargo weights
+/** Volume weight of a line: L × W × H (cm) ÷ divisor × pieces. */
+export const volumeKg = (l: number, w: number, h: number, pieces: number, divisor = 6000) =>
+  l > 0 && w > 0 && h > 0 ? (l * w * h / (divisor || 6000)) * Math.max(1, pieces) : 0;
+/** Airlines charge by the next half kilo. */
+export const halfUp = (kg: number) => Math.ceil(kg * 2 - 1e-9) / 2;
+/** Chargeable weight: the higher of actual and volume weight, rounded up to the half kilo. */
+export const chargeableKg = (actual: number, volume: number) => halfUp(Math.max(actual || 0, volume || 0));
+export const kgFmt = (n: number | null | undefined) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 1 });
+/** Total chargeable kg of a consignment (actual kg for road or older records). */
+export const cwOf = (s: Partial<Shipment>) => itemsOf(s).reduce((a, i) => a + Number(i.cw ?? i.kg ?? 0), 0);
 export const ROLES: Record<Role, string> = { admin: "Admin", cashier: "Cashier", ceo: "CEO", agent: "Branch staff" };
 
 export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims" | "money" | "openAccount" | "bill";
@@ -201,8 +254,8 @@ export const canRecordFound = (role: Role | undefined, company: Pick<Company, "f
 
 export const regName = (c: string) => (REGIONS.find((r) => r[0] === c) || [c, c])[1];
 export const regShort = (c: string) => regName(c).replace(/ \(.*\)/, "");
-export const stLabel = (s: string) => (STATUS.find((x) => x[0] === s) || [s, s])[1];
-export const tLabel = (s: string) => (TSTATUS.find((x) => x[0] === s) || [s, s])[1];
+export const stLabel = (s: string, air?: boolean) => (statusList(air).find((x) => x[0] === s) || [s, s])[1];
+export const tLabel = (s: string, air?: boolean) => (tripStatusList(air).find((x) => x[0] === s) || [s, s])[1];
 
 export const tzs = (n: number | string | null | undefined) => Number(n || 0).toLocaleString("en-US");
 export function fmtDate(iso?: string | null) {
@@ -256,6 +309,9 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
     : s.pay === "bill" ? (sw ? `Malipo: kwenye bili ya mwezi - TZS ${tzs(s.charge)}.` : `Payment: on your monthly bill - TZS ${tzs(s.charge)}.`)
     : (sw ? `Malipo: HAIJALIPWA - TZS ${tzs(s.charge)} ilipwe wakati wa kuchukua.` : `Payment: NOT PAID - TZS ${tzs(s.charge)} due on collection.`);
   const O = regShort(s.origin), D = regShort(s.dest);
+  const air = isAir(company);
+  if (plate === "TBA") plate = "";
+  const veh = sw ? (air ? "ndege" : "gari") : (air ? "flight" : "vehicle");
   const day = fmtDay(s.transit_at || new Date().toISOString());
   if (kind === "received" && to === "sender") return sw
     ? `Habari ${s.s_name}, tumepokea mzigo wako (${items}) kwenda kwa ${s.r_name}, ${D}. Namba ya risiti: ${s.no}. ${payLine} Asante kwa kutumia ${co}.${ph ? " Simu: " + ph : ""}`
@@ -264,8 +320,8 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
     ? `Habari ${s.r_name}, mzigo wako (${items}) kutoka kwa ${s.s_name} umepokelewa ${O} na utasafirishwa kwenda ${D}. Namba ya mzigo: ${s.no}. ${payLine} ${co}${ph ? ", simu: " + ph : ""}`
     : `Hello ${s.r_name}, your goods (${items}) from ${s.s_name} have been received in ${O} and will be sent to ${D}. Waybill no: ${s.no}. ${payLine} ${co}${ph ? ", tel: " + ph : ""}`;
   if (kind === "departed") return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umepakiwa kwenye gari ${plate} na umeondoka ${O} ${day} kuelekea ${D}. Tutakujulisha ukifika. ${co}${ph ? ", simu: " + ph : ""}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), are loaded on vehicle ${plate} and left ${O} on ${day} for ${D}. We will notify you on arrival. ${co}${ph ? ", tel: " + ph : ""}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umepakiwa kwenye ${veh} ${plate} na umeondoka ${O} ${day} kuelekea ${D}. Tutakujulisha ukifika. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), are loaded on ${veh} ${plate} and left ${O} on ${day} for ${D}. We will notify you on arrival. ${co}${ph ? ", tel: " + ph : ""}`;
   if (kind === "arrived" && to === "sender") return sw
     ? `Habari ${s.s_name}, mzigo namba ${s.no} (${items}) uliotuma kwa ${s.r_name} umefika ${D}. ${co}${ph ? ", simu: " + ph : ""}`
     : `Hello ${s.s_name}, waybill ${s.no} (${items}) you sent to ${s.r_name} has arrived in ${D}. ${co}${ph ? ", tel: " + ph : ""}`;
@@ -275,14 +331,14 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
     ? `Kumbusho: Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) upo ofisini ${D} tangu ${fmtDay(s.arrived_at)}. Kiasi cha kulipa ni ${due}.${how ? ` Lipa kupitia: ${how}.` : ""} Baada ya kulipa, fika na kitambulisho kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`
     : `Reminder: Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have been waiting at our ${D} office since ${fmtDay(s.arrived_at)}. Amount due: ${due}.${how ? ` Pay via: ${how}.` : ""} After paying, come with ID to collect. ${co}${ph ? ", tel: " + ph : ""}`;
   if (s.pay === "bill") return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? " kwa gari " + plate : ""}. Malipo yapo kwenye bili ya mwezi. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${co}${ph ? ", simu: " + ph : ""}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? " on vehicle " + plate : ""}. The charge is on the monthly bill. Please come to our office with ID and this number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Malipo yapo kwenye bili ya mwezi. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. The charge is on the monthly bill. Please come to our office with ID and this number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
   if (s.pay !== "paid") return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? " kwa gari " + plate : ""}. Kiasi cha kulipa ni ${due}.${how ? ` Tafadhali lipia kupitia: ${how}.` : " Tafadhali lipia ofisini."} Baada ya kulipa, fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? " on vehicle " + plate : ""}. Amount due: ${due}.${how ? ` Please pay via: ${how}.` : " Please pay at our office."} Once paid, come to our office with ID and this waybill number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Kiasi cha kulipa ni ${due}.${how ? ` Tafadhali lipia kupitia: ${how}.` : " Tafadhali lipia ofisini."} Baada ya kulipa, fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. Amount due: ${due}.${how ? ` Please pay via: ${how}.` : " Please pay at our office."} Once paid, come to our office with ID and this waybill number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
   return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? " kwa gari " + plate : ""}. Malipo yamekamilika. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${co}${ph ? ", simu: " + ph : ""}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? " on vehicle " + plate : ""}. Payment is complete. Please come to our office with ID and this number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Malipo yamekamilika. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${co}${ph ? ", simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. Payment is complete. Please come to our office with ID and this number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
 }
 
 export function niceStep(max: number) {

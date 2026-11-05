@@ -30,7 +30,7 @@ export default async function OwnerPage() {
   const admin = supabaseAdmin();
   await refreshStatuses();
   const [companies, accounts, stats, staff, settings, audit, own, leads, active, pricing, payments, agents, commissions, payouts] = await Promise.all([
-    admin.from("companies").select("id, name, branch, phone, created_at").order("created_at", { ascending: false }),
+    admin.from("companies").select("*").order("created_at", { ascending: false }),
     admin.from("company_accounts").select("*"),
     admin.rpc("owner_company_stats"),
     admin.from("profiles").select("id, company_id, full_name, email, role, active, created_at").order("created_at"),

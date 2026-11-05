@@ -18,7 +18,8 @@ export async function signUpCompany(_: FormState, fd: FormData): Promise<FormSta
   const valid = (c: string) => REGIONS.some(([r]) => r === c);
   const origin = valid(String(fd.get("origin") || "")) ? String(fd.get("origin")) : "DAR";
   const dests = [...new Set(fd.getAll("dest").map(String).filter((c) => valid(c) && c !== origin))];
-  if (!dests.length) return { error: "Tick at least one town you deliver goods to." };
+  const mode = fd.get("mode") === "air" ? "air" : "road";
+  if (!dests.length) return { error: mode === "air" ? "Tick where goods arrive, e.g. Dar es Salaam." : "Tick at least one town you deliver goods to." };
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: "Enter a valid email address." };
   if (password.length < 8) return { error: "Choose a password of at least 8 characters." };
 
@@ -30,7 +31,11 @@ export async function signUpCompany(_: FormState, fd: FormData): Promise<FormSta
     return { error: /already|registered|exists/i.test(error?.message || "") ? "An account with this email already exists. Sign in instead." : "Could not create the account. Try again." };
   }
   // offices needs migration 0011; without it, register with the head office only.
-  let { data: co, error: coErr } = await admin.from("companies").insert({ name: company, default_origin: origin, offices: [origin, ...dests] }).select("id").single();
+  let { data: co, error: coErr } = await admin.from("companies").insert({ name: company, default_origin: origin, offices: [origin, ...dests], ...(mode === "air" ? { mode } : {}) }).select("id").single();
+  if (coErr && mode === "air" && /mode/i.test(coErr.message)) {
+    await admin.auth.admin.deleteUser(created.user.id);
+    return { error: "Air cargo registration isn't open yet. Contact Serengeti Labs." };
+  }
   if (coErr && /offices/i.test(coErr.message)) ({ data: co, error: coErr } = await admin.from("companies").insert({ name: company, default_origin: origin }).select("id").single());
   if (coErr || !co) {
     await admin.auth.admin.deleteUser(created.user.id);

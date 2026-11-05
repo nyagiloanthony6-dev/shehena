@@ -4,19 +4,20 @@ import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { StatusPill, TripCard } from "../parts";
 import { YearPanel } from "../charts";
-import { goodsLabel, regShort, stLabel, tzs } from "@/lib/domain";
+import { isAir, terms, goodsLabel, regShort, stLabel, tzs } from "@/lib/domain";
 
 export function Stats() {
-  const { shipments } = useStore();
+  const { shipments, company } = useStore();
+  const air = isAir(company);
   const today = new Date().toDateString();
   const c = (k: string) => shipments.filter((s) => s.status === k).length;
   const unpaid = shipments.filter((s) => s.pay === "unpaid");
   return (
     <div className="stats">
       <div className="stat"><div className="lbl">Received today</div><div className="v">{shipments.filter((s) => new Date(s.received_at).toDateString() === today).length}</div><div className="s">{shipments.length} on record</div></div>
-      <div className="stat"><div className="lbl">At office</div><div className="v">{c("received") + c("loaded")}</div><div className="s">{c("loaded")} loaded, waiting to leave</div></div>
-      <div className="stat"><div className="lbl">In transit</div><div className="v">{c("transit")}</div><div className="s">on the road</div></div>
-      <div className="stat"><div className="lbl">Awaiting pickup</div><div className="v">{c("arrived")}</div><div className="s">arrived, not collected</div></div>
+      <div className="stat"><div className="lbl">{air ? "At warehouse" : "At office"}</div><div className="v">{c("received") + c("loaded")}</div><div className="s">{c("loaded")} {air ? "on a MAWB" : "loaded"}, waiting to leave</div></div>
+      <div className="stat"><div className="lbl">In transit</div><div className="v">{c("transit")}</div><div className="s">{air ? "in the air" : "on the road"}</div></div>
+      <div className="stat"><div className="lbl">Awaiting pickup</div><div className="v">{c("arrived")}</div><div className="s">{air ? "landed" : "arrived"}, not collected</div></div>
       <div className={`stat${unpaid.length ? " warn" : ""}`}><div className="lbl">Unpaid</div><div className="v">{tzs(unpaid.reduce((a, s) => a + Number(s.charge || 0), 0))}</div><div className="s">TZS on {unpaid.length} consignment{unpaid.length === 1 ? "" : "s"}</div></div>
     </div>
   );
@@ -32,6 +33,7 @@ export default function Overview() {
   const U = shipments.filter((s) => s.pay === "unpaid").sort((a, b) => Number(b.charge) - Number(a.charge));
   const R = shipments.slice(0, 6);
   const newTrip = () => { ui.setTripFormOpen(true); ui.go("trips"); };
+  const W = terms(company);
   return (
     <section>
       <div className="hello">
@@ -41,7 +43,7 @@ export default function Overview() {
         </div>
         <div className="qa">
           {can("receive") && <button className="btn primary lg" onClick={() => ui.go("new")}><Icon name="new" />Receive goods</button>}
-          {can("load") && <button className="btn lg" onClick={newTrip}><Icon name="trips" />Start loading a truck</button>}
+          {can("load") && <button className="btn lg" onClick={newTrip}><Icon name="trips" />{W.start}</button>}
           {!can("receive") && can("reports") && <button className="btn primary lg" onClick={() => ui.go("reports")}><Icon name="reports" />Open reports</button>}
         </div>
       </div>
@@ -49,9 +51,9 @@ export default function Overview() {
       <div style={{ marginTop: 18 }}><Stats /></div>
       <div className="hgrid">
         <div className="panel">
-          <div className="ph"><h2>Trucks</h2><button className="link" onClick={() => ui.go("trips")}>Loading bay →</button></div>
+          <div className="ph"><h2>{W.Vehicles}</h2><button className="link" onClick={() => ui.go("trips")}>{W.bay} →</button></div>
           {T.length ? <div className="trips">{T.map((t) => <TripCard key={t.id} trip={t} onOpen={ui.openTrip} />)}</div>
-            : <p className="quiet">No truck is loading or on the road.{can("load") && <> <button className="link" onClick={newTrip}>Start loading one</button></>}</p>}
+            : <p className="quiet">{isAir(company) ? "No open MAWB or flight in the air." : "No truck is loading or on the road."}{can("load") && <> <button className="link" onClick={newTrip}>{isAir(company) ? "Start a MAWB" : "Start loading one"}</button></>}</p>}
         </div>
         <div className="col">
           <div className="panel">
@@ -71,7 +73,7 @@ export default function Overview() {
             <div className="ph"><h2>Unpaid</h2><button className="link" onClick={() => { ui.setListPay("unpaid"); ui.go("list"); }}>See all →</button></div>
             {U.slice(0, 5).map((s) => (
               <button className="mrow" key={s.id} onClick={() => ui.openShip(s.id)}>
-                <div><b>{s.s_name}</b><div className="sub">{goodsLabel(s)} → {regShort(s.dest)} · {stLabel(s.status)}</div></div>
+                <div><b>{s.s_name}</b><div className="sub">{goodsLabel(s)} → {regShort(s.dest)} · {stLabel(s.status, isAir(company))}</div></div>
                 <div className="r"><b style={{ color: "var(--bad)" }}>{tzs(s.charge)}</b><div className="sub">TZS</div></div>
               </button>
             ))}

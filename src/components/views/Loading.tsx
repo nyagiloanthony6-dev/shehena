@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { TripCard, TrucksByDate } from "../parts";
-import { REGIONS, TSTATUS, fmtDay, pkgsOf, sumCharge, tzs, ymd, type Trip, type Vehicle, officesOf } from "@/lib/domain";
+import { REGIONS, INTL, isAir, terms, tripStatusList, fmtDay, pkgsOf, sumCharge, tzs, ymd, type Trip, type Vehicle, officesOf } from "@/lib/domain";
 
 function TargetRow({ v }: { v: Vehicle }) {
   const { patch, me, toast } = useStore();
@@ -32,7 +32,10 @@ export default function Loading() {
   const ui = useUi();
   const station = me.role === "agent" ? me.station || null : null;
   const origin0 = station || company.default_origin || "DAR";
-  const [f, setF] = useState({ vehicle: "", plate: "", driver: "", driver_phone: "", target: "", origin: origin0, dest: origin0 === "DOD" ? "DAR" : "DOD" });
+  const air = isAir(company);
+  const W = terms(company);
+  const dest0 = officesOf(company).find((x) => x !== origin0 && !INTL.has(x)) || officesOf(company).find((x) => x !== origin0) || (origin0 === "DOD" ? "DAR" : "DOD");
+  const [f, setF] = useState({ vehicle: "", plate: "", driver: "", driver_phone: "", target: "", origin: origin0, dest: dest0, mawb: "", airline: "" });
   const [err, setErr] = useState("");
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   const waiting = shipments.filter((s) => s.status === "received");
@@ -45,8 +48,14 @@ export default function Loading() {
   async function start(e: React.FormEvent) {
     e.preventDefault();
     const plate = f.plate.trim().toUpperCase();
-    if (!plate || f.origin === f.dest) return setErr("Enter the plate number and a destination different from the origin.");
-    if (trips.some((t) => t.plate === plate && t.status !== "arrived")) return setErr(`${plate} already has an open trip. Finish it first.`);
+    const mawb = f.mawb.trim().toUpperCase();
+    if (air) {
+      if (!mawb || f.origin === f.dest) return setErr("Enter the MAWB number and a destination different from the origin.");
+      if (trips.some((t) => (t.mawb || "").toUpperCase() === mawb)) return setErr(`MAWB ${mawb} is already in Shehena.`);
+    } else {
+      if (!plate || f.origin === f.dest) return setErr("Enter the plate number and a destination different from the origin.");
+      if (trips.some((t) => t.plate === plate && t.status !== "arrived")) return setErr(`${plate} already has an open trip. Finish it first.`);
+    }
     setErr("");
     const saved = vehicles.find((v) => v.plate === plate);
     // Saved trucks bring their own/rental details (the database does this too); a one-off hired truck uses the form.
@@ -55,30 +64,50 @@ export default function Loading() {
       : { ownership: hire.ownership, owner_name: hire.ownership === "rental" ? hire.owner_name.trim() : "", rent_cost: hire.ownership === "rental" ? Number(hire.rent) || 0 : 0 };
     const target = can("target") ? Number(f.target) || 0 : saved?.target || 0;
     const t = await insert<Trip>("trips", {
-      no: `TRIP-${ymd()}-${f.dest}-${Math.floor(Math.random() * 900) + 100}`, plate, driver: f.driver.trim(), driver_phone: f.driver_phone.trim(),
+      no: `${air ? "MAWB" : "TRIP"}-${ymd()}-${f.dest}-${Math.floor(Math.random() * 900) + 100}`, plate: air ? plate || "TBA" : plate,
+      driver: air ? "" : f.driver.trim(), driver_phone: air ? "" : f.driver_phone.trim(),
+      ...(air ? { mawb, airline: f.airline.trim() } : {}),
       target, target_set_by: can("target") && target ? me.full_name : saved?.target_set_by || null,
       origin: f.origin, dest: f.dest, status: "loading", created_by: me.id, created_by_name: me.full_name,
-      ...(hasV9 ? rent : {}),
+      ...(hasV9 && !air ? rent : {}),
     });
     if (!t) return;
     ui.setTripFormOpen(false);
-    setF({ vehicle: "", plate: "", driver: "", driver_phone: "", target: "", origin: origin0, dest: f.dest });
+    setF({ vehicle: "", plate: "", driver: "", driver_phone: "", target: "", origin: origin0, dest: f.dest, mawb: "", airline: "" });
     setHire({ ownership: "own", owner_name: "", rent: "" });
     ui.openTrip(t.id);
-    toast(`Loading ${plate}. Add consignments.`);
+    toast(air ? `MAWB ${mawb} started. Add the consignments (HAWBs).` : `Loading ${plate}. Add consignments.`);
   }
 
   return (
     <section>
       <div className="sectionhead">
-        <div><h1>Loading bay</h1><div className="sub">Load consignments onto a truck, dispatch it, and notify every receiver.</div></div>
-        {can("load") && <button className={`btn${ui.tripFormOpen ? "" : " primary"}`} onClick={() => ui.setTripFormOpen(!ui.tripFormOpen)}>{ui.tripFormOpen ? "Cancel" : "Start loading a truck"}</button>}
+        <div><h1>{W.bay}</h1><div className="sub">{air ? "Put consignments (HAWBs) on a master air waybill, mark the flight departed, and notify every receiver." : "Load consignments onto a truck, dispatch it, and notify every receiver."}</div></div>
+        {can("load") && <button className={`btn${ui.tripFormOpen ? "" : " primary"}`} onClick={() => ui.setTripFormOpen(!ui.tripFormOpen)}>{ui.tripFormOpen ? "Cancel" : W.start}</button>}
       </div>
-      <div className="waitbar"><Icon name="box" /><span><b className="num">{waiting.length}</b> consignment{waiting.length === 1 ? "" : "s"} · <b className="num">{pkgsOf(waiting)}</b> packages · TZS <b className="num">{tzs(sumCharge(waiting))}</b> waiting at the office to be loaded</span></div>
+      <div className="waitbar"><Icon name="box" /><span><b className="num">{waiting.length}</b> consignment{waiting.length === 1 ? "" : "s"} · <b className="num">{pkgsOf(waiting)}</b> {air ? "pieces" : "packages"} · TZS <b className="num">{tzs(sumCharge(waiting))}</b> waiting {air ? "at the warehouse for a flight" : "at the office to be loaded"}</span></div>
 
       <div style={{ marginTop: 14 }}><TrucksByDate initial="loaded" /></div>
 
-      {can("load") && ui.tripFormOpen && (
+      {can("load") && ui.tripFormOpen && air && (
+        <form noValidate onSubmit={start} style={{ marginTop: 14 }}>
+          <fieldset><legend>Start a master air waybill (MAWB)</legend>
+            <div className="fields four">
+              <label className="f">MAWB number<input value={f.mawb} onChange={(e) => set("mawb", e.target.value)} placeholder="e.g. 706-12345675" aria-label="MAWB number" /></label>
+              <label className="f">Airline<input value={f.airline} onChange={(e) => set("airline", e.target.value)} placeholder="e.g. Ethiopian Airlines" aria-label="Airline" /></label>
+              <label className="f">Flight number <small>if known</small><input value={f.plate} onChange={(e) => set("plate", e.target.value)} placeholder="e.g. ET 815" aria-label="Flight number" /></label>
+              <label className="f">Target collection (TZS) <small>{can("target") ? "optional" : "set by Admin or CEO"}</small>
+                <input type="number" min={0} step={10000} value={f.target} readOnly={!can("target")} onChange={(e) => set("target", e.target.value)} /></label>
+              <label className="f">From{station && <small>your office</small>}<select value={f.origin} disabled={!!station} onChange={(e) => set("origin", e.target.value)}><RegionOptions offices={officesOf(company)} /></select></label>
+              <label className="f">To<select value={f.dest} onChange={(e) => set("dest", e.target.value)}><RegionOptions offices={officesOf(company)} /></select></label>
+              <div style={{ display: "flex", alignItems: "end" }}><button className="btn primary" type="submit" style={{ width: "100%" }}>Start MAWB</button></div>
+            </div>
+            <div className="err" role="alert">{err}</div>
+          </fieldset>
+        </form>
+      )}
+
+      {can("load") && ui.tripFormOpen && !air && (
         <form noValidate onSubmit={start} style={{ marginTop: 14 }}>
           <fieldset><legend>Start loading a vehicle</legend>
             <div className="fields four">
@@ -112,7 +141,7 @@ export default function Loading() {
         </form>
       )}
 
-      {can("target") && (
+      {can("target") && !air && (
         <details className="panel" style={{ marginTop: 14 }}>
           <summary><span><b style={{ fontFamily: "var(--f-display)", fontSize: 16 }}>Truck targets</b> <span className="sub">· {vehicles.length} saved truck{vehicles.length === 1 ? "" : "s"}</span></span></summary>
           <p className="sub" style={{ margin: "0 0 8px" }}>Target collection in TZS per trip. Cashiers see these but can&apos;t change them.</p>
@@ -121,14 +150,14 @@ export default function Loading() {
         </details>
       )}
 
-      {TSTATUS.map(([k, l]) => {
+      {tripStatusList(air).map(([k, l]) => {
         const list = trips.filter((t) => t.status === k);
         return (
           <div key={k}>
-            <div className="group-h"><h2>{k === "loading" ? "Loading now" : l}</h2><span className="sub">{list.length}</span></div>
+            <div className="group-h"><h2>{k === "loading" ? (air ? "Open MAWBs" : "Loading now") : l}</h2><span className="sub">{list.length}</span></div>
             {list.length
               ? <div className="trips">{(k === "arrived" ? list.slice(0, 9) : list).map((t) => <TripCard key={t.id} trip={t} onOpen={ui.openTrip} />)}</div>
-              : <p className="quiet">{k === "loading" ? "No truck is loading." : k === "departed" ? "No trucks on the road." : "No arrivals yet."}</p>}
+              : <p className="quiet">{air ? (k === "loading" ? "No open MAWB." : k === "departed" ? "No flights in the air." : "No flights landed yet.") : k === "loading" ? "No truck is loading." : k === "departed" ? "No trucks on the road." : "No arrivals yet."}</p>}
           </div>
         );
       })}

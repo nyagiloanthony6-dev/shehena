@@ -9,7 +9,7 @@ import { downloadManifest } from "./manifest";
 import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
 import { PAY_LABEL, canRecordFound, settled } from "@/lib/domain";
-import { METHODS, STATUS, TSTATUS, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { METHODS, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 export function ShipmentSheet({ id }: { id: string }) {
   const { shipById, tripById, can, patch, remove, me, company, toast } = useStore();
@@ -18,7 +18,9 @@ export function ShipmentSheet({ id }: { id: string }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const s = shipById(id);
   if (!s) return <div className="sheet-h"><p className="sub">This consignment no longer exists.</p><button className="btn sm" onClick={ui.close}>Close</button></div>;
-  const idx = STATUS.findIndex((x) => x[0] === s.status);
+  const air = isAir(company);
+  const SL = statusList(air);
+  const idx = SL.findIndex((x) => x[0] === s.status);
   const t = tripById(s.trip_id);
   const times: Record<string, string | null> = { received: s.received_at, loaded: s.loaded_at, transit: s.transit_at, arrived: s.arrived_at, collected: s.collected_at };
   const now = () => new Date().toISOString();
@@ -27,17 +29,19 @@ export function ShipmentSheet({ id }: { id: string }) {
   return (
     <>
       <div className="sheet-h">
-        <div><div className="lbl">Waybill</div><h2 style={{ fontFamily: "var(--f-mono)" }}>{s.no}</h2></div>
+        <div><div className="lbl">{air ? "House air waybill (HAWB)" : "Waybill"}</div><h2 style={{ fontFamily: "var(--f-mono)" }}>{s.no}</h2></div>
         <button className="btn sm" onClick={ui.close}>Close</button>
       </div>
 
       {s.found_on_arrival && <FoundCard s={s} />}
 
       <div className="card"><h3>Delivery status</h3>
-        <div className="steps">{STATUS.map(([k, l], i) => <div key={k} className={i <= idx ? "done" : ""}>{l}<small>{times[k] ? fmtDay(times[k]) : " "}</small></div>)}</div>
-        {t && <p className="note">Vehicle <b className="mono">{t.plate}</b> · trip <a href="#" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.no}</a> · driver {t.driver || "—"}</p>}
+        <div className="steps">{SL.map(([k, l], i) => <div key={k} className={i <= idx ? "done" : ""}>{l}<small>{times[k] ? fmtDay(times[k]) : " "}</small></div>)}</div>
+        {t && (air
+          ? <p className="note">MAWB <a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.mawb || t.no}</a>{t.airline ? ` · ${t.airline}` : ""} · flight <b className="mono">{t.plate}</b></p>
+          : <p className="note">Vehicle <b className="mono">{t.plate}</b> · trip <a href="#" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.no}</a> · driver {t.driver || "—"}</p>)}
         <div className="actions">
-          {s.status === "received" && can("load") && <button className="btn" onClick={() => ui.go("trips")}>Load onto a vehicle</button>}
+          {s.status === "received" && can("load") && <button className="btn" onClick={() => ui.go("trips")}>{air ? "Add to a MAWB" : "Load onto a vehicle"}</button>}
           {s.status === "arrived" && can("dispatch") && (settled(s) || can("pay")) && !releasing && <button className="btn primary" onClick={() => setReleasing(true)}>{s.pay === "unpaid" ? `Take TZS ${tzs(s.charge)} & release` : "Release goods to customer"}</button>}
           {s.status === "collected" && can("undo") && <button className="btn sm" onClick={() => P({ status: "arrived", collected_at: null, collected_by: null })}>Undo collected</button>}
         </div>
@@ -88,7 +92,9 @@ export function TripSheet({ id }: { id: string }) {
   const [rent, setRent] = useState(String(t?.rent_cost || ""));
   if (!t) return <div className="sheet-h"><p className="sub">This trip no longer exists.</p><button className="btn sm" onClick={ui.close}>Close</button></div>;
   const list = tripShips(t);
-  const idx = TSTATUS.findIndex((x) => x[0] === t.status);
+  const air = isAir(company);
+  const TL = tripStatusList(air);
+  const idx = TL.findIndex((x) => x[0] === t.status);
   const times: Record<string, string | null> = { loading: t.created_at, departed: t.departed_at, arrived: t.arrived_at };
   const n = pkgsOf(list);
   const full = t.target > 0 && tripTotals(list).billed >= t.target;
@@ -101,7 +107,7 @@ export function TripSheet({ id }: { id: string }) {
     const at = now();
     if (await patch<Trip>("trips", t.id, { status: "departed", departed_at: at, departed_by: me.full_name })) {
       await patchMany("shipments", list.map((s) => s.id), { status: "transit", transit_at: at });
-      toast(`${t.plate} departed. Send the departure notices.`);
+      toast(`${air ? `MAWB ${t.mawb || t.no}` : t.plate} departed. Send the departure notices.`);
     }
   };
   const arrive = async () => { setConfirm(""); await arriveTrip(t); };
@@ -109,16 +115,19 @@ export function TripSheet({ id }: { id: string }) {
   return (
     <>
       <div className="sheet-h">
-        <div><div className="lbl">Trip {t.no}</div><h2><span className="mono">{t.plate}</span> · {regShort(t.origin)} → {regShort(t.dest)}</h2></div>
+        <div><div className="lbl">{air ? `Master air waybill${t.plate && t.plate !== "TBA" ? ` · flight ${t.plate}` : ""}` : `Trip ${t.no}`}</div><h2><span className="mono">{air ? t.mawb || t.plate : t.plate}</span> · {regShort(t.origin)} → {regShort(t.dest)}</h2></div>
         <button className="btn sm" onClick={ui.close}>Close</button>
       </div>
       <div className="card">
-        <div className="steps">{TSTATUS.map(([k, l], i) => <div key={k} className={i <= idx ? "done" : ""}>{l}<small>{times[k] ? fmtDay(times[k]) : " "}</small></div>)}</div>
+        <div className="steps">{TL.map(([k, l], i) => <div key={k} className={i <= idx ? "done" : ""}>{l}<small>{times[k] ? fmtDay(times[k]) : " "}</small></div>)}</div>
         <dl className="kv" style={{ marginTop: 12 }}>
-          <dt>Driver</dt><dd>{t.driver || "—"} {t.driver_phone && <>· <span className="mono">{prettyPhone(t.driver_phone)}</span></>}</dd>
-          <dt>Loaded by</dt><dd>{t.created_by_name || "—"}</dd>
+          {air ? <>
+            <dt>Airline</dt><dd>{t.airline || "—"}</dd>
+            <dt>Flight</dt><dd className="mono">{t.plate && t.plate !== "TBA" ? t.plate : "—"}</dd>
+          </> : <dt>Driver</dt>}{!air && <dd>{t.driver || "—"} {t.driver_phone && <>· <span className="mono">{prettyPhone(t.driver_phone)}</span></>}</dd>}
+          <dt>{air ? "Started by" : "Loaded by"}</dt><dd>{t.created_by_name || "—"}</dd>
           {t.departed_by && <><dt>Dispatched by</dt><dd>{t.departed_by}</dd></>}
-          {t.ownership && <><dt>Truck</dt><dd>{t.ownership === "rental" ? <>Rental{t.owner_name ? ` · owner ${t.owner_name}` : ""} · rent TZS {tzs(t.rent_cost || 0)} this trip</> : "Our own truck"}</dd></>}
+          {t.ownership && !air && <><dt>Truck</dt><dd>{t.ownership === "rental" ? <>Rental{t.owner_name ? ` · owner ${t.owner_name}` : ""} · rent TZS {tzs(t.rent_cost || 0)} this trip</> : "Our own truck"}</dd></>}
         </dl>
         {t.ownership === "rental" && can("settings") && (
           <div className="actions" style={{ alignItems: "center" }}>
@@ -141,11 +150,11 @@ export function TripSheet({ id }: { id: string }) {
 
       {t.status === "loading" && can("dispatch") && (
         <div className="card"><h3>Dispatch</h3>
-          {full ? <p style={{ margin: "0 0 8px" }}><b>This truck has reached its collection target.</b> Close loading and send departure notices.</p>
+          {full ? <p style={{ margin: "0 0 8px" }}><b>This {air ? "MAWB" : "truck"} has reached its collection target.</b> Close loading and send departure notices.</p>
             : <p className="sub" style={{ margin: "0 0 8px" }}>You can dispatch before the target is reached.</p>}
           {confirm === "depart"
-            ? <div className="confirm go">Mark {t.plate} as departed with {list.length} consignment{list.length === 1 ? "" : "s"}? <button className="btn sm go" onClick={depart}>Yes, departed</button><button className="btn sm" onClick={() => setConfirm("")}>Not yet</button></div>
-            : <button className="btn go" onClick={() => setConfirm("depart")} disabled={!list.length}>Close loading &amp; mark departed</button>}
+            ? <div className="confirm go">Mark {air ? `MAWB ${t.mawb || t.no}` : t.plate} as departed with {list.length} consignment{list.length === 1 ? "" : "s"}? <button className="btn sm go" onClick={depart}>Yes, departed</button><button className="btn sm" onClick={() => setConfirm("")}>Not yet</button></div>
+            : <button className="btn go" onClick={() => setConfirm("depart")} disabled={!list.length}>{air ? "Close MAWB & mark flight departed" : <>Close loading &amp; mark departed</>}</button>}
           {!list.length && can("delete") && (
             <div className="actions">
               {confirm === "del"
@@ -158,9 +167,9 @@ export function TripSheet({ id }: { id: string }) {
       {t.status === "departed" && can("dispatch") && (
         <div className="card"><h3>Arrival</h3>
           {confirm === "arrive"
-            ? <div className="confirm go">Mark {t.plate} as arrived in {regShort(t.dest)}? <button className="btn sm primary" onClick={arrive}>Yes, arrived</button><button className="btn sm" onClick={() => setConfirm("")}>Not yet</button></div>
-            : <button className="btn primary" onClick={() => setConfirm("arrive")}>Mark arrived in {regShort(t.dest)}</button>}
-          <p className="note">All consignments on this vehicle move to &quot;Arrived&quot; and arrival notices become ready.</p>
+            ? <div className="confirm go">Mark {air ? `MAWB ${t.mawb || t.no}` : t.plate} as {air ? "landed" : "arrived"} in {regShort(t.dest)}? <button className="btn sm primary" onClick={arrive}>Yes, {air ? "landed" : "arrived"}</button><button className="btn sm" onClick={() => setConfirm("")}>Not yet</button></div>
+            : <button className="btn primary" onClick={() => setConfirm("arrive")}>Mark {air ? "landed" : "arrived"} in {regShort(t.dest)}</button>}
+          <p className="note">All consignments on this {air ? "MAWB" : "vehicle"} move to &quot;{air ? "Landed" : "Arrived"}&quot; and arrival notices become ready.</p>
         </div>
       )}
       {t.status === "arrived" && <FoundOnTrip trip={t} />}
@@ -169,10 +178,10 @@ export function TripSheet({ id }: { id: string }) {
 
       {t.status === "loading" && (
         <>
-          <div className="card"><h3>On this vehicle · {list.length}</h3>
+          <div className="card"><h3>On this {air ? "MAWB" : "vehicle"} · {list.length}</h3>
             {list.map((s) => (
               <div className="lrow" key={s.id}>
-                <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} pkg · TZS {tzs(s.charge)}
+                <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} {air ? `pcs · ${kgFmt(cwOf(s))} kg` : "pkg"} · TZS {tzs(s.charge)}
                   <div className="sub">{s.r_name} · {regShort(s.dest)}{s.dest !== t.dest && <span style={{ color: "var(--amber)" }}> · drop on the way</span>}</div>
                 </div>
                 {can("load") && <button className="btn sm" onClick={() => patch<Shipment>("shipments", s.id, { status: "received", trip_id: null, loaded_at: null })}>Unload</button>}
@@ -184,19 +193,19 @@ export function TripSheet({ id }: { id: string }) {
             <div className="card"><h3>Waiting at {regShort(t.origin)} · {waiting.length}</h3>
               {waiting.map((s) => (
                 <div className="lrow" key={s.id}>
-                  <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} pkg · TZS {tzs(s.charge)}
+                  <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} {air ? `pcs · ${kgFmt(cwOf(s))} kg` : "pkg"} · TZS {tzs(s.charge)}
                     <div className="sub">{s.r_name} · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {PAY_LABEL[s.pay]}</div>
                   </div>
-                  <button className="btn sm primary" onClick={() => patch<Shipment>("shipments", s.id, { status: "loaded", trip_id: t.id, loaded_at: now() })}>Load</button>
+                  <button className="btn sm primary" onClick={() => patch<Shipment>("shipments", s.id, { status: "loaded", trip_id: t.id, loaded_at: now() })}>{air ? "Add" : "Load"}</button>
                 </div>
               ))}
-              {!waiting.length && <p className="sub">No consignments waiting at this office.</p>}
+              {!waiting.length && <p className="sub">No consignments waiting at this {air ? "warehouse" : "office"}.</p>}
             </div>
           )}
         </>
       )}
       {t.status !== "loading" && (
-        <div className="card"><h3>Manifest · {list.length} consignments, {n} packages</h3>
+        <div className="card"><h3>Manifest · {list.length} consignments, {n} {air ? `pieces, ${kgFmt(list.reduce((a, x) => a + cwOf(x), 0))} kg` : "packages"}</h3>
           <div className="actions" style={{ marginTop: 0 }}><button className="btn sm" onClick={() => downloadManifest(t, list, company)}>Manifest (PDF)</button></div>
           <div className="ledger" style={{ border: 0 }}><table className="small manifest" style={{ minWidth: 0 }}>
             <thead><tr><th>Waybill</th><th>Sender → receiver</th><th>Goods</th><th className="r">Pkgs</th><th className="r">TZS</th><th>Payment</th></tr></thead>
@@ -248,14 +257,14 @@ export function PrintActions({ s }: { s: Shipment }) {
 
 /** On a consignment that was found on an arrived truck: where it came from and the Admin's check. */
 export function FoundCard({ s }: { s: Shipment }) {
-  const { tripById, me, patch, toast } = useStore();
+  const { tripById, me, patch, toast, company } = useStore();
   const ui = useUi();
   const t = tripById(s.trip_id);
   const checked = !!s.checked_at;
   return (
     <div className={`card found${checked ? "" : " unchecked"}`}>
       <h3>Found on arrival</h3>
-      <p style={{ margin: 0 }}>Not recorded at loading. Found on {t ? <a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.plate}</a> : "the truck"} in {regShort(s.dest)} and recorded by <b>{s.created_by_name || "—"}</b> on {fmtDate(s.received_at)}.</p>
+      <p style={{ margin: 0 }}>Not recorded at loading. Found on {t ? <a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.plate}</a> : `the ${terms(company).vehicle}`} in {regShort(s.dest)} and recorded by <b>{s.created_by_name || "—"}</b> on {fmtDate(s.received_at)}.</p>
       {s.found_note && <p className="sub" style={{ margin: "6px 0 0" }}>&ldquo;{s.found_note}&rdquo;</p>}
       <div className="actions" style={{ alignItems: "center" }}>
         {checked
@@ -281,7 +290,7 @@ function FoundOnTrip({ trip }: { trip: Trip }) {
   const allowed = canRecordFound(me.role, company);
   if (!allowed && !found.length) return null;
   return (
-    <div className="card"><h3>Goods found on this truck{found.length ? ` · ${found.length}` : ""}</h3>
+    <div className="card"><h3>Goods found on this {terms(company).vehicle}{found.length ? ` · ${found.length}` : ""}</h3>
       {found.map((s) => (
         <div className="lrow" key={s.id}>
           <div><a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openShip(s.id); }}>{s.no}</a> · {goodsLabel(s)} · {s.pkgs} pkg · TZS {tzs(s.charge)}<div className="sub">{s.r_name} · by {s.created_by_name}</div></div>
@@ -289,7 +298,7 @@ function FoundOnTrip({ trip }: { trip: Trip }) {
         </div>
       ))}
       {allowed
-        ? <><button className="btn" onClick={() => ui.recordFound(trip.id)}>Record goods found on this truck</button>
+        ? <><button className="btn" onClick={() => ui.recordFound(trip.id)}>Record goods found on this {terms(company).vehicle}</button>
           <p className="note">For goods that came off {trip.plate} but were never recorded at loading. You enter the receiver and the proper charge; {me.role === "admin" ? "your records count as checked." : "the Admin checks each one."}</p></>
         : <p className="note">Only the Admin can record found goods.</p>}
     </div>

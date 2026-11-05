@@ -515,3 +515,6 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 
 .printer-line{margin-top:8px}.printer-line .link{font-size:inherit}
 .printer-setup small{display:block;color:var(--muted);font-weight:400}
+.iline.air{grid-template-columns:22px minmax(140px,1fr) 70px 100px 34px}
+.airrow{grid-column:2/-1;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:8px}.airrow .w2{grid-column:span 2}.airrow .w3{grid-column:span 3}.airrow .w5{grid-column:span 5}.airrow .w7{grid-column:span 7}
+@media (max-width:760px){.iline.air{grid-template-columns:22px repeat(2,minmax(0,1fr)) 34px}.airrow{grid-template-columns:repeat(6,minmax(0,1fr))}.airrow .w3,.airrow .w5,.airrow .w7{grid-column:span 3}}

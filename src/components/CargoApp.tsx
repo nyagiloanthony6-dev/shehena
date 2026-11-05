@@ -13,7 +13,7 @@ import Bills, { AccountSheet } from "./views/Bills";
 import Claims, { ClaimSheet } from "./views/Claims";
 import Settings from "./views/Settings";
 import { signOut } from "@/app/login/actions";
-import { initials, officesOf, regShort, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
+import { isAir, initials, officesOf, regShort, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
 import { dayLabel, type Subscription } from "@/lib/billing";
 
 export type View = "home" | "list" | "new" | "trips" | "arrivals" | "bills" | "claims" | "reports" | "set";
@@ -148,7 +148,9 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
   };
   const loadingN = st.trips.filter((t) => t.status === "loading").length;
   const roadN = st.trips.filter((t) => t.status === "departed").length;
-  const items = TABS.filter(([, , need]) => !need || st.can(need));
+  const air = isAir(st.company);
+  // Air cargo companies see "Flights" where road companies see "Loading bay".
+  const items = TABS.filter(([, , need]) => !need || st.can(need)).map(([k, l, need, m]) => (k === "trips" && air ? [k, "Flights", need, "Flights"] : [k, l, need, m]) as typeof TABS[number]);
   const navBtn = (k: View, label: string) => (
     <button key={k} onClick={() => go(k)} aria-current={view === k ? "page" : undefined}>
       <Icon name={k} /><span>{label}</span>{k === "trips" && loadingN > 0 && <span className="nbadge">{loadingN}</span>}{k === "arrivals" && roadN > 0 && <span className="nbadge">{roadN}</span>}

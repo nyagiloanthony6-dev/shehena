@@ -6,15 +6,27 @@ import { RegionOptions } from "../RegionOptions";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Slip } from "../parts";
-import { METHODS, REGIONS, canRecordFound, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment, officesOf } from "@/lib/domain";
+import { METHODS, REGIONS, INTL, canRecordFound, chargeableKg, isAir, kgFmt, terms, volumeKg, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment, officesOf } from "@/lib/domain";
 
-type Line = { name: string; pkgs: string; kg: string; unit: string; charge: string };
-const blankLine = (): Line => ({ name: "", pkgs: "1", kg: "", unit: "", charge: "" });
-/** A line's charge: price per package × packages when a unit price is given, otherwise the typed amount. */
-const lineCharge = (l: Line) => (l.unit !== "" ? (Number(l.unit) || 0) * (parseInt(l.pkgs, 10) || 0) : Number(l.charge) || 0);
-const toItems = (lines: Line[]): Item[] => lines.map((l) => ({
+type Line = { name: string; pkgs: string; kg: string; unit: string; charge: string; l: string; w: string; h: string; rate: string };
+const blankLine = (rate = ""): Line => ({ name: "", pkgs: "1", kg: "", unit: "", charge: "", l: "", w: "", h: "", rate });
+type AirCfg = { air: boolean; div: number };
+/** Air: volume weight of the line and the chargeable weight (higher of actual and volume, to the half kg). */
+const airWeights = (l: Line, div: number) => {
+  const vol = volumeKg(Number(l.l) || 0, Number(l.w) || 0, Number(l.h) || 0, parseInt(l.pkgs, 10) || 0, div);
+  return { vol: Math.round(vol * 10) / 10, cw: chargeableKg(Number(l.kg) || 0, vol) };
+};
+/** A line's charge. Road: price per package × packages, or the typed amount. Air: chargeable kg × price per kg, or the typed amount. */
+const lineCharge = (l: Line, c: AirCfg) => c.air
+  ? (l.rate !== "" ? Math.round(airWeights(l, c.div).cw * (Number(l.rate) || 0)) : Number(l.charge) || 0)
+  : (l.unit !== "" ? (Number(l.unit) || 0) * (parseInt(l.pkgs, 10) || 0) : Number(l.charge) || 0);
+const toItems = (lines: Line[], c: AirCfg): Item[] => lines.map((l) => ({
   name: l.name.trim(), pkgs: parseInt(l.pkgs, 10) || 0, kg: l.kg ? Number(l.kg) : null,
-  unit: l.unit !== "" ? Number(l.unit) || 0 : null, charge: lineCharge(l),
+  unit: !c.air && l.unit !== "" ? Number(l.unit) || 0 : null, charge: lineCharge(l, c),
+  ...(c.air ? {
+    l: Number(l.l) || null, w: Number(l.w) || null, h: Number(l.h) || null, ...airWeights(l, c.div),
+    rate: l.rate !== "" ? Number(l.rate) || 0 : null,
+  } : {}),
 }));
 const summary = (items: Item[]) => ({
   item: items.map((i) => i.name).filter(Boolean).join(", "),
@@ -23,9 +35,9 @@ const summary = (items: Item[]) => ({
   kg: items.reduce((a, i) => a + (Number(i.kg) || 0), 0) || null,
 });
 
-const blank = (origin: string) => ({
+const blank = (origin: string, dest?: string) => ({
   s_phone: "", s_name: "", r_phone: "", r_name: "",
-  origin, dest: origin === "DOD" ? "DAR" : "DOD", pay: "unpaid" as Pay, method: METHODS[0], notes: "",
+  origin, dest: dest || (origin === "DOD" ? "DAR" : "DOD"), pay: "unpaid" as Pay, method: METHODS[0], notes: "",
   account_id: "", discount: "", discount_reason: "",
 });
 
@@ -34,16 +46,21 @@ export default function Receive() {
   // Branch staff always receive at their own office; it can't be changed.
   const station = me.role === "agent" ? me.station || null : null;
   const home = station || company.default_origin || "DAR";
+  // Air: goods usually fly to Tanzania, so prefer a Tanzanian office as the destination.
+  const firstDest = officesOf(company).find((x) => x !== home && !INTL.has(x)) || officesOf(company).find((x) => x !== home);
+  const cfg: AirCfg = { air: isAir(company), div: Number(company.vol_divisor) || 6000 };
+  const W = terms(company);
+  const defRate = cfg.air && Number(company.kg_rate) > 0 ? String(company.kg_rate) : "";
   const activeAccounts = accounts.filter((a) => a.active);
   const ui = useUi();
   // "Found on arrival" mode: goods discovered on an arrived truck that were never recorded at loading.
   const trip = ui.foundTrip ? trips.find((t) => t.id === ui.foundTrip && t.status === "arrived") || null : null;
   const found = !!trip && canRecordFound(me.role, company);
   const [foundNote, setFoundNote] = useState("");
-  const [f, setF] = useState(() => blank(home));
-  const [lines, setLines] = useState<Line[]>([blankLine()]);
+  const [f, setF] = useState(() => blank(home, firstDest));
+  const [lines, setLines] = useState<Line[]>(() => [blankLine(defRate)]);
   const setLine = (i: number, k: keyof Line, v: string) => setLines((L) => L.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
-  const items = toItems(lines);
+  const items = toItems(lines, cfg);
   const tot = summary(items);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -84,7 +101,8 @@ export default function Receive() {
     if (!f.r_name.trim()) miss.push("receiver name");
     if (!validPhone(f.r_phone)) miss.push("a valid receiver phone");
     if (items.some((i) => !i.name)) miss.push(items.length > 1 ? "a name for every item" : "item name");
-    if (items.some((i) => i.pkgs < 1)) miss.push("at least 1 package for every item");
+    if (items.some((i) => i.pkgs < 1)) miss.push(cfg.air ? "at least 1 piece for every item" : "at least 1 package for every item");
+    if (cfg.air && items.some((i) => !Number(i.kg) && !Number(i.vol))) miss.push("the weight (or the size) of every item");
     if (!found && f.origin === f.dest) miss.push("a destination different from the origin");
     if (f.pay === "bill" && !account) miss.push("the bill customer (account)");
     if (disc > tot.charge) miss.push("a discount no bigger than the charge");
@@ -114,8 +132,8 @@ export default function Receive() {
     }
     setBusy(false);
     if (!saved) return;
-    setF(blank(home));
-    setLines([blankLine()]);
+    setF(blank(home, firstDest));
+    setLines([blankLine(defRate)]);
     setFoundNote("");
     if (found) ui.recordFound(null);
     ui.go("list");
@@ -134,7 +152,7 @@ export default function Receive() {
 
   return (
     <section>
-      <div className="sectionhead"><h1>{found ? "Record found goods" : "Receive goods"}</h1><span className="sub">{found ? "Goods that came off the truck but were never recorded at loading." : "Record the consignment, then hand the sender the receipt."}</span></div>
+      <div className="sectionhead"><h1>{found ? "Record found goods" : "Receive goods"}</h1><span className="sub">{found ? `Goods that came off the ${W.vehicle} but were never recorded at loading.` : "Record the consignment, then hand the sender the receipt."}</span></div>
       {!found && <div style={{ margin: "-6px 0 12px" }}><PrinterLine /></div>}
       {found && (
         <div className="notice warn" role="status">
@@ -171,9 +189,34 @@ export default function Receive() {
           </fieldset>
           )}
           <fieldset><legend>Goods and charges</legend>
-            <p className="sub" style={{ margin: "0 0 10px" }}>One line per kind of goods. Price/pkg and Kg are optional — enter a price per package and the charge is worked out for you.</p>
+            <p className="sub" style={{ margin: "0 0 10px" }}>{cfg.air
+              ? <>One line per kind of goods. Enter the pieces, the total actual weight and the size of one piece: the chargeable weight is the higher of actual and volume weight (L × W × H ÷ {cfg.div}), to the next half kg.</>
+              : "One line per kind of goods. Price/pkg and Kg are optional — enter a price per package and the charge is worked out for you."}</p>
             <div className="ilines">
-              {lines.map((l, i) => (
+              {lines.map((l, i) => cfg.air ? (
+                <div className="iline air" key={i}>
+                  <span className="inum" aria-hidden="true">{i + 1}</span>
+                  <label className="f iname">Item<input value={l.name} onChange={(e) => setLine(i, "name", e.target.value)} placeholder={i === 0 ? "e.g. Phone accessories" : "e.g. Garments"} aria-label={`Item ${i + 1} name`} /></label>
+                  <label className="f">Pieces<input type="number" min={1} step={1} value={l.pkgs} onChange={(e) => setLine(i, "pkgs", e.target.value)} aria-label={`Item ${i + 1} packages`} /></label>
+                  <label className="f">Actual kg <small>all pieces</small><input type="number" min={0} step={0.1} value={l.kg} onChange={(e) => setLine(i, "kg", e.target.value)} aria-label={`Item ${i + 1} weight`} /></label>
+                  {lines.length > 1
+                    ? <button type="button" className="btn sm iremove" onClick={() => setLines((L) => L.filter((_, j) => j !== i))} aria-label={`Remove item ${i + 1}`} title="Remove this item">✕</button>
+                    : <span />}
+                  <div className="airrow">
+                    <label className="f w2">L cm<input type="number" min={0} value={l.l} onChange={(e) => setLine(i, "l", e.target.value)} aria-label={`Item ${i + 1} length`} /></label>
+                    <label className="f w2">W cm<input type="number" min={0} value={l.w} onChange={(e) => setLine(i, "w", e.target.value)} aria-label={`Item ${i + 1} width`} /></label>
+                    <label className="f w2">H cm<input type="number" min={0} value={l.h} onChange={(e) => setLine(i, "h", e.target.value)} aria-label={`Item ${i + 1} height`} /></label>
+                    <label className="f w3">Volume kg<input value={kgFmt(airWeights(l, cfg.div).vol)} readOnly tabIndex={-1} aria-label={`Item ${i + 1} volume weight`} /></label>
+                    <label className="f w3">Chargeable kg<input value={kgFmt(airWeights(l, cfg.div).cw)} readOnly tabIndex={-1} aria-label={`Item ${i + 1} chargeable weight`} /></label>
+                    <label className="f w5">Price per kg (TZS)<input type="number" min={0} step={0.5} value={l.rate} onChange={(e) => setLine(i, "rate", e.target.value)} aria-label={`Item ${i + 1} price per kg`} /></label>
+                    <label className="f w7">Charge (TZS)
+                      {l.rate !== ""
+                        ? <input value={tzs(lineCharge(l, cfg))} readOnly tabIndex={-1} aria-label={`Item ${i + 1} charge`} title="Chargeable kg × price per kg" />
+                        : <input type="number" min={0} step={500} value={l.charge} onChange={(e) => setLine(i, "charge", e.target.value)} aria-label={`Item ${i + 1} charge`} />}
+                    </label>
+                  </div>
+                </div>
+              ) : (
                 <div className="iline" key={i}>
                   <span className="inum" aria-hidden="true">{i + 1}</span>
                   <label className="f iname">Item<input value={l.name} onChange={(e) => setLine(i, "name", e.target.value)} placeholder={i === 0 ? "e.g. Cartons of cooking oil" : "e.g. Mattresses"} aria-label={`Item ${i + 1} name`} /></label>
@@ -181,7 +224,7 @@ export default function Receive() {
                   <label className="f">Price/pkg<input type="number" min={0} step={500} value={l.unit} onChange={(e) => setLine(i, "unit", e.target.value)} aria-label={`Item ${i + 1} price per package`} /></label>
                   <label className="f">Charge (TZS)
                     {l.unit !== ""
-                      ? <input value={tzs(lineCharge(l))} readOnly tabIndex={-1} aria-label={`Item ${i + 1} charge`} title="Price per package × packages" />
+                      ? <input value={tzs(lineCharge(l, cfg))} readOnly tabIndex={-1} aria-label={`Item ${i + 1} charge`} title="Price per package × packages" />
                       : <input type="number" min={0} step={500} value={l.charge} onChange={(e) => setLine(i, "charge", e.target.value)} aria-label={`Item ${i + 1} charge`} />}
                   </label>
                   <label className="f">Kg<input type="number" min={0} step={0.1} value={l.kg} onChange={(e) => setLine(i, "kg", e.target.value)} aria-label={`Item ${i + 1} weight`} /></label>
@@ -192,8 +235,8 @@ export default function Receive() {
               ))}
             </div>
             <div className="itotal">
-              <button type="button" className="btn sm" onClick={() => setLines((L) => [...L, blankLine()])}>+ Add another item</button>
-              <span><b>{items.length}</b> item{items.length === 1 ? "" : "s"} · <b>{tot.pkgs}</b> package{tot.pkgs === 1 ? "" : "s"} · Total <b className="mono">TZS {tzs(tot.charge)}</b></span>
+              <button type="button" className="btn sm" onClick={() => setLines((L) => [...L, blankLine(defRate)])}>+ Add another item</button>
+              <span><b>{items.length}</b> item{items.length === 1 ? "" : "s"} · <b>{tot.pkgs}</b> {cfg.air ? "piece" : "package"}{tot.pkgs === 1 ? "" : "s"}{cfg.air ? <> · <b>{kgFmt(items.reduce((a, x) => a + Number(x.cw || 0), 0))}</b> kg chargeable</> : null} · Total <b className="mono">TZS {tzs(tot.charge)}</b></span>
             </div>
           </fieldset>
           <fieldset><legend>Payment</legend>
@@ -220,7 +263,7 @@ export default function Receive() {
           <div className="err" role="alert">{err}</div>
           <div className="actions">
             <button className="btn primary" type="submit" disabled={busy}>{busy ? "Saving…" : found ? "Save found goods & issue receipt" : "Save & issue receipt"}</button>
-            <button className="btn" type="button" onClick={() => { setF(blank(home)); setLines([blankLine()]); setErr(""); }}>Clear</button>
+            <button className="btn" type="button" onClick={() => { setF(blank(home, firstDest)); setLines([blankLine(defRate)]); setErr(""); }}>Clear</button>
           </div>
         </div>
         <aside className="preview"><div className="lbl" style={{ marginBottom: 8 }}>Receipt preview</div><Slip s={preview} company={company} account={account?.name} /></aside>

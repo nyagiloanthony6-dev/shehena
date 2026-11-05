@@ -17,7 +17,7 @@ import { signOut } from "@/app/login/actions";
 import { ROLES, fmtDate, tzs, type Role } from "@/lib/domain";
 
 type Status = "trial" | "active" | "overdue" | "suspended";
-type Company = { id: string; name: string; branch: string; phone: string; created_at: string };
+type Company = { id: string; name: string; branch: string; phone: string; created_at: string; mode?: string };
 type Account = { company_id: string; status: Status; notes: string; status_changed_at: string; trial_ends: string | null; paid_until: string | null; custom_fee: number | null; auto_status: boolean; agent_id: number | string | null; agent_since: string | null };
 type Stat = { company_id: string; staff: number; active_staff: number; vehicles: number; trips_month: number; ship_month: number; billed_month: number; paid_month: number; ship_total: number; last_activity: string | null };
 type Staff = { id: string; company_id: string; full_name: string; email: string; role: Role; active: boolean; created_at: string };
@@ -162,7 +162,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
               const d = daysAgo(r.st.last_activity) ?? 0;
               return (
                 <tr key={r.id} className="row" tabIndex={0} onClick={() => setOpenId(r.id)} onKeyDown={(e) => e.key === "Enter" && setOpenId(r.id)}>
-                  <td><b>{r.name}</b><div className="sub">{[r.branch, r.phone].filter(Boolean).join(" · ") || "No branch set"} · joined {fmtDate(r.created_at).slice(0, 11)}</div></td>
+                  <td><b>{r.name}</b>{r.mode === "air" && <span className="tag-rental">Air cargo</span>}<div className="sub">{[r.branch, r.phone].filter(Boolean).join(" · ") || "No branch set"} · joined {fmtDate(r.created_at).slice(0, 11)}</div></td>
                   <td>{r.admins[0] ? <>{r.admins[0].full_name}<div className="sub">{r.admins[0].email}</div></> : <span className="sub">No admin</span>}</td>
                   <td className="r num">{r.st.active_staff}<span className="sub">/{r.st.staff}</span></td>
                   <td className="r num">{r.st.vehicles} · <b>{r.bill.trucks}</b></td>

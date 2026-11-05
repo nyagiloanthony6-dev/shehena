@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import { useStore } from "../store";
 import { RegionOptions } from "../RegionOptions";
-import { REGIONS, ROLES, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
+import { REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
 import { ACTIVE_DAYS, dayLabel, feeWorking, planLabel, type Subscription } from "@/lib/billing";
 import { downloadSubscriptionReceipt } from "../billingPdf";
@@ -57,10 +57,10 @@ function OfficesForm() {
       <p className="sub" style={{ marginTop: 0 }}>Where you send goods from, and the towns you deliver to. These are your branches: branch staff are assigned to one, and they are listed first when receiving goods and loading trucks.</p>
       <div className="fields">
         <label className="f">Head office <small>where you send goods from</small>
-          <select value={head} onChange={(e) => { const v = e.target.value; setHead(v); setList((L) => L.filter((x) => x !== v)); }} aria-label="Head office">{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
+          <select value={head} onChange={(e) => { const v = e.target.value; setHead(v); setList((L) => L.filter((x) => x !== v)); }} aria-label="Head office">{regionsFor(company).map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
         <label className="f">Add a town you deliver to
           <div style={{ display: "flex", gap: 6 }}>
-            <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Add office"><option value="">Choose…</option>{REGIONS.filter(([c]) => c !== head && !list.includes(c)).map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select>
+            <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Add office"><option value="">Choose…</option>{regionsFor(company).filter(([c]) => c !== head && !list.includes(c)).map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select>
             <button type="button" className="btn sm" disabled={!pick} onClick={() => { setList((L) => [...L, pick]); setPick(""); }}>Add</button>
           </div></label>
       </div>
@@ -82,6 +82,9 @@ function OfficesForm() {
 function CompanyForm() {
   const { company, patchCompany, toast } = useStore();
   const [f, setF] = useState({ name: company.name, branch: company.branch, phone: company.phone, default_origin: company.default_origin, message_lang: company.message_lang, payment_instructions: company.payment_instructions || "", found_goods_by: company.found_goods_by || "all" });
+  // Air cargo settings exist after migration 0016.
+  const hasAir = "mode" in company;
+  const [a, setA] = useState({ mode: company.mode || "road", kg_rate: String(company.kg_rate ?? ""), vol_divisor: String(company.vol_divisor || 6000) });
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   return (
     <form onSubmit={async (e) => {
@@ -89,7 +92,10 @@ function CompanyForm() {
       if (!f.name.trim()) return toast("Enter your company name.", true);
       // Before migration 0007 the column doesn't exist; only send it when it's in use.
       const extra = company.found_goods_by === undefined && f.found_goods_by === "all" ? { found_goods_by: undefined } : {};
-      if (await patchCompany({ ...f, ...extra, name: f.name.trim(), branch: f.branch.trim(), phone: f.phone.trim(), payment_instructions: f.payment_instructions.trim() } as never)) toast("Company details saved");
+      const div = Math.round(Number(a.vol_divisor) || 6000);
+      if (hasAir && (div < 1000 || div > 10000)) return toast("The volume divisor must be between 1000 and 10000 (usually 6000).", true);
+      const airVals = hasAir ? { mode: a.mode, kg_rate: Math.max(0, Number(a.kg_rate) || 0), vol_divisor: div } : {};
+      if (await patchCompany({ ...f, ...extra, ...airVals, name: f.name.trim(), branch: f.branch.trim(), phone: f.phone.trim(), payment_instructions: f.payment_instructions.trim() } as never)) toast("Company details saved");
     }}>
       <fieldset><legend>Company on receipts and messages</legend>
         <div className="fields">
@@ -97,8 +103,11 @@ function CompanyForm() {
           <label className="f">Branch<input value={f.branch} onChange={(e) => set("branch", e.target.value)} placeholder="e.g. Kariakoo, Dar es Salaam" /></label>
           <label className="f">Office phone<input value={f.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" /></label>
           {!("offices" in company) && <label className="f">Default origin<select value={f.default_origin} onChange={(e) => set("default_origin", e.target.value)}>{REGIONS.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>}
+          {hasAir && <label className="f">Type of business<select value={a.mode} onChange={(e) => setA({ ...a, mode: e.target.value as "road" | "air" })} aria-label="Type of business"><option value="road">Road transport (trucks)</option><option value="air">Air cargo (flights)</option></select></label>}
+          {hasAir && a.mode === "air" && <label className="f">Price per kg <small>default, can be changed per consignment</small><input type="number" min={0} step={0.5} value={a.kg_rate} onChange={(e) => setA({ ...a, kg_rate: e.target.value })} aria-label="Price per kg" /></label>}
+          {hasAir && a.mode === "air" && <label className="f">Volume weight divisor <small>L × W × H (cm) ÷ this; airlines use 6000</small><input type="number" min={1000} max={10000} step={1000} value={a.vol_divisor} onChange={(e) => setA({ ...a, vol_divisor: e.target.value })} aria-label="Volume divisor" /></label>}
           <label className="f">Message language<select value={f.message_lang} onChange={(e) => set("message_lang", e.target.value)}><option value="sw">Kiswahili</option><option value="en">English</option></select></label>
-          <label className="f full">Goods found on arrival <small>found on a truck but not recorded at loading</small>
+          <label className="f full">Goods found on arrival <small>found on a {terms(company).vehicle} but not recorded at loading</small>
             <select value={f.found_goods_by} onChange={(e) => set("found_goods_by", e.target.value)}>
               <option value="all">Admin and cashiers can record them (the Admin checks each one)</option>
               <option value="admin">Only the Admin can record them</option>
@@ -277,10 +286,13 @@ function AddVehicle() {
 
 type SettingsTab = "company" | "staff" | "vehicles" | "subscription";
 export default function Settings({ sub, initialTab = "company" }: { sub?: Subscription | null; initialTab?: SettingsTab }) {
-  const { staff, vehicles } = useStore();
+  const { staff, vehicles, company } = useStore();
+  const air = isAir(company);
   const [tab, setTab] = useState<SettingsTab>(sub || initialTab !== "subscription" ? initialTab : "company");
   const tabs: [SettingsTab, string][] = [
-    ["company", "Company & offices"], ["staff", `Staff · ${staff.length}`], ["vehicles", `Vehicles · ${vehicles.length}`],
+    ["company", "Company & offices"], ["staff", `Staff · ${staff.length}`],
+    // Air cargo companies fly with airlines; they don't keep trucks.
+    ...(air && !vehicles.length ? [] : [["vehicles", `Vehicles · ${vehicles.length}`] as [SettingsTab, string]]),
     ...(sub ? [["subscription", "Shehena subscription"] as [SettingsTab, string]] : []),
   ];
   return (

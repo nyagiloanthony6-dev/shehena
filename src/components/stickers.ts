@@ -72,7 +72,7 @@ function drawSticker(doc: JsPDF, x: number, y: number, w: number, h: number, s: 
     doc.setFont("courier", "bold"); fit(doc, s.no, iw, 18); doc.text(s.no, x + p, cy); cy += 4;
     const q = Math.min(iw * 0.62, h - (cy - y) - 34);
     doc.addImage(img, "PNG", x + (w - q) / 2, cy, q, q); cy += q + 11;
-    doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.text("PACKAGE", x + w / 2, cy - 5, { align: "center" });
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.text(company.mode === "air" ? "PIECE" : "PACKAGE", x + w / 2, cy - 5, { align: "center" });
     fit(doc, pk, iw, 34); doc.text(pk, x + w / 2, cy + 6, { align: "center" }); cy += 12;
     if (prefs.showItem) { doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.text(clip(doc, pkg.item, iw), x + w / 2, cy, { align: "center" }); }
     return;
@@ -92,7 +92,7 @@ function drawSticker(doc: JsPDF, x: number, y: number, w: number, h: number, s: 
   }
   const qx = x + w - p - q, qy = y + p + 7;
   doc.addImage(img, "PNG", qx, qy, q, q);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(Math.max(6, h * 0.08)); doc.text("PACKAGE", qx + q / 2, qy + q + 3.5, { align: "center" });
+  doc.setFont("helvetica", "bold"); doc.setFontSize(Math.max(6, h * 0.08)); doc.text(company.mode === "air" ? "PIECE" : "PACKAGE", qx + q / 2, qy + q + 3.5, { align: "center" });
   fit(doc, pk, q + 4, Math.max(12, h * 0.26)); doc.text(pk, qx + q / 2, y + h - p - 0.5, { align: "center" });
 }
 

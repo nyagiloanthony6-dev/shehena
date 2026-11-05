@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { PayPill, StatusPill } from "../parts";
-import { REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
+import { isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
 
 export default function Consignments() {
   const { shipments, tripById, can, company } = useStore();
@@ -44,7 +44,7 @@ export default function Consignments() {
         </select>
       </div>
       <div className="filters" style={{ marginTop: 8 }}>
-        <div className="chips">{([["", "All statuses"], ...STATUS] as [string, string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={status === k} onClick={() => setStatus(k)}>{l}</button>)}</div>
+        <div className="chips">{([["", "All statuses"], ...statusList(isAir(company))] as [string, string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={status === k} onClick={() => setStatus(k)}>{l}</button>)}</div>
         <div className="chips">{([["", "Any payment"], ["unpaid", "Not paid"], ["paid", "Paid"], ["bill", "Monthly bill"]] as ["" | "paid" | "unpaid" | "bill", string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={pay === k} onClick={() => ui.setListPay(k)}>{l}</button>)}</div>
       </div>
       {list.length > 0 && (

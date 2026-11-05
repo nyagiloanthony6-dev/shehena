@@ -3,12 +3,14 @@ import { useState } from "react";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
 import {
-  PAY_LABEL, type Pay, fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
+  PAY_LABEL, type Pay, cwOf, isAir, kgFmt, terms, fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
   type Company, type NoticeKind, type NoticeTo, type Shipment, type Trip,
 } from "@/lib/domain";
 
-export const StatusPill = ({ s }: { s: string }) => <span className={`pill st-${s}`}>{stLabel(s)}</span>;
-export const TripPill = ({ s }: { s: string }) => <span className={`pill st-${s}`}>{tLabel(s)}</span>;
+export const StatusPill = ({ s }: { s: string }) => { const { company } = useStore(); return <span className={`pill st-${s}`}>{stLabel(s, isAir(company))}</span>; };
+export const TripPill = ({ s }: { s: string }) => { const { company } = useStore(); return <span className={`pill st-${s}`}>{tLabel(s, isAir(company))}</span>; };
+/** Second line under a trip's plate: the driver for trucks; the MAWB and airline for flights. */
+export const tripSub = (t: Trip) => t.mawb || t.airline ? [t.mawb ? `MAWB ${t.mawb}` : "", t.airline].filter(Boolean).join(" · ") : t.driver || "";
 export const PayPill = ({ pay, long }: { pay: Pay; long?: boolean }) => (
   <span className={`pill pay-${pay}`}>{pay === "unpaid" && long ? "Not paid – due on collection" : PAY_LABEL[pay]}</span>
 );
@@ -16,12 +18,12 @@ export const Example = () => null;
 
 /** Mark a truck arrived: the trip and every consignment still in transit on it. */
 export function useArriveTrip() {
-  const { patch, patchMany, tripShips, me, toast } = useStore();
+  const { patch, patchMany, tripShips, me, toast, company } = useStore();
   return async (t: Trip) => {
     const at = new Date().toISOString();
     if (await patch<Trip>("trips", t.id, { status: "arrived", arrived_at: at, arrived_by: me.full_name })) {
       await patchMany("shipments", tripShips(t).filter((s) => s.status === "transit").map((s) => s.id), { status: "arrived", arrived_at: at });
-      toast(`${t.plate} arrived. Send the arrival notices.`);
+      toast(`${t.plate} ${isAir(company) ? "landed" : "arrived"}. Send the arrival notices.`);
       return true;
     }
     return false;
@@ -32,7 +34,7 @@ export function tripTotals(list: Shipment[]) {
   const billed = list.reduce((a, x) => a + Number(x.charge || 0), 0);
   const paid = list.filter((x) => x.pay === "paid").reduce((a, x) => a + Number(x.charge || 0), 0);
   return {
-    n: list.length, pkgs: pkgsOf(list), billed, paid,
+    n: list.length, pkgs: pkgsOf(list), billed, paid, cw: list.reduce((a, x) => a + cwOf(x), 0),
     due: list.filter((x) => x.pay === "unpaid").reduce((a, x) => a + Number(x.charge || 0), 0),
     senders: new Set(list.map((x) => intlPhone(x.s_phone))).size,
     receivers: new Set(list.map((x) => intlPhone(x.r_phone))).size,
@@ -63,34 +65,39 @@ export function Meter({ trip, compact }: { trip: Trip; compact?: boolean }) {
 }
 
 export function TripCard({ trip, onOpen }: { trip: Trip; onOpen: (id: string) => void }) {
-  const { tripShips } = useStore();
+  const { tripShips, company } = useStore();
+  const air = isAir(company);
   const x = tripTotals(tripShips(trip));
   return (
     <div className="trip" tabIndex={0} role="button" onClick={() => onOpen(trip.id)} onKeyDown={(e) => e.key === "Enter" && onOpen(trip.id)}>
       <div className="top"><span className="plate">{trip.plate}{trip.ownership === "rental" && <span className="tag-rental">Rental</span>}</span><TripPill s={trip.status} /></div>
       <div className="route">{regShort(trip.origin)}<i>→</i>{regShort(trip.dest)}</div>
-      <div className="sub">{trip.no} · {trip.driver || "No driver"}</div>
+      <div className="sub">{trip.no} · {tripSub(trip) || (air ? "No MAWB yet" : "No driver")}</div>
       <div className="tline">
         <span><b>{x.senders}</b> customer{x.senders === 1 ? "" : "s"}</span>
-        <span><b>{x.pkgs}</b> pkgs</span>
+        <span><b>{x.pkgs}</b> {air ? "pcs" : "pkgs"}</span>
+        {air && <span><b>{kgFmt(x.cw)}</b> kg</span>}
         <span>TZS <b>{tzs(x.billed)}</b></span>
         {x.due > 0 && <span style={{ color: "var(--bad)" }}>TZS <b style={{ color: "inherit" }}>{tzs(x.due)}</b> unpaid</span>}
       </div>
       <Meter trip={trip} compact />
       <div className="sub">
-        {trip.status === "loading" ? `Started ${fmtDate(trip.created_at)}` : trip.status === "departed" ? `Left ${fmtDate(trip.departed_at)}` : `Arrived ${fmtDate(trip.arrived_at)}`}
+        {trip.status === "loading" ? `Started ${fmtDate(trip.created_at)}` : trip.status === "departed" ? `${air ? "Departed" : "Left"} ${fmtDate(trip.departed_at)}` : `${air ? "Landed" : "Arrived"} ${fmtDate(trip.arrived_at)}`}
       </div>
     </div>
   );
 }
 
 export function TripSummary({ trip }: { trip: Trip }) {
-  const { tripShips } = useStore();
+  const { tripShips, company } = useStore();
   const x = tripTotals(tripShips(trip));
+  const air = isAir(company);
   return (
     <div className="tsum" aria-label="Load summary">
       <div><div className="lbl">Customers</div><div className="v">{x.senders}</div><div className="s">{x.receivers} receiver{x.receivers === 1 ? "" : "s"} · {x.n} consignment{x.n === 1 ? "" : "s"}</div></div>
-      <div><div className="lbl">Packages</div><div className="v">{x.pkgs}</div><div className="s">on this truck</div></div>
+      {air
+        ? <div><div className="lbl">Chargeable weight</div><div className="v">{kgFmt(x.cw)}</div><div className="s">kg · {x.pkgs} pieces on this MAWB</div></div>
+        : <div><div className="lbl">Packages</div><div className="v">{x.pkgs}</div><div className="s">on this truck</div></div>}
       <div><div className="lbl">Total collections</div><div className="v">{tzs(x.billed)}</div><div className="s">TZS · {tzs(x.paid)} paid</div></div>
       <div className={x.due ? "due" : ""}><div className="lbl">To collect</div><div className="v">{tzs(x.due)}</div><div className="s">TZS on delivery · {x.unpaidN} unpaid</div></div>
     </div>
@@ -103,11 +110,13 @@ export function Slip({ s, company, servedBy, account }: { s: Partial<Shipment>; 
   const gross = Number(s.gross_charge ?? (Number(s.charge || 0) + disc));
   const head = [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ");
   const lines = itemsOf(s);
+  const air = isAir(company);
+  const cw = cwOf(s);
   return (
     <div className="slip">
       <div className="co">{company.name || "Your company"}</div>
       {head && <div className="sub">{head}</div>}
-      <div className="lbl" style={{ marginTop: 12 }}>Cargo receipt · Waybill no.</div>
+      <div className="lbl" style={{ marginTop: 12 }}>{air ? "Air cargo receipt · HAWB no." : "Cargo receipt · Waybill no."}</div>
       <div className="no">{s.no || "—"}</div>
       <dl>
         <dt>Date</dt><dd>{fmtDate(s.received_at || new Date().toISOString())}</dd>
@@ -116,16 +125,22 @@ export function Slip({ s, company, servedBy, account }: { s: Partial<Shipment>; 
         <dt>Route</dt><dd>{regName(s.origin || "")} → {regName(s.dest || "")}</dd>
       </dl>
       <hr />
-      {lines.length > 1 ? (
+      {air ? (
+        <table className="slip-items">
+          <thead><tr><th>Item</th><th className="num">Pcs</th><th className="num">Chg. kg</th><th className="num">TZS</th></tr></thead>
+          <tbody>{lines.map((l, i) => <tr key={i}><td>{l.name || "—"}{l.rate ? <div className="sub">{kgFmt(l.kg)} kg actual · {kgFmt(l.vol)} vol · @ {tzs(l.rate)}/kg</div> : null}</td><td className="num">{l.pkgs}</td><td className="num">{kgFmt(l.cw ?? l.kg)}</td><td className="num">{tzs(l.charge)}</td></tr>)}</tbody>
+        </table>
+      ) : lines.length > 1 ? (
         <table className="slip-items">
           <thead><tr><th>Item</th><th className="num">Pkgs</th><th className="num">TZS</th></tr></thead>
           <tbody>{lines.map((l, i) => <tr key={i}><td>{l.name || "—"}</td><td className="num">{l.pkgs}</td><td className="num">{tzs(l.charge)}</td></tr>)}</tbody>
         </table>
       ) : null}
       <dl>
-        {lines.length > 1 ? null : <><dt>Item</dt><dd>{s.item || "—"}</dd></>}
-        <dt>{lines.length > 1 ? "Total packages" : "Packages"}</dt><dd className="num">{s.pkgs || "—"}</dd>
-        {s.kg ? <><dt>Weight</dt><dd className="num">{s.kg} kg</dd></> : null}
+        {lines.length > 1 || air ? null : <><dt>Item</dt><dd>{s.item || "—"}</dd></>}
+        <dt>{air ? "Pieces" : lines.length > 1 ? "Total packages" : "Packages"}</dt><dd className="num">{s.pkgs || "—"}</dd>
+        {air ? <><dt>Actual weight</dt><dd className="num">{kgFmt(s.kg)} kg</dd><dt>Chargeable weight</dt><dd className="num">{kgFmt(cw)} kg</dd></>
+          : s.kg ? <><dt>Weight</dt><dd className="num">{s.kg} kg</dd></> : null}
         {s.notes ? <><dt>Notes</dt><dd>{s.notes}</dd></> : null}
       </dl>
       <hr />
@@ -165,11 +180,23 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
   const dash = () => { doc.setLineDashPattern([1, 1], 0); doc.line(L, y, L + W, y); y += 4; };
   line((company.name || "Shehena").toUpperCase(), 13, true);
   line([company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ") || " ", 8); y += 2;
-  line("CARGO RECEIPT", 8, true); line(s.no, 12, true); y += 1;
+  const air = isAir(company);
+  line(air ? "AIR CARGO RECEIPT - HAWB" : "CARGO RECEIPT", 8, true); line(s.no, 12, true); y += 1;
   pair("Date", fmtDate(s.received_at)); pair("Sender", `${s.s_name}, ${prettyPhone(s.s_phone)}`);
   pair("Receiver", `${s.r_name}, ${prettyPhone(s.r_phone)}`); pair("Route", `${regName(s.origin)} to ${regName(s.dest)}`); dash();
   const lines = itemsOf(s);
-  if (lines.length > 1) {
+  if (air) {
+    doc.setFontSize(8); doc.setFont("helvetica", "bold");
+    doc.text("Item", L, y); doc.text("Pcs", L + 36, y, { align: "right" }); doc.text("Chg kg", L + 50, y, { align: "right" }); doc.text("TZS", L + W, y, { align: "right" }); y += 4;
+    doc.setFont("helvetica", "normal");
+    for (const l of lines) {
+      const w = doc.splitTextToSize(l.name, 28); doc.text(w, L, y);
+      doc.text(String(l.pkgs), L + 36, y, { align: "right" }); doc.text(kgFmt(l.cw ?? l.kg), L + 50, y, { align: "right" }); doc.text(tzs(l.charge), L + W, y, { align: "right" });
+      y += w.length * 3.6 + 1;
+      if (l.rate) { doc.setFontSize(7); doc.text(`${kgFmt(l.kg)} kg actual, ${kgFmt(l.vol)} kg volume, @ ${tzs(l.rate)}/kg`, L, y); doc.setFontSize(8); y += 3.6; }
+    }
+    y += 1.5; pair("Pieces", String(s.pkgs)); pair("Actual weight", `${kgFmt(s.kg)} kg`); pair("Chargeable", `${kgFmt(cwOf(s))} kg`);
+  } else if (lines.length > 1) {
     doc.setFontSize(8); doc.setFont("helvetica", "bold");
     doc.text("Item", L, y); doc.text("Pkgs", L + 46, y, { align: "right" }); doc.text("TZS", L + W, y, { align: "right" }); y += 4;
     doc.setFont("helvetica", "normal");
@@ -179,7 +206,7 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
       y += w.length * 3.6 + 1;
     }
     y += 1.5; pair("Total packages", String(s.pkgs));
-  } else { pair("Item", s.item); pair("Packages", String(s.pkgs)); } if (s.kg) pair("Weight", s.kg + " kg"); if (s.notes) pair("Notes", s.notes); dash();
+  } else { pair("Item", s.item); pair("Packages", String(s.pkgs)); } if (s.kg && !air) pair("Weight", s.kg + " kg"); if (s.notes) pair("Notes", s.notes); dash();
   const disc = Number(s.discount || 0);
   if (disc > 0) { pair("Subtotal", "TZS " + tzs(s.gross_charge ?? Number(s.charge) + disc)); pair("Discount", "- TZS " + tzs(disc) + (s.discount_reason ? ` (${s.discount_reason})` : "")); }
   pair(disc > 0 ? "Total to pay" : lines.length > 1 ? "Total charge" : "Charge", "TZS " + tzs(s.charge));
@@ -231,7 +258,7 @@ export function NotifyBlock({ s, kind, to }: { s: Shipment; kind: NoticeKind; to
 }
 
 export function BulkNotices({ trip, kind }: { trip: Trip; kind: "departed" | "arrived" }) {
-  const { tripShips, can, toast } = useStore();
+  const { tripShips, can, toast, company } = useStore();
   const list = [...tripShips(trip)].sort((a, b) => (a.pay === "unpaid" ? 0 : 1) - (b.pay === "unpaid" ? 0 : 1));
   const done = list.filter((s) => sentLog(s, kind, "receiver").length).length;
   const unpaid = list.filter((s) => s.pay === "unpaid");
@@ -256,7 +283,7 @@ export function BulkNotices({ trip, kind }: { trip: Trip; kind: "departed" | "ar
           </div>
         );
       })}
-      {!list.length && <p className="sub">No consignments on this vehicle.</p>}
+      {!list.length && <p className="sub">No consignments on this {terms(company).vehicle}.</p>}
       {list.length > 0 && can("notify") && (
         <>
           <div className="actions"><button className="btn sm" onClick={() => copy(list.map((s) => "+" + intlPhone(s.r_phone)).join(", "), toast)}>Copy all receiver numbers</button></div>
@@ -271,9 +298,10 @@ export { fmtDay };
 
 /** Trucks loaded, departed or arrived on a chosen day, with their totals. */
 export function TrucksByDate({ initial = "departed" }: { initial?: "loaded" | "departed" | "arrived" }) {
-  const { trips, tripShips, can } = useStore();
+  const { trips, tripShips, can, company } = useStore();
   const ui = useUi();
   const arrive = useArriveTrip();
+  const W = terms(company), air = isAir(company);
   const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
   const [day, setDay] = useState(() => local(new Date()));
   const [basis, setBasis] = useState(initial);
@@ -285,9 +313,9 @@ export function TrucksByDate({ initial = "departed" }: { initial?: "loaded" | "d
   return (
     <div className="panel bydate">
       <div className="ph" style={{ flexWrap: "wrap", gap: 8 }}>
-        <div><h2>Trucks by date</h2><div className="sub">{list.length} truck{list.length === 1 ? "" : "s"} · {all.length} consignments · {pkgsOf(all)} packages · TZS {tzs(all.reduce((a, s) => a + Number(s.charge || 0), 0))}</div></div>
+        <div><h2>{W.Vehicles} by date</h2><div className="sub">{list.length} {W.vehicle}{list.length === 1 ? "" : "s"} · {all.length} consignments · {pkgsOf(all)} packages · TZS {tzs(all.reduce((a, s) => a + Number(s.charge || 0), 0))}</div></div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <div className="chips">{(["loaded", "departed", "arrived"] as const).map((k) => <button key={k} className="chip" aria-pressed={basis === k} onClick={() => setBasis(k)}>{k === "loaded" ? "Loaded" : k === "departed" ? "Departed" : "Arrived"}</button>)}</div>
+          <div className="chips">{(["loaded", "departed", "arrived"] as const).map((k) => <button key={k} className="chip" aria-pressed={basis === k} onClick={() => setBasis(k)}>{k === "loaded" ? (air ? "Started" : "Loaded") : k === "departed" ? "Departed" : W.arrived}</button>)}</div>
           <button className="btn sm" onClick={() => step(-1)} aria-label="Previous day">‹</button>
           <input type="date" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} style={{ width: "auto" }} aria-label="Date" />
           <button className="btn sm" onClick={() => step(1)} aria-label="Next day">›</button>
@@ -295,18 +323,18 @@ export function TrucksByDate({ initial = "departed" }: { initial?: "loaded" | "d
       </div>
       {list.length ? (
         <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small" style={{ minWidth: 0 }}>
-          <thead><tr><th>Truck</th><th>Route</th><th>Status</th><th className="r">Cons.</th><th className="r">Pkgs</th><th className="r">TZS</th><th className="r">To collect</th><th /></tr></thead>
+          <thead><tr><th>{W.Vehicle}</th><th>Route</th><th>Status</th><th className="r">Cons.</th><th className="r">Pkgs</th><th className="r">TZS</th><th className="r">To collect</th><th /></tr></thead>
           <tbody>{list.map((t) => { const L = tripShips(t), x = tripTotals(L); return (
             <tr key={t.id} className="row" onClick={() => ui.openTrip(t.id)}>
-              <td><span className="mono wb" style={{ fontWeight: 600 }}>{t.plate}</span><div className="sub">{t.driver || "—"}</div></td>
+              <td><span className="mono wb" style={{ fontWeight: 600 }}>{t.plate}</span><div className="sub">{tripSub(t) || "—"}</div></td>
               <td>{regShort(t.origin)} → {regShort(t.dest)}<div className="sub">{fmtDate(field(t)).slice(-5)}</div></td>
               <td><TripPill s={t.status} /></td>
               <td className="r num">{x.n}</td><td className="r num">{x.pkgs}</td><td className="r num">{tzs(x.billed)}</td>
               <td className="r num" style={x.unpaidN ? { color: "var(--bad)" } : undefined}>{tzs(L.filter((s) => s.pay === "unpaid").reduce((a, s) => a + Number(s.charge || 0), 0))}</td>
-              <td className="r" onClick={(e) => e.stopPropagation()}>{t.status === "departed" && can("dispatch") && <button className="btn sm primary" onClick={async () => { if (await arrive(t)) ui.openTrip(t.id); }}>Mark arrived</button>}</td>
+              <td className="r" onClick={(e) => e.stopPropagation()}>{t.status === "departed" && can("dispatch") && <button className="btn sm primary" onClick={async () => { if (await arrive(t)) ui.openTrip(t.id); }}>{W.arrive}</button>}</td>
             </tr>); })}</tbody>
         </table></div>
-      ) : <p className="quiet">No trucks {basis} on this date.</p>}
+      ) : <p className="quiet">No {W.vehicles} {basis === "loaded" && air ? "started" : basis === "arrived" && air ? "landed" : basis} on this date.</p>}
     </div>
   );
 }
