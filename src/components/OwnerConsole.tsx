@@ -215,19 +215,20 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
 }
 
 function AddCompany({ agents, busy, onSubmit }: { agents: Agent[]; busy: boolean; onSubmit: (v: Parameters<typeof createCompany>[0]) => void }) {
-  const [f, setF] = useState({ name: "", branch: "", phone: "", admin_name: "", admin_email: "", password: tempPassword(), status: "trial" as Status, agent_id: "" });
+  const [f, setF] = useState({ name: "", branch: "", phone: "", admin_name: "", admin_email: "", password: tempPassword(), status: "trial" as Status, agent_id: "", mode: "road" as "road" | "air" });
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   return (
     <form noValidate onSubmit={(e) => { e.preventDefault(); onSubmit(f); }} style={{ marginTop: 16 }}>
       <fieldset><legend>Add a company</legend>
         <div className="fields four">
           <label className="f">Company name<input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Mwanza Express Cargo" /></label>
+          <label className="f">Type of business<select value={f.mode} onChange={(e) => set("mode", e.target.value)} aria-label="Type of business"><option value="road">Road cargo (trucks)</option><option value="air">Air cargo (flights)</option></select></label>
           <label className="f">Branch <small>optional</small><input value={f.branch} onChange={(e) => set("branch", e.target.value)} /></label>
           <label className="f">Office phone <small>optional</small><input value={f.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" /></label>
-          <label className="f">Start as<select value={f.status} onChange={(e) => set("status", e.target.value)}><option value="trial">Trial</option><option value="active">Active</option></select></label>
           <label className="f">Admin&apos;s full name<input value={f.admin_name} onChange={(e) => set("admin_name", e.target.value)} /></label>
           <label className="f">Admin&apos;s email<input type="email" value={f.admin_email} onChange={(e) => set("admin_email", e.target.value)} autoComplete="off" /></label>
           <label className="f">Temporary password<input value={f.password} onChange={(e) => set("password", e.target.value)} autoComplete="off" /></label>
+          <label className="f">Start as<select value={f.status} onChange={(e) => set("status", e.target.value)}><option value="trial">Trial</option><option value="active">Active</option></select></label>
           <label className="f">Brought in by<select value={f.agent_id} onChange={(e) => set("agent_id", e.target.value)}><option value="">No salesperson</option>{agents.filter((a) => a.active).map((a) => <option key={a.id} value={String(a.id)}>{a.name}</option>)}</select></label>
           <div style={{ display: "flex", alignItems: "end" }}><button className="btn primary" type="submit" disabled={busy} style={{ width: "100%" }}>{busy ? "Creating…" : "Create company"}</button></div>
         </div>

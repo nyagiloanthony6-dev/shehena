@@ -19,7 +19,7 @@ async function audit(by: string, action: string, company_id: string | null, deta
 const fail = (e: unknown): Result => ({ error: (e as Error).message || "Something went wrong." });
 
 export async function createCompany(input: {
-  name: string; branch: string; phone: string; admin_name: string; admin_email: string; password: string; status: AccountStatus; agent_id?: string;
+  name: string; branch: string; phone: string; admin_name: string; admin_email: string; password: string; status: AccountStatus; agent_id?: string; mode?: "road" | "air";
 }): Promise<Result> {
   try {
     const by = await owner();
@@ -31,8 +31,10 @@ export async function createCompany(input: {
     const admin = supabaseAdmin();
     const { data: u, error } = await admin.auth.admin.createUser({ email, password: input.password, email_confirm: true, user_metadata: { full_name: admin_name } });
     if (error || !u.user) return { error: /already|registered|exists/i.test(error?.message || "") ? `${email} already has an account.` : "Could not create the Admin account." };
-    const { data: co, error: cErr } = await admin.from("companies").insert({ name, branch: input.branch.trim(), phone: input.phone.trim() }).select("id").single();
-    if (cErr || !co) { await admin.auth.admin.deleteUser(u.user.id); return { error: "Could not create the company." }; }
+    const air = input.mode === "air";
+    // Air cargo companies start with Guangzhou as origin and Dar es Salaam as destination; the Admin can change these.
+    const { data: co, error: cErr } = await admin.from("companies").insert({ name, branch: input.branch.trim(), phone: input.phone.trim(), ...(air ? { mode: "air", default_origin: "CAN", offices: ["CAN", "DAR"] } : {}) }).select("id").single();
+    if (cErr || !co) { await admin.auth.admin.deleteUser(u.user.id); return { error: air && /mode/i.test(cErr?.message || "") ? "Run migration 0016_air_cargo.sql in Supabase first." : "Could not create the company." }; }
     const s = await billingSettings();
     // Trial: ends after the trial days. Active: no dates until you record their first payment.
     await admin.from("company_accounts").upsert({
@@ -46,7 +48,7 @@ export async function createCompany(input: {
       await admin.auth.admin.deleteUser(u.user.id);
       return { error: "Could not finish setting up the company." };
     }
-    await audit(by, "company.create", co.id, { name, admin_email: email, status: input.status });
+    await audit(by, "company.create", co.id, { name, admin_email: email, status: input.status, mode: air ? "air" : "road" });
     revalidatePath("/owner");
     return { ok: `${name} is ready. Give ${admin_name} the email ${email} and the temporary password.` };
   } catch (e) { return fail(e); }
