@@ -3,7 +3,7 @@ import { dayLabel } from "@/lib/billing";
 /** A4 receipt from Serengeti Labs to a client company for a Shehena subscription payment. */
 export async function downloadSubscriptionReceipt(p: {
   id: number | string; amount: number; months: number; period_from: string; period_to: string; method: string; reference: string; paid_on: string; setup_fee?: number;
-}, company: string, band?: string) {
+}, company: string, band?: string, accountNo?: string) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const L = 20, R = 190;
@@ -19,6 +19,7 @@ export async function downloadSubscriptionReceipt(p: {
     doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setTextColor(20, 24, 31); doc.text(v, L + 52, y); y += 8;
   };
   row("Received from", company, true);
+  if (accountNo) row("Account number", accountNo, true);
   row("Date paid", dayLabel(p.paid_on));
   row("For", `Shehena subscription${band ? ` · ${band}` : ""}`);
   row("Period", `${dayLabel(p.period_from)} to ${dayLabel(p.period_to)} (${p.months} month${p.months === 1 ? "" : "s"})`);

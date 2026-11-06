@@ -17,7 +17,7 @@ import { signOut } from "@/app/login/actions";
 import { ROLES, fmtDate, tzs, type Role } from "@/lib/domain";
 
 type Status = "trial" | "active" | "overdue" | "suspended";
-type Company = { id: string; name: string; branch: string; phone: string; created_at: string; mode?: string };
+type Company = { id: string; name: string; branch: string; phone: string; created_at: string; mode?: string; account_no?: string };
 type Account = { company_id: string; status: Status; notes: string; status_changed_at: string; trial_ends: string | null; paid_until: string | null; custom_fee: number | null; auto_status: boolean; agent_id: number | string | null; agent_since: string | null };
 type Stat = { company_id: string; staff: number; active_staff: number; vehicles: number; trips_month: number; ship_month: number; billed_month: number; paid_month: number; ship_total: number; last_activity: string | null };
 type Staff = { id: string; company_id: string; full_name: string; email: string; role: Role; active: boolean; created_at: string };
@@ -98,7 +98,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
   const ql = q.trim().toLowerCase();
   const shown = rows.filter((r) =>
     (!filter || (filter === "quiet" ? quiet.includes(r) : r.acc.status === filter)) &&
-    (!ql || [r.name, r.branch, r.phone, ...r.people.map((p) => p.email + " " + p.full_name)].join(" ").toLowerCase().includes(ql)));
+    (!ql || [r.account_no || "", r.name, r.branch, r.phone, ...r.people.map((p) => p.email + " " + p.full_name)].join(" ").toLowerCase().includes(ql)));
   const open = rows.find((r) => r.id === openId) || null;
   const sum = (k: keyof Stat) => rows.reduce((a, r) => a + Number(r.st[k] || 0), 0);
   const month = today().slice(0, 7);
@@ -153,7 +153,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
             {([["", `All · ${rows.length}`], ["active", `Active · ${count("active")}`], ["trial", `Trial · ${count("trial")}`], ["overdue", `Overdue · ${count("overdue")}`], ["suspended", `Suspended · ${count("suspended")}`], ["quiet", `Quiet 14+ days · ${quiet.length}`]] as [typeof filter, string][])
               .map(([k, l]) => <button key={k || "all"} className="chip" aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}</button>)}
           </div>
-          <div className="searchbox" style={{ flex: "1 1 220px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Company, staff name or email" aria-label="Search companies" style={{ paddingLeft: 11 }} /></div>
+          <div className="searchbox" style={{ flex: "1 1 220px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Account no., company, staff name or email" aria-label="Search companies" style={{ paddingLeft: 11 }} /></div>
         </div>
         <div className="ledger" style={{ marginTop: 12 }}><table>
           <thead><tr><th>Company</th><th>Admin</th><th className="r">Staff</th><th className="r">Trucks <span className="sub">saved · active</span></th><th className="r">This month</th><th>Last activity</th><th className="r">Plan</th><th>Status</th></tr></thead>
@@ -162,7 +162,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
               const d = daysAgo(r.st.last_activity) ?? 0;
               return (
                 <tr key={r.id} className="row" tabIndex={0} onClick={() => setOpenId(r.id)} onKeyDown={(e) => e.key === "Enter" && setOpenId(r.id)}>
-                  <td><b>{r.name}</b>{r.mode === "air" ? <span className="tag-rental">Air cargo</span> : <span className="tag-rental tag-road">Road cargo</span>}<div className="sub">{[r.branch, r.phone].filter(Boolean).join(" · ") || "No branch set"} · joined {fmtDate(r.created_at).slice(0, 11)}</div></td>
+                  <td><b>{r.name}</b>{r.mode === "air" ? <span className="tag-rental">Air cargo</span> : <span className="tag-rental tag-road">Road cargo</span>}<div className="sub">{r.account_no && <b className="mono" style={{ color: "var(--ink)" }}>{r.account_no} · </b>}{[r.branch, r.phone].filter(Boolean).join(" · ") || "No branch set"} · joined {fmtDate(r.created_at).slice(0, 11)}</div></td>
                   <td>{r.admins[0] ? <>{r.admins[0].full_name}<div className="sub">{r.admins[0].email}</div></> : <span className="sub">No admin</span>}</td>
                   <td className="r num">{r.st.active_staff}<span className="sub">/{r.st.staff}</span></td>
                   <td className="r num">{r.st.vehicles} · <b>{r.bill.trucks}</b></td>
@@ -356,7 +356,7 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
   return (
     <>
       <div className="sheet-h">
-        <div><div className="lbl">Client company</div><h2>{r.name}</h2><div className="sub">{[r.branch, r.phone].filter(Boolean).join(" · ")}</div></div>
+        <div><div className="lbl">Client company{r.account_no ? <> · account <span className="mono">{r.account_no}</span></> : null}</div><h2>{r.name}</h2><div className="sub">{[r.branch, r.phone].filter(Boolean).join(" · ")}</div></div>
         <button className="btn sm" onClick={close}>Close</button>
       </div>
 
@@ -568,7 +568,7 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
                   <button className="btn sm" onClick={() => setUndo(null)}>Cancel</button></div>
               ) : (
                 <div className="actions" style={{ margin: 0 }}>
-                  <button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, r.name, p.trucks != null ? planLabel(p.trucks) : undefined)}>Receipt</button>
+                  <button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, r.name, p.trucks != null ? planLabel(p.trucks) : undefined, r.account_no)}>Receipt</button>
                   <button className="btn sm" onClick={() => setUndo(p.id)} aria-label="Remove payment">Remove</button>
                 </div>
               )}

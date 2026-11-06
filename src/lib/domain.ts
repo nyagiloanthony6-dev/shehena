@@ -19,6 +19,8 @@ export interface Company {
   found_goods_by?: "all" | "admin";
   /** region codes where the company has an office; head office = default_origin */
   offices?: string[];
+  /** unique Shehena account number (SH10001…) */
+  account_no?: string;
   /** road transporter (trucks) or international air cargo consolidator (flights, per-kg charges) */
   mode?: CompanyMode;
   /** air: default price per chargeable kg */

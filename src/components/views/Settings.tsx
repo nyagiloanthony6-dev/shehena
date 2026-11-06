@@ -20,6 +20,7 @@ function SubscriptionCard({ sub }: { sub: Subscription }) {
         </span>
       </div>
       <dl className="kv" style={{ marginTop: 12 }}>
+        {company.account_no && <><dt>Account number</dt><dd><b className="mono">{company.account_no}</b> <span className="sub">· quote it when you pay</span></dd></>}
         <dt>Active trucks</dt><dd>{sub.trucks}{sub.plates.length > 0 && <span className="sub mono"> · {sub.plates.join(", ")}</span>}</dd>
         <dt>Monthly fee</dt><dd className="num">TZS {tzs(sub.fee)} <span className="sub">· {sub.custom ? "agreed price" : feeWorking(sub, sub.trucks)}</span></dd>
         <dt>How to pay</dt><dd>{sub.instructions || "Contact Serengeti Labs."}</dd>
@@ -33,7 +34,7 @@ function SubscriptionCard({ sub }: { sub: Subscription }) {
               <td>{dayLabel(p.paid_on)}<div className="sub">{[p.method, p.reference].filter(Boolean).join(" · ")}</div></td>
               <td>{dayLabel(p.period_from)} – {dayLabel(p.period_to)}<div className="sub">{p.months} month{p.months === 1 ? "" : "s"}</div></td>
               <td className="r num">{tzs(p.amount)}</td>
-              <td className="r"><button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, company.name, p.trucks != null ? planLabel(p.trucks) : undefined)}>Receipt</button></td>
+              <td className="r"><button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, company.name, p.trucks != null ? planLabel(p.trucks) : undefined, company.account_no)}>Receipt</button></td>
             </tr>))}
           </tbody>
         </table></div>
