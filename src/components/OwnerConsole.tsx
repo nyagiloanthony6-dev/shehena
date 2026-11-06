@@ -162,7 +162,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
               const d = daysAgo(r.st.last_activity) ?? 0;
               return (
                 <tr key={r.id} className="row" tabIndex={0} onClick={() => setOpenId(r.id)} onKeyDown={(e) => e.key === "Enter" && setOpenId(r.id)}>
-                  <td><b>{r.name}</b>{r.mode === "air" && <span className="tag-rental">Air cargo</span>}<div className="sub">{[r.branch, r.phone].filter(Boolean).join(" · ") || "No branch set"} · joined {fmtDate(r.created_at).slice(0, 11)}</div></td>
+                  <td><b>{r.name}</b>{r.mode === "air" ? <span className="tag-rental">Air cargo</span> : <span className="tag-rental tag-road">Road cargo</span>}<div className="sub">{[r.branch, r.phone].filter(Boolean).join(" · ") || "No branch set"} · joined {fmtDate(r.created_at).slice(0, 11)}</div></td>
                   <td>{r.admins[0] ? <>{r.admins[0].full_name}<div className="sub">{r.admins[0].email}</div></> : <span className="sub">No admin</span>}</td>
                   <td className="r num">{r.st.active_staff}<span className="sub">/{r.st.staff}</span></td>
                   <td className="r num">{r.st.vehicles} · <b>{r.bill.trucks}</b></td>
