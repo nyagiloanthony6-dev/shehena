@@ -193,7 +193,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
       {open && (
         <>
           <div className="scrim" onClick={() => setOpenId(null)} />
-          <aside className="sheet" aria-label={open.name}>
+          <aside className="sheet wide" aria-label={open.name}>
             <CompanySheet key={open.id} r={open} agents={data.agents} settings={data.settings} audit={data.audit.filter((a) => a.company_id === open.id)} busy={pending} run={run} close={() => setOpenId(null)} />
           </aside>
         </>
@@ -360,7 +360,11 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
         <button className="btn sm" onClick={close}>Close</button>
       </div>
 
+      <div className="sheet-cols">
+        <div className="sheet-col">
       <Billing r={r} agents={agents} settings={settings} busy={busy} run={run} />
+        </div>
+        <div className="sheet-col">
 
       <Trucks companyId={r.id} />
 
@@ -425,6 +429,8 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
 
       <div className="card"><h3>History</h3>
         <AuditList items={audit} companies={[r]} />
+      </div>
+        </div>
       </div>
     </>
   );
