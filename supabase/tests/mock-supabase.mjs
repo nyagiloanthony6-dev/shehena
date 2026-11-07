@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000 }],
   billing_bands: [[0, 1, 80000], [2, 3, 150000], [4, 6, 250000], [7, 10, 350000], [11, null, 450000]].map(([min_trucks, max_trucks, monthly_fee], i) => ({ id: i + 1, min_trucks, max_trucks, monthly_fee })),
   billing_payments: [], sales_agents: [], commissions: [], agent_payouts: [],
-  bill_accounts: [], bill_payments: [], claims: [], claim_payments: [], shipment_payments: [] };
+  bill_accounts: [], bill_payments: [], claims: [], claim_payments: [], shipment_payments: [], runners: [] };
 const ymd = (d = new Date()) => new Date(d.getTime() + 3 * 3600e3).toISOString().slice(0, 10);
 const plusDays = (s, n) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const SERVICE_ONLY = ["company_accounts", "owner_audit", "leads", "billing_bands", "billing_payments", "sales_agents", "commissions", "agent_payouts"];
@@ -67,6 +67,7 @@ const visible = (c, table, rows) => c.service ? rows : SERVICE_ONLY.includes(tab
     if (table === "bill_accounts" || table === "claims") return r.station === st;
     if (table === "bill_payments") return db.bill_accounts.some((a) => a.id === r.account_id && a.station === st);
     if (table === "claim_payments") return db.claims.some((x) => x.id === r.claim_id && x.station === st);
+    if (table === "runners") return !r.station || r.station === st;
     if (table === "shipment_payments") { const sh = db.shipments.find((x) => x.id === r.shipment_id); return !!sh && (sh.created_by === c.profile.id || (sh.status !== "received" && sh.dest === st)); }
     return true;
   });
@@ -84,12 +85,13 @@ function syncPaid(n, old) {
 const DEFAULTS = {
   vehicles: { driver: "", driver_phone: "", target: 0, target_set_by: null, target_set_at: null, ownership: "own", owner_name: "", owner_phone: "", rent_amount: 0, rent_basis: "trip" },
   trips: { driver: "", driver_phone: "", target: 0, target_set_by: null, status: "loading", departed_at: null, departed_by: null, arrived_at: null, arrived_by: null, ownership: "own", owner_name: "", rent_cost: 0, mawb: "", airline: "" },
-  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null, account_id: null, gross_charge: null, discount: 0, discount_reason: "", discount_by: null, discount_at: null, dn_no: null, collector_name: "", collector_phone: "", collector_id: "", collect_note: "", paid_amount: 0, runner_name: "", runner_phone: "", runner_out_at: null, runner_by: null, runner_settled_at: null, runner_amount: 0 },
+  shipments: { kg: null, method: null, paid_at: null, paid_by: null, notes: "", status: "received", trip_id: null, loaded_at: null, transit_at: null, arrived_at: null, collected_at: null, collected_by: null, notices: [], items: [], found_on_arrival: false, found_note: "", checked_by: null, checked_at: null, account_id: null, gross_charge: null, discount: 0, discount_reason: "", discount_by: null, discount_at: null, dn_no: null, collector_name: "", collector_phone: "", collector_id: "", collect_note: "", paid_amount: 0, runner_name: "", runner_phone: "", runner_out_at: null, runner_by: null, runner_settled_at: null, runner_amount: 0, runner_id: null },
   bill_accounts: { phone: "", notes: "", active: true, station: null },
   bill_payments: { method: "", reference: "", note: "" },
   claims: { station: null, shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },
+  runners: { phone: "", station: null, active: true },
   claim_payments: { method: "", reference: "" },
-  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [], mode: "road", kg_rate: 0, vol_divisor: 6000, get account_no() { return "SH" + (10000 + (db.companies?.length || 0) + 1); } },
+  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [], mode: "road", kg_rate: 0, vol_divisor: 6000, features: [], get account_no() { return "SH" + (10000 + (db.companies?.length || 0) + 1); } },
   profiles: { active: true, station: null },
 };
 
@@ -170,8 +172,8 @@ http.createServer(async (req, res) => {
         return wantRows || single ? out(out2) : send(res, 201);
       }
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin", "agent"], bill_payments: ["admin", "agent"], claims: ["admin", "agent"], claim_payments: ["admin", "agent"], shipment_payments: ["admin", "cashier", "agent"] }[table] || [];
-        if (role === "agent" && (table === "bill_accounts" || table === "claims")) list.forEach((r) => { r.station = c.profile.station; });
+        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin", "agent"], bill_payments: ["admin", "agent"], claims: ["admin", "agent"], claim_payments: ["admin", "agent"], shipment_payments: ["admin", "cashier", "agent"], runners: ["admin", "cashier", "agent"] }[table] || [];
+        if (role === "agent" && (table === "bill_accounts" || table === "claims" || table === "runners")) list.forEach((r) => { r.station = c.profile.station; });
         if (!allowed.includes(role) || list.some((r) => r.company_id !== c.profile.company_id)) return send(res, 403, { message: "new row violates row-level security policy" });
         if (role === "agent" && list.some((r) => (table === "shipments" && r.origin !== c.profile.station && !(r.found_on_arrival && r.dest === c.profile.station)) || (table === "trips" && r.origin !== c.profile.station)))
           return send(res, 403, { message: "new row violates row-level security policy" });
@@ -194,7 +196,7 @@ http.createServer(async (req, res) => {
     if (req.method === "PATCH") {
       const b = await readBody(req);
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "ceo", "agent"], vehicles: ["admin", "ceo"], companies: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin"], claims: ["admin"], claim_payments: ["admin"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "ceo", "agent"], vehicles: ["admin", "ceo"], companies: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin"], claims: ["admin"], claim_payments: ["admin"], runners: ["admin", "cashier", "agent"] }[table] || [];
         if (SERVICE_ONLY.includes(table) || table === "platform_settings") return send(res, 403, { message: "permission denied" });
         if (!allowed.includes(role)) return out([]);
         if (table === "shipments" && role === "cashier" && b.pay === "bill") return send(res, 400, { message: "Monthly bills are handled at the destination office or by the Admin" });

@@ -283,3 +283,13 @@ back with the money. Migration `0019_delivery_people.sql`.
   "Delivered by …". Goods that came back: **Returned**.
 - **Reports → Delivery people**: per person, goods given, delivered, still out, money handed in and still
   to hand in, with each person's list; downloadable.
+
+### Delivery people as an optional feature, with a managed list
+Migration `0020_delivery_people_list.sql`. Delivery people is an **extra feature**: the Admin switches it
+on in Settings → Company & offices → **Extra features**, and a **Delivery people** page appears in the side
+bar (companies that already used it have it on). The page has three tabs:
+- **Out now**: each person with goods out, money to hand in, Delivered / Returned, handover sheet.
+- **People**: the list (name, phone, office). Add, edit, remove (history stays) or put back. Branch
+  staff manage their own office's people. Only people on the list can be given goods.
+- **Report**: per person, viewable and downloadable (Excel / PDF).
+In Arrivals, **Give to delivery person** now picks from the list and prints the receipt.

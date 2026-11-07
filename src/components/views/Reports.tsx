@@ -32,7 +32,7 @@ const XL = ({ onClick }: { onClick: () => void }) => <button className="btn sm" 
 
 export default function Reports() {
   const st = useStore();
-  const { shipments, trips, tripShips, tripById, claims, claimPayments, accounts, billPayments, vehicles, hasExtras } = st;
+  const { shipments, trips, tripShips, tripById, claims, claimPayments, accounts, billPayments, vehicles, hasExtras, delivery } = st;
   const ui = useUi();
   const [period, setPeriod] = useState<Period>("30");
   const [from, setFrom] = useState(() => localDay(new Date(Date.now() - 30 * 864e5)));
@@ -75,7 +75,7 @@ export default function Reports() {
           </>}
         </div>
       </div>
-      <nav className="tabs" role="tablist" style={{ marginBottom: 16 }}>{TABS.filter(([k]) => hasExtras || !["claims", "bills"].includes(k)).map(([k, l]) =>
+      <nav className="tabs" role="tablist" style={{ marginBottom: 16 }}>{TABS.filter(([k]) => (hasExtras || !["claims", "bills"].includes(k)) && (k !== "runners" || delivery)).map(([k, l]) =>
         <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}</nav>
 
       {tab === "overview" && <Overview S={S} />}

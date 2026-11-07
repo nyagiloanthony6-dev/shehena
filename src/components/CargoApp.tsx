@@ -11,18 +11,20 @@ import Arrivals from "./views/Arrivals";
 import Reports from "./views/Reports";
 import Bills, { AccountSheet } from "./views/Bills";
 import Claims, { ClaimSheet } from "./views/Claims";
+import { DeliveryPage } from "./views/Runners";
 import Settings from "./views/Settings";
 import { signOut } from "@/app/login/actions";
 import { isAir, initials, officesOf, regShort, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
 import { dayLabel, type Subscription } from "@/lib/billing";
 
-export type View = "home" | "list" | "new" | "trips" | "arrivals" | "bills" | "claims" | "reports" | "set";
+export type View = "home" | "list" | "new" | "trips" | "arrivals" | "people" | "bills" | "claims" | "reports" | "set";
 const TABS: [View, string, Perm | null, string][] = [
   ["home", "Overview", null, "Home"],
   ["list", "Consignments", null, "Cargo"],
   ["new", "Receive goods", "receive", "Receive"],
   ["trips", "Loading bay", null, "Loading"],
   ["arrivals", "Arrivals", null, "Arrivals"],
+  ["people", "Delivery people", null, "Delivery"],
   ["bills", "Monthly bills", "money", "Bills"],
   ["claims", "Claims", "money", "Claims"],
   ["reports", "Reports", "reports", "Reports"],
@@ -150,7 +152,8 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
   const roadN = st.trips.filter((t) => t.status === "departed").length;
   const air = isAir(st.company);
   // Air cargo companies see "Flights" where road companies see "Loading bay".
-  const items = TABS.filter(([, , need]) => !need || st.can(need)).map(([k, l, need, m]) => (k === "trips" && air ? [k, "Flights", need, "Flights"] : [k, l, need, m]) as typeof TABS[number]);
+  // Optional features: Delivery people only for companies that switched it on in Settings.
+  const items = TABS.filter(([k, , need]) => (!need || st.can(need)) && (k !== "people" || (st.delivery && (st.can("pay") || st.can("reports"))))).map(([k, l, need, m]) => (k === "trips" && air ? [k, "Flights", need, "Flights"] : [k, l, need, m]) as typeof TABS[number]);
   const navBtn = (k: View, label: string) => (
     <button key={k} onClick={() => go(k)} aria-current={view === k ? "page" : undefined}>
       <Icon name={k} /><span>{label}</span>{k === "trips" && loadingN > 0 && <span className="nbadge">{loadingN}</span>}{k === "arrivals" && roadN > 0 && <span className="nbadge">{roadN}</span>}
@@ -215,6 +218,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
                 {view === "arrivals" && <Arrivals />}
                 {view === "bills" && <Bills />}
                 {view === "claims" && <Claims />}
+                {view === "people" && <DeliveryPage />}
                 {view === "reports" && <Reports />}
                 {view === "set" && <Settings sub={sub} initialTab={settingsTab} key={settingsTab} />}
               </>

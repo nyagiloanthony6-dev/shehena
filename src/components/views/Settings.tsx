@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import { useStore } from "../store";
 import { RegionOptions } from "../RegionOptions";
-import { REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
+import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
 import { ACTIVE_DAYS, dayLabel, feeWorking, planLabel, type Subscription } from "@/lib/billing";
 import { downloadSubscriptionReceipt } from "../billingPdf";
@@ -286,6 +286,30 @@ function AddVehicle() {
 }
 
 type SettingsTab = "company" | "staff" | "vehicles" | "subscription";
+/** Optional features the company switches on; each adds its own page to the side bar. */
+function FeaturesForm() {
+  const { company, patchCompany, toast } = useStore();
+  const [busy, setBusy] = useState(false);
+  if (!("features" in company)) return null; // before migration 0020
+  const on = company.features || [];
+  async function toggle(f: string, label: string, val: boolean) {
+    setBusy(true);
+    if (await patchCompany({ features: val ? [...on.filter((x) => x !== f), f] : on.filter((x) => x !== f) } as never)) toast(`${label} ${val ? "switched on" : "switched off"}.`);
+    setBusy(false);
+  }
+  return (
+    <fieldset><legend>Extra features</legend>
+      <p className="sub" style={{ marginTop: 0 }}>Switch on only what your company uses. Each feature adds its own page to the side bar for your staff.</p>
+      {FEATURES.map(([k, label, about]) => (
+        <label className="check" key={k} style={{ alignItems: "start", gap: 10, margin: "8px 0" }}>
+          <input type="checkbox" checked={on.includes(k)} disabled={busy} onChange={(e) => toggle(k, label, e.target.checked)} aria-label={label} />
+          <span><b>{label}</b><span className="sub" style={{ display: "block" }}>{about}</span></span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 export default function Settings({ sub, initialTab = "company" }: { sub?: Subscription | null; initialTab?: SettingsTab }) {
   const { staff, vehicles, company } = useStore();
   const air = isAir(company);
@@ -305,6 +329,7 @@ export default function Settings({ sub, initialTab = "company" }: { sub?: Subscr
         <div className="settings-grid">
           <CompanyForm />
           <OfficesForm />
+          <FeaturesForm />
         </div>
       )}
       {tab === "staff" && (

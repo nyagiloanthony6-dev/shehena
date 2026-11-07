@@ -19,6 +19,8 @@ export interface Company {
   found_goods_by?: "all" | "admin";
   /** region codes where the company has an office; head office = default_origin */
   offices?: string[];
+  /** extra features switched on in Settings, e.g. "delivery" (delivery people) */
+  features?: string[];
   /** unique Shehena account number (SH10001…) */
   account_no?: string;
   /** road transporter (trucks) or international air cargo consolidator (flights, per-kg charges) */
@@ -138,6 +140,7 @@ export interface Shipment {
   runner_by?: string | null;
   runner_settled_at?: string | null;
   runner_amount?: number;
+  runner_id?: string | null;
   account_id?: string | null;
   /** charge before discount; `charge` is what the customer owes after the discount */
   gross_charge?: number | null;
@@ -187,6 +190,13 @@ export const balanceOf = (s: Partial<Pick<Shipment, "pay" | "charge" | "paid_amo
 export const isPart = (s: Partial<Pick<Shipment, "pay" | "paid_amount">>) => s.pay === "unpaid" && Number(s.paid_amount || 0) > 0;
 export const sumPaid = (list: Shipment[]) => list.reduce((a, s) => a + paidOf(s), 0);
 export const sumBalance = (list: Shipment[]) => list.reduce((a, s) => a + balanceOf(s), 0);
+/** A delivery person (casual worker) on the company's list. */
+export interface Runner { id: string; company_id: string; name: string; phone: string; station: string | null; active: boolean; created_at: string }
+export const hasFeature = (c: Pick<Company, "features"> | null | undefined, f: string) => !!c?.features?.includes(f);
+/** Extra features a company can switch on in Settings. */
+export const FEATURES: [string, string, string][] = [
+  ["delivery", "Delivery people", "Casual workers who take arrived goods to customers and bring back the money. Adds a Delivery people page."],
+];
 /** Out with a delivery person and not settled yet. */
 export const isOut = (s: Shipment) => !!s.runner_name && !s.runner_settled_at && s.status === "arrived";
 /** Nothing to collect at the counter: paid, or charged to a monthly bill. */
