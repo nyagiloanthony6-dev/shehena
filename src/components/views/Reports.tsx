@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
+import { RunnerReport } from "./Runners";
 import { PayPill, StatusPill, TripPill } from "../parts";
 import { DailyChart, YearPanel } from "../charts";
 import { sumPaid, sumBalance, balanceOf, CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
@@ -39,7 +40,6 @@ export default function Reports() {
   const [tab, setTab] = useState<Tab>("overview");
   const [truck, setTruck] = useState("");
   const [payView, setPayView] = useState<"unpaid" | "paid" | "bill" | "all">("unpaid");
-  const [runner, setRunner] = useState("");
 
   const range = useMemo((): [string, string] => {
     const now = new Date(), today = localDay(now);
@@ -321,57 +321,7 @@ export default function Reports() {
           </>
         );
       })()}
-      {tab === "runners" && (() => {
-        // Goods handed to delivery people in the period (by the day they were handed out).
-        const G = shipments.filter((s) => s.runner_name && inPeriod(s.runner_out_at));
-        const people = new Map<string, Shipment[]>();
-        G.forEach((s) => people.set(s.runner_name!, [...(people.get(s.runner_name!) || []), s]));
-        const rows = [...people.entries()].map(([name, L]) => {
-          const done = L.filter((s) => s.runner_settled_at), out = L.filter((s) => !s.runner_settled_at);
-          const handed = done.reduce((a, s) => a + Number(s.runner_amount || 0), 0), owes = out.reduce((a, s) => a + balanceOf(s), 0);
-          return { name, phone: L.find((s) => s.runner_phone)?.runner_phone || "", L, done, out, handed, owes, total: handed + owes };
-        }).sort((a, b) => b.owes - a.owes || b.total - a.total);
-        const pick = rows.find((r) => r.name === runner);
-        const tot = rows.reduce((a, r) => ({ n: a.n + r.L.length, d: a.d + r.done.length, h: a.h + r.handed, o: a.o + r.owes }), { n: 0, d: 0, h: 0, o: 0 });
-        return (
-          <>
-            <div className="stats">
-              <div className="stat"><div className="lbl">Delivery people</div><div className="v">{rows.length}</div><div className="s">{tot.n} consignments given out</div></div>
-              <div className="stat"><div className="lbl">Delivered</div><div className="v">{tot.d}</div><div className="s">settled at the office</div></div>
-              <div className="stat"><div className="lbl">Handed in</div><div className="v">{tzs(tot.h)}</div><div className="s">TZS received from them</div></div>
-              <div className={`stat${tot.o ? " warn" : ""}`}><div className="lbl">Still to hand in</div><div className="v">{tzs(tot.o)}</div><div className="s">TZS for goods still out</div></div>
-            </div>
-            <div className="panel"><div className="ph"><div><h2>By delivery person</h2><div className="sub">Goods handed out in the period. Click a name for the list.</div></div>
-              <XL onClick={() => downloadCsv(`Shehena-delivery-people-${label}`, ["Delivery person", "Phone", "Handed out", "Delivered", "Still out", "TZS handed in", "TZS still to hand in"],
-                rows.map((r) => [r.name, r.phone, r.L.length, r.done.length, r.out.length, r.handed, r.owes]))} /></div>
-              <div className="ledger"><table className="small"><thead><tr><th>Delivery person</th><th className="r">Given</th><th className="r">Delivered</th><th className="r">Still out</th><th className="r">Handed in</th><th className="r">Still to hand in</th></tr></thead>
-                <tbody>{rows.map((r) => (
-                  <tr key={r.name} className="row" onClick={() => setRunner(r.name === runner ? "" : r.name)} aria-selected={r.name === runner}>
-                    <td><b>{r.name}</b>{r.phone ? <div className="sub mono">{prettyPhone(r.phone)}</div> : null}</td>
-                    <td className="r num">{r.L.length}</td><td className="r num">{r.done.length}</td><td className="r num">{r.out.length}</td>
-                    <td className="r num">{tzs(r.handed)}</td><td className="r num" style={{ color: r.owes ? "var(--bad)" : undefined }}><b>{tzs(r.owes)}</b></td>
-                  </tr>))}
-                  {!rows.length && <tr><td colSpan={6} className="sub">No goods were handed to delivery people in this period.</td></tr>}</tbody>
-                {rows.length > 1 && <tfoot><tr><td>Total</td><td className="r num">{tot.n}</td><td className="r num">{tot.d}</td><td className="r num">{tot.n - tot.d}</td><td className="r num">{tzs(tot.h)}</td><td className="r num">{tzs(tot.o)}</td></tr></tfoot>}</table></div>
-            </div>
-            {pick && (
-              <div className="panel" style={{ marginTop: 14 }}><div className="ph"><div><h2>{pick.name}</h2><div className="sub">{pick.L.length} consignments · TZS {tzs(pick.handed)} handed in · TZS {tzs(pick.owes)} still to hand in</div></div>
-                <XL onClick={() => downloadCsv(`Shehena-${pick.name.replace(/\s+/g, "-")}-${label}`, ["Waybill", "Handed out", "Given by", "Receiver", "Receiver phone", "Goods", "Packages", "Charge", "Status", "Settled", "TZS handed in", "TZS still to hand in"],
-                  pick.L.map((s) => [s.no, fmtDate(s.runner_out_at), s.runner_by || "", s.r_name, s.r_phone, goodsLabel(s), s.pkgs, s.charge, s.runner_settled_at ? "Delivered" : "Still out", s.runner_settled_at ? fmtDate(s.runner_settled_at) : "", s.runner_settled_at ? Number(s.runner_amount || 0) : 0, s.runner_settled_at ? 0 : balanceOf(s)]))} /></div>
-                <div className="ledger"><table className="small"><thead><tr><th>Waybill</th><th>Receiver</th><th>Goods</th><th>Status</th><th className="r">TZS</th></tr></thead>
-                  <tbody>{pick.L.sort((a, b) => String(b.runner_out_at).localeCompare(String(a.runner_out_at))).map((s) => (
-                    <tr key={s.id} className="row" onClick={() => ui.openShip(s.id)}>
-                      <td className="mono wb">{s.no}<div className="sub">given {fmtDate(s.runner_out_at)}</div></td>
-                      <td>{s.r_name}<div className="sub mono">{prettyPhone(s.r_phone)}</div></td>
-                      <td>{goodsLabel(s)} · {s.pkgs} pkg</td>
-                      <td>{s.runner_settled_at ? <span className="pill pay-paid">Delivered</span> : <span className="pill pay-part">Still out</span>}<div className="sub">{s.runner_settled_at ? fmtDate(s.runner_settled_at) : ""}</div></td>
-                      <td className="r num">{s.runner_settled_at ? <>{tzs(s.runner_amount || 0)}<div className="sub">handed in</div></> : <b style={{ color: balanceOf(s) ? "var(--bad)" : undefined }}>{tzs(balanceOf(s))}<div className="sub">to hand in</div></b>}</td>
-                    </tr>))}</tbody></table></div>
-              </div>
-            )}
-          </>
-        );
-      })()}
+      {tab === "runners" && <RunnerReport range={range} />}
     </section>
   );
 }

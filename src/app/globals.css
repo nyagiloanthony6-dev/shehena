@@ -530,3 +530,4 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 .panel.runner{margin-top:12px}.panel.runner .ph{display:flex;justify-content:space-between;gap:12px;align-items:start;flex-wrap:wrap}
 .rrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}.rrow input[type=checkbox],.pickrow input[type=checkbox]{width:18px;height:18px;flex:none;margin:0}
 .runner-give{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.runner-give input{width:auto;flex:1 1 150px;min-width:0}
+.report-box{border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px;background:var(--bg)}

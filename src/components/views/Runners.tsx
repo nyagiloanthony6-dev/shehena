@@ -164,6 +164,7 @@ function RunnerCard({ name, list }: { name: string; list: Shipment[] }) {
 /** Arrivals section: delivery people with goods out, waiting to hand in their money. */
 export function DeliveryPeople() {
   const { shipments, hasRunners, me } = useStore();
+  const [report, setReport] = useState(false);
   if (!hasRunners) return null;
   const out = shipments.filter((s) => isOut(s) && (!me.station || s.dest === me.station));
   const groups = new Map<string, Shipment[]>();
@@ -174,9 +175,174 @@ export function DeliveryPeople() {
       <div className="group-h" style={{ marginTop: 26 }}>
         <h2>Delivery people</h2>
         <span className="sub">{groups.size ? `${groups.size} out · TZS ${tzs(total)} to hand in` : "none out"}</span>
+        <button className={`btn sm${report ? " primary" : ""}`} style={{ marginLeft: "auto" }} onClick={() => setReport(!report)} aria-expanded={report}>{report ? "Hide report" : "Report"}</button>
       </div>
+      {report && <div className="report-box"><RunnerReport /></div>}
       {[...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([n, L]) => <RunnerCard key={n} name={n} list={L} />)}
       {!groups.size && <p className="quiet">To send goods with a delivery person, find the consignment below (search the receipt number or the customer) and press <b>Give to delivery person</b>. The receipt prints for them to carry.</p>}
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ report
+
+const localDay = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+type RPeriod = "today" | "7" | "month" | "30" | "all" | "custom";
+
+function csvDownload(name: string, head: string[], rows: (string | number | null | undefined)[][]) {
+  const esc = (v: string | number | null | undefined) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const csv = "﻿" + [head, ...rows].map((r) => r.map(esc).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = `${name}.csv`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+type RRow = { name: string; phone: string; L: Shipment[]; done: Shipment[]; out: Shipment[]; handed: number; owes: number };
+
+/** A4 report: summary per delivery person, then each person's goods. */
+async function reportPdf(rows: RRow[], company: Company, periodText: string, only?: string) {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const L = 14, R = 196;
+  let y = 18;
+  const head = () => {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.text((company.name || "Shehena").toUpperCase(), L, y);
+    doc.setFontSize(11); doc.text(only ? `DELIVERY PERSON: ${only.toUpperCase()}` : "DELIVERY PEOPLE REPORT", R, y, { align: "right" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text(`${periodText}  ·  printed ${fmtDate(new Date().toISOString())}`, L, y + 6); y += 16;
+  };
+  const room = (h: number) => { if (y + h > 282) { doc.addPage(); y = 18; } };
+  head();
+  const list = only ? rows.filter((r) => r.name === only) : rows;
+  // summary table
+  const cols: [string, number, "left" | "right"][] = [["Delivery person", L, "left"], ["Phone", L + 52, "left"], ["Given", L + 104, "right"], ["Delivered", L + 124, "right"], ["Still out", L + 142, "right"], ["Handed in", L + 162, "right"], ["To hand in", R, "right"]];
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9); cols.forEach(([h, x, a]) => doc.text(h, x, y, { align: a })); y += 2; doc.line(L, y, R, y); y += 5;
+  doc.setFont("helvetica", "normal");
+  for (const r of list) {
+    room(7);
+    const v = [r.name, r.phone ? prettyPhone(r.phone) : "-", String(r.L.length), String(r.done.length), String(r.out.length), tzs(r.handed), tzs(r.owes)];
+    cols.forEach(([, x, a], j) => doc.text(v[j], x, y, { align: a })); y += 6;
+  }
+  if (!only && list.length > 1) {
+    doc.line(L, y - 3, R, y - 3); doc.setFont("helvetica", "bold");
+    const t = list.reduce((a, r) => ({ n: a.n + r.L.length, d: a.d + r.done.length, o: a.o + r.out.length, h: a.h + r.handed, w: a.w + r.owes }), { n: 0, d: 0, o: 0, h: 0, w: 0 });
+    ["Total", "", String(t.n), String(t.d), String(t.o), tzs(t.h), tzs(t.w)].forEach((v, j) => doc.text(v, cols[j][1], y + 1, { align: cols[j][2] })); y += 8;
+  }
+  // each person's goods
+  for (const r of list) {
+    room(26); y += 6;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text(r.name, L, y);
+    doc.setFontSize(9.5); doc.text(`Handed in TZS ${tzs(r.handed)}  ·  still to hand in TZS ${tzs(r.owes)}`, R, y, { align: "right" }); y += 6;
+    const c2: [string, number, "left" | "right"][] = [["Waybill", L, "left"], ["Given", L + 38, "left"], ["Receiver", L + 72, "left"], ["Goods", L + 104, "left"], ["Status", L + 134, "left"], ["TZS", R, "right"]];
+    doc.setFontSize(8.5); c2.forEach(([h, x, a]) => doc.text(h, x, y, { align: a })); y += 2; doc.line(L, y, R, y); y += 4.5;
+    doc.setFont("helvetica", "normal");
+    for (const s of [...r.L].sort((a, b) => String(a.runner_out_at).localeCompare(String(b.runner_out_at)))) {
+      room(6);
+      const cut = (t: string, w: number) => { const p = doc.splitTextToSize(t || "-", w); return p.length > 1 ? p[0].replace(/.$/, "…") : p[0]; };
+      const done = !!s.runner_settled_at;
+      const v = [s.no, fmtDate(s.runner_out_at).slice(0, 11), cut(s.r_name, 30), cut(goodsLabel(s), 28), done ? `Delivered ${fmtDate(s.runner_settled_at).slice(0, 6)}` : "Still out", done ? `${tzs(s.runner_amount || 0)} in` : `${tzs(balanceOf(s))} owed`];
+      c2.forEach(([, x, a], j) => doc.text(v[j], x, y, { align: a })); y += 5.2;
+    }
+  }
+  y += 14; room(14); doc.setFontSize(9.5);
+  doc.line(L, y, L + 70, y); doc.line(R - 70, y, R, y); y += 5;
+  doc.text("Checked by (sign)", L, y); doc.text(only ? `${only} (sign)` : "Approved by (sign)", R - 70, y);
+  doc.save(`Delivery-people${only ? "-" + only.replace(/\s+/g, "-") : ""}-${localDay(new Date())}.pdf`);
+}
+
+/**
+ * Delivery people report: per person, goods handed out in the period, delivered, still out, money
+ * handed in and still to hand in; click a person for their goods. View on screen, or download as
+ * Excel or PDF. Pass `range` to use the Reports page's period; otherwise it has its own.
+ */
+export function RunnerReport({ range: outer }: { range?: [string, string] }) {
+  const { shipments, company, me } = useStore();
+  const ui = useUi();
+  const [period, setPeriod] = useState<RPeriod>("today");
+  const [from, setFrom] = useState(() => localDay(new Date(Date.now() - 7 * 864e5)));
+  const [to, setTo] = useState(() => localDay(new Date()));
+  const [pick, setPick] = useState("");
+  const range = useMemo((): [string, string] => {
+    if (outer) return outer;
+    const now = new Date(), today = localDay(now);
+    if (period === "custom") return [from, to];
+    if (period === "today") return [today, today];
+    if (period === "month") return [today.slice(0, 8) + "01", today];
+    if (period === "all") return ["0000-01-01", "9999-12-31"];
+    return [localDay(new Date(now.getTime() - Number(period) * 864e5)), today];
+  }, [outer, period, from, to]);
+  const inPeriod = (iso?: string | null) => { if (!iso) return false; const d = localDay(new Date(iso)); return d >= range[0] && d <= range[1]; };
+  const periodText = range[0] === "0000-01-01" ? "All time" : range[0] === range[1] ? range[0] : `${range[0]} to ${range[1]}`;
+  const fileTag = range[0] === "0000-01-01" ? "all-time" : `${range[0]}_to_${range[1]}`;
+
+  const G = shipments.filter((s) => s.runner_name && inPeriod(s.runner_out_at) && (!me.station || s.dest === me.station));
+  const people = new Map<string, Shipment[]>();
+  G.forEach((s) => people.set(s.runner_name!, [...(people.get(s.runner_name!) || []), s]));
+  const rows: RRow[] = [...people.entries()].map(([name, L]) => {
+    const done = L.filter((s) => s.runner_settled_at), out = L.filter((s) => !s.runner_settled_at);
+    return { name, phone: L.find((s) => s.runner_phone)?.runner_phone || "", L, done, out,
+      handed: done.reduce((a, s) => a + Number(s.runner_amount || 0), 0), owes: out.reduce((a, s) => a + balanceOf(s), 0) };
+  }).sort((a, b) => b.owes - a.owes || a.name.localeCompare(b.name));
+  const sel = rows.find((r) => r.name === pick);
+  const tot = rows.reduce((a, r) => ({ n: a.n + r.L.length, d: a.d + r.done.length, h: a.h + r.handed, o: a.o + r.owes }), { n: 0, d: 0, h: 0, o: 0 });
+  const excelAll = () => csvDownload(`Delivery-people-${fileTag}`,
+    ["Delivery person", "Phone", "Waybill", "Given", "Given by", "Receiver", "Receiver phone", "Goods", "Packages", "Charge", "Status", "Delivered", "TZS handed in", "TZS still to hand in"],
+    rows.flatMap((r) => r.L.map((s) => [r.name, r.phone, s.no, fmtDate(s.runner_out_at), s.runner_by || "", s.r_name, s.r_phone, goodsLabel(s), s.pkgs, s.charge,
+      s.runner_settled_at ? "Delivered" : "Still out", s.runner_settled_at ? fmtDate(s.runner_settled_at) : "", s.runner_settled_at ? Number(s.runner_amount || 0) : 0, s.runner_settled_at ? 0 : balanceOf(s)])));
+
+  return (
+    <>
+      {!outer && (
+        <div className="filters" style={{ marginBottom: 12 }}>
+          <div className="chips">{([["today", "Today"], ["7", "7 days"], ["month", "This month"], ["30", "30 days"], ["all", "All time"], ["custom", "Dates…"]] as [RPeriod, string][]).map(([k, l]) =>
+            <button key={k} className="chip" aria-pressed={period === k} onClick={() => setPeriod(k)}>{l}</button>)}</div>
+          {period === "custom" && <>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: "auto" }} aria-label="From date" />
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: "auto" }} aria-label="To date" />
+          </>}
+        </div>
+      )}
+      <div className="stats">
+        <div className="stat"><div className="lbl">Delivery people</div><div className="v">{rows.length}</div><div className="s">{tot.n} consignments given out</div></div>
+        <div className="stat"><div className="lbl">Delivered</div><div className="v">{tot.d}</div><div className="s">settled at the office</div></div>
+        <div className="stat"><div className="lbl">Handed in</div><div className="v">{tzs(tot.h)}</div><div className="s">TZS received from them</div></div>
+        <div className={`stat${tot.o ? " warn" : ""}`}><div className="lbl">Still to hand in</div><div className="v">{tzs(tot.o)}</div><div className="s">TZS for goods still out</div></div>
+      </div>
+      <div className="panel"><div className="ph" style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div><h2>By delivery person</h2><div className="sub">{periodText} · goods handed out in this period. Click a name for their goods.</div></div>
+        <div className="actions" style={{ margin: 0 }}>
+          <button className="btn sm" disabled={!rows.length} onClick={excelAll}>Download (Excel)</button>
+          <button className="btn sm" disabled={!rows.length} onClick={() => reportPdf(rows, company, periodText)}>Download PDF</button>
+        </div></div>
+        <div className="ledger"><table className="small"><thead><tr><th>Delivery person</th><th className="r">Given</th><th className="r">Delivered</th><th className="r">Still out</th><th className="r">Handed in</th><th className="r">Still to hand in</th></tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr key={r.name} className="row" onClick={() => setPick(r.name === pick ? "" : r.name)} aria-selected={r.name === pick}>
+              <td><b>{r.name}</b>{r.phone ? <div className="sub mono">{prettyPhone(r.phone)}</div> : null}</td>
+              <td className="r num">{r.L.length}</td><td className="r num">{r.done.length}</td><td className="r num">{r.out.length}</td>
+              <td className="r num">{tzs(r.handed)}</td><td className="r num" style={{ color: r.owes ? "var(--bad)" : undefined }}><b>{tzs(r.owes)}</b></td>
+            </tr>))}
+            {!rows.length && <tr><td colSpan={6} className="sub">No goods were given to delivery people in this period.</td></tr>}</tbody>
+          {rows.length > 1 && <tfoot><tr><td>Total</td><td className="r num">{tot.n}</td><td className="r num">{tot.d}</td><td className="r num">{tot.n - tot.d}</td><td className="r num">{tzs(tot.h)}</td><td className="r num">{tzs(tot.o)}</td></tr></tfoot>}</table></div>
+      </div>
+      {sel && (
+        <div className="panel" style={{ marginTop: 14 }}><div className="ph" style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div><h2>{sel.name}</h2><div className="sub">{sel.L.length} consignments · TZS {tzs(sel.handed)} handed in · TZS {tzs(sel.owes)} still to hand in</div></div>
+          <div className="actions" style={{ margin: 0 }}>
+            <button className="btn sm" onClick={() => csvDownload(`Delivery-${sel.name.replace(/\s+/g, "-")}-${fileTag}`, ["Waybill", "Given", "Given by", "Receiver", "Receiver phone", "Goods", "Packages", "Charge", "Status", "Delivered", "TZS handed in", "TZS still to hand in"],
+              sel.L.map((s) => [s.no, fmtDate(s.runner_out_at), s.runner_by || "", s.r_name, s.r_phone, goodsLabel(s), s.pkgs, s.charge, s.runner_settled_at ? "Delivered" : "Still out", s.runner_settled_at ? fmtDate(s.runner_settled_at) : "", s.runner_settled_at ? Number(s.runner_amount || 0) : 0, s.runner_settled_at ? 0 : balanceOf(s)]))}>Download (Excel)</button>
+            <button className="btn sm" onClick={() => reportPdf(rows, company, periodText, sel.name)}>Download PDF</button>
+          </div></div>
+          <div className="ledger"><table className="small"><thead><tr><th>Waybill</th><th>Receiver</th><th>Goods</th><th>Status</th><th className="r">TZS</th></tr></thead>
+            <tbody>{[...sel.L].sort((a, b) => String(b.runner_out_at).localeCompare(String(a.runner_out_at))).map((s) => (
+              <tr key={s.id} className="row" onClick={() => ui.openShip(s.id)}>
+                <td className="mono wb">{s.no}<div className="sub">given {fmtDate(s.runner_out_at)}</div></td>
+                <td>{s.r_name}<div className="sub mono">{prettyPhone(s.r_phone)}</div></td>
+                <td>{goodsLabel(s)} · {s.pkgs} pkg</td>
+                <td>{s.runner_settled_at ? <span className="pill pay-paid">Delivered</span> : <span className="pill pay-part">Still out</span>}<div className="sub">{s.runner_settled_at ? fmtDate(s.runner_settled_at) : ""}</div></td>
+                <td className="r num">{s.runner_settled_at ? <>{tzs(s.runner_amount || 0)}<div className="sub">handed in</div></> : <b style={{ color: balanceOf(s) ? "var(--bad)" : undefined }}>{tzs(balanceOf(s))}<div className="sub">to hand in</div></b>}</td>
+              </tr>))}</tbody></table></div>
+        </div>
+      )}
     </>
   );
 }
