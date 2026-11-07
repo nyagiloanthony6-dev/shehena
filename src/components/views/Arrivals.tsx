@@ -92,6 +92,8 @@ export default function Arrivals() {
   const [show, setShow] = useState<"all" | "unpaid" | "paid" | "notify">("all");
   const [dest, setDest] = useState("");
   const [q, setQ] = useState("");
+  const [day, setDay] = useState(""); // arrival date filter (YYYY-MM-DD)
+  const localDay = (iso?: string | null) => { if (!iso) return ""; const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 
   const road = trips.filter((t) => t.status === "departed").sort((a, b) => (a.departed_at || "").localeCompare(b.departed_at || ""));
   const waitingAll = useMemo(() => shipments.filter((s) => s.status === "arrived")
@@ -105,6 +107,7 @@ export default function Arrivals() {
   const waiting = waitingAll.filter((s) =>
     (show === "all" || (show === "unpaid" ? s.pay === "unpaid" : show === "paid" ? settled(s) : !sentLog(s, "arrived", "receiver").length)) &&
     (!dest || s.dest === dest) &&
+    (!day || localDay(s.arrived_at) === day) &&
     (!ql || [s.no, s.r_name, s.r_phone, s.s_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql)));
 
   return (
@@ -175,6 +178,11 @@ export default function Arrivals() {
             <option value="">All destinations</option>{destOptions.map(([c, n]) => <option key={c} value={c}>{n}</option>)}
           </select>
         )}
+        <label className="datefilter" title="Show goods that arrived on this date">
+          <span className="sub">Arrived on</span>
+          <input type="date" value={day} max={localDay(new Date().toISOString())} onChange={(e) => setDay(e.target.value)} aria-label="Arrived on date" style={{ width: "auto" }} />
+          {day && <button className="btn sm" type="button" onClick={() => setDay("")} aria-label="Clear date">✕</button>}
+        </label>
         <div className="searchbox" style={{ flex: "1 1 200px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Receipt / waybill no., customer or phone" aria-label="Search waiting goods" style={{ paddingLeft: 11 }} /></div>
       </div>
       <div className="panel" style={{ marginTop: 12 }}>
