@@ -3,8 +3,9 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { ReleaseForm } from "../release";
+import { DeliveryPeople } from "./Runners";
 import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub } from "../parts";
-import { sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { isOut, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
 
@@ -56,6 +57,7 @@ function WaitingRow({ s }: { s: Shipment }) {
         <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg · {regShort(s.dest)}{t ? ` · ${t.plate}` : ""}</div>
         <div className="sub" style={{ marginTop: 2, display: "flex", gap: "4px 10px", flexWrap: "wrap", alignItems: "center" }}>
           <PayPill pay={s.pay} part={isPart(s)} />
+          {isOut(s) && <span className="pill pay-part">With {s.runner_name}</span>}
           {s.pay === "unpaid" && <b style={{ color: "var(--bad)" }}>TZS {tzs(balanceOf(s))} {isPart(s) ? "balance" : "due"}</b>}
           <span>{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</span>
           {notified ? <span className="tick">✓ Notified</span> : <span style={{ color: "var(--amber)", fontWeight: 600 }}>Not notified yet</span>}
@@ -158,6 +160,8 @@ export default function Arrivals() {
           </div>
         </>
       )}
+
+      <DeliveryPeople />
 
       <div className="group-h" style={{ marginTop: 26 }}><h2>Waiting for customers</h2><span className="sub">{waitingAll.length}</span></div>
       <div className="filters">

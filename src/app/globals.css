@@ -525,3 +525,7 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 .sheet-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px;align-items:start}
 .sheet-col>.card:first-child{margin-top:0}
 @media (max-width:900px){.sheet-cols{grid-template-columns:1fr}.sheet.wide{width:100%;padding-left:16px;padding-right:16px}}
+.picklist{max-height:360px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--r);padding:4px 10px}
+.pickrow{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}.pickrow:last-child{border-bottom:0}
+.panel.runner{margin-top:12px}.panel.runner .ph{display:flex;justify-content:space-between;gap:12px;align-items:start;flex-wrap:wrap}
+.rrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}.rrow input[type=checkbox],.pickrow input[type=checkbox]{width:18px;height:18px;flex:none;margin:0}

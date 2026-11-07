@@ -40,6 +40,7 @@ export function ShipmentSheet({ id }: { id: string }) {
         {t && (air
           ? <p className="note">MAWB <a href="#" className="mono" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.mawb || t.no}</a>{t.airline ? ` · ${t.airline}` : ""} · flight <b className="mono">{t.plate}</b></p>
           : <p className="note">Vehicle <b className="mono">{t.plate}</b> · trip <a href="#" onClick={(e) => { e.preventDefault(); ui.openTrip(t.id); }}>{t.no}</a> · driver {t.driver || "—"}</p>)}
+        {s.runner_name && <p className="note">Delivery person <b>{s.runner_name}</b>{s.runner_phone ? ` · ${s.runner_phone}` : ""} · given {fmtDate(s.runner_out_at)}{s.runner_by ? ` by ${s.runner_by}` : ""}{s.runner_settled_at ? ` · delivered, TZS ${tzs(s.runner_amount || 0)} handed in ${fmtDate(s.runner_settled_at)}` : " · still out"}</p>}
         <div className="actions">
           {s.status === "received" && can("load") && <button className="btn" onClick={() => ui.go("trips")}>{air ? "Add to a MAWB" : "Load onto a vehicle"}</button>}
           {s.status === "arrived" && can("dispatch") && (settled(s) || can("pay")) && !releasing && <button className="btn primary" onClick={() => setReleasing(true)}>{s.pay === "unpaid" ? `Take TZS ${tzs(balanceOf(s))} & release` : "Release goods to customer"}</button>}

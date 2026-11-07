@@ -24,6 +24,8 @@ interface Store {
   shipPayments: ShipPayment[];
   /** false until migration 0017 (part payments) has been run */
   hasPart: boolean;
+  /** false until migration 0019 (delivery people) has been run */
+  hasRunners: boolean;
   /** Take a payment (part or full) for a consignment; completes it when the balance reaches 0. */
   takePayment: (s: Shipment, amount: number, method: string, extra?: Partial<Shipment>) => Promise<boolean>;
   /** Only record a payment line (the consignment was already saved as paid / part paid). */
@@ -82,6 +84,7 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   const [claimPayments, setClaimPayments] = useState<ClaimPayment[]>([]);
   const [shipPayments, setShipPayments] = useState<ShipPayment[]>([]);
   const [hasPart, setHasPart] = useState(false);
+  const [hasRunners, setHasRunners] = useState(false);
   const [hasExtras, setHasExtras] = useState(false);
   const [hasV9, setHasV9] = useState(false);
   const [staff, setStaff] = useState<Profile[]>([]);
@@ -128,6 +131,8 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     setHasV9(!v9.error);
     const sp = await sb.from("shipment_payments").select("*").order("paid_at", { ascending: false }).limit(20000);
     setHasPart(!sp.error);
+    const rn = await sb.from("shipments").select("runner_name").limit(1);
+    setHasRunners(!rn.error);
     setShipPayments(((sp.data || []) as Record<string, unknown>[]).map((r) => ({ ...r, amount: Number(r.amount) })) as unknown as ShipPayment[]);
     setReady(true);
   }, [sb, initialCompany.id, toast, setters]);
@@ -235,13 +240,13 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   }, [sb, company.id, fail]);
 
   const value = useMemo<Store>(() => ({
-    me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, takePayment, logPayment, hasExtras, hasV9, staff, ready,
+    me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, hasRunners, takePayment, logPayment, hasExtras, hasV9, staff, ready,
     can: (p) => canRole(me.role, p),
     toast, insert, patch, patchMany, remove, patchCompany, reloadStaff,
     tripById: (id) => (id ? trips.find((t) => t.id === id) : undefined),
     shipById: (id) => (id ? shipments.find((s) => s.id === id) : undefined),
     tripShips: (t) => shipments.filter((s) => s.trip_id === t.id),
-  }), [me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, takePayment, logPayment, hasExtras, hasV9, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
+  }), [me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, hasRunners, takePayment, logPayment, hasExtras, hasV9, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
 
   return (
     <Ctx.Provider value={value}>

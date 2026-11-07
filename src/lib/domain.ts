@@ -131,6 +131,13 @@ export interface Shipment {
   pay: Pay;
   /** paid so far (part payments at the origin and/or destination); balance = charge − paid_amount */
   paid_amount?: number;
+  /** delivery person (casual worker) who took the goods to the customer; settled when they handed in the money */
+  runner_name?: string;
+  runner_phone?: string;
+  runner_out_at?: string | null;
+  runner_by?: string | null;
+  runner_settled_at?: string | null;
+  runner_amount?: number;
   account_id?: string | null;
   /** charge before discount; `charge` is what the customer owes after the discount */
   gross_charge?: number | null;
@@ -180,6 +187,8 @@ export const balanceOf = (s: Partial<Pick<Shipment, "pay" | "charge" | "paid_amo
 export const isPart = (s: Partial<Pick<Shipment, "pay" | "paid_amount">>) => s.pay === "unpaid" && Number(s.paid_amount || 0) > 0;
 export const sumPaid = (list: Shipment[]) => list.reduce((a, s) => a + paidOf(s), 0);
 export const sumBalance = (list: Shipment[]) => list.reduce((a, s) => a + balanceOf(s), 0);
+/** Out with a delivery person and not settled yet. */
+export const isOut = (s: Shipment) => !!s.runner_name && !s.runner_settled_at && s.status === "arrived";
 /** Nothing to collect at the counter: paid, or charged to a monthly bill. */
 export const settled = (s: Pick<Shipment, "pay">) => s.pay === "paid" || s.pay === "bill";
 export const PAY_LABEL: Record<Pay, string> = { paid: "Paid", unpaid: "Not paid", bill: "Monthly bill" };
