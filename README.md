@@ -274,8 +274,10 @@ balance at the destination when collecting). Migration `0017_partial_payments.sq
 ## Delivery people
 At a destination, casual workers often take arrived goods (with their receipts) to customers and come
 back with the money. Migration `0019_delivery_people.sql`.
-- **Arrivals → Delivery people → Give goods to a delivery person**: enter the person's name (and phone),
-  tick the goods they take; a handover sheet (PDF) lists each consignment and the money to hand in.
+- In **Arrivals**, search the receipt/waybill number (or customer) and press **Give to delivery person**
+  on the consignment (also on the consignment itself): enter the person's name (and phone) and the
+  receipt prints with "Delivery by …" for them to carry. Their card shows the money to hand in and a
+  handover sheet (PDF) of everything they took.
 - When they come back: tick the goods that were delivered and whose money was handed in, choose how it
   was paid and press **Delivered**: each is marked paid (the balance) and released with a delivery note
   "Delivered by …". Goods that came back: **Returned**.

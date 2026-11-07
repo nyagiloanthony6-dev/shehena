@@ -215,6 +215,7 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
   pair(disc > 0 ? "Total to pay" : lines.length > 1 ? "Total charge" : "Charge", "TZS " + tzs(s.charge));
   pair("Payment", s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : s.pay === "bill" ? "MONTHLY BILL" + (account ? ` (${account})` : "") : isPart(s) ? `PART PAID - TZS ${tzs(paidOf(s))}${s.method ? ` (${s.method})` : ""}` : "NOT PAID - due on collection");
   if (isPart(s)) pair("Balance", `TZS ${tzs(balanceOf(s))} due on collection`);
+  if (s.runner_name && !s.runner_settled_at) pair("Delivery by", `${s.runner_name}${s.runner_phone ? ", " + s.runner_phone : ""}`);
   pair("Served by", s.created_by_name || "-"); dash();
   line("Keep this receipt. The receiver collects with ID and the waybill number.", 7.5);
   return doc;

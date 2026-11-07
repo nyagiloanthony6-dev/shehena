@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { ReleaseForm } from "../release";
-import { DeliveryPeople } from "./Runners";
+import { DeliveryPeople, GiveToRunner } from "./Runners";
 import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub } from "../parts";
 import { isOut, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
@@ -70,6 +70,7 @@ function WaitingRow({ s }: { s: Shipment }) {
           {reminderDue && <><span className="sub" style={{ alignSelf: "center" }}>Reminder:</span><SendButtons s={s} kind="reminder" to="receiver" /></>}
         </div>
         <div className="actions" style={{ margin: 0, justifyContent: "end" }}>
+          {!paying && <GiveToRunner s={s} />}
           {!paying && can("dispatch") && (settled(s) || can("pay")) && (
             <button className={`btn sm${settled(s) ? " primary" : ""}`} onClick={() => setPaying(true)}>{settled(s) ? "Release goods" : "Take payment & release"}</button>
           )}
@@ -174,7 +175,7 @@ export default function Arrivals() {
             <option value="">All destinations</option>{destOptions.map(([c, n]) => <option key={c} value={c}>{n}</option>)}
           </select>
         )}
-        <div className="searchbox" style={{ flex: "1 1 200px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Customer, phone or waybill" aria-label="Search waiting goods" style={{ paddingLeft: 11 }} /></div>
+        <div className="searchbox" style={{ flex: "1 1 200px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Receipt / waybill no., customer or phone" aria-label="Search waiting goods" style={{ paddingLeft: 11 }} /></div>
       </div>
       <div className="panel" style={{ marginTop: 12 }}>
         {waiting.map((s) => <WaitingRow key={s.id} s={s} />)}

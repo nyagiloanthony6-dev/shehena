@@ -5,7 +5,7 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
-import { METHODS, balanceOf, fmtDate, goodsLabel, isOut, itemsOf, prettyPhone, regShort, tzs, type Company, type Shipment } from "@/lib/domain";
+import { METHODS, balanceOf, fmtDate, goodsLabel, isOut, prettyPhone, tzs, type Company, type Shipment } from "@/lib/domain";
 
 const dnNumber = () => {
   const t = new Date();
@@ -47,66 +47,52 @@ export async function downloadHandover(name: string, phone: string, list: Shipme
   doc.save(`Handover-${name.replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-/** Give arrived goods to a delivery person. */
-function HandOut({ onDone }: { onDone: () => void }) {
-  const { shipments, patchMany, me, toast, company, can } = useStore();
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [q, setQ] = useState("");
-  const [picked, setPicked] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const known = useMemo(() => {
+/** Names (and phones) of delivery people used before, for suggestions. */
+function useKnownRunners() {
+  const { shipments } = useStore();
+  return useMemo(() => {
     const m = new Map<string, string>();
     shipments.forEach((s) => { if (s.runner_name) m.set(s.runner_name, s.runner_phone || m.get(s.runner_name) || ""); });
-    return [...m.entries()];
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [shipments]);
-  const ql = q.trim().toLowerCase();
-  const free = shipments.filter((s) => s.status === "arrived" && !isOut(s) && (!me.station || s.dest === me.station))
-    .filter((s) => !ql || [s.no, s.r_name, s.r_phone, goodsLabel(s), ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql))
-    .sort((a, b) => a.r_name.localeCompare(b.r_name));
-  const chosen = shipments.filter((s) => picked.includes(s.id));
-  const toCollect = chosen.reduce((a, s) => a + balanceOf(s), 0);
-  if (!can("pay")) return <p className="note">Only staff who take payments can hand goods to delivery people.</p>;
+}
 
-  async function go(e: React.FormEvent) {
+/**
+ * On one consignment (found by searching its receipt/waybill number or the receiver): give it to a
+ * delivery person and print its receipt for them to carry.
+ */
+export function GiveToRunner({ s, compact = false }: { s: Shipment; compact?: boolean }) {
+  const { patch, me, toast, company, can, hasRunners, accounts } = useStore();
+  const known = useKnownRunners();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!hasRunners || !can("pay") || s.status !== "arrived" || isOut(s)) return null;
+  if (!open) return <button className="btn sm" type="button" onClick={() => setOpen(true)}>Give to delivery person</button>;
+
+  async function give(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return toast("Enter the delivery person's name.", true);
-    if (!chosen.length) return toast("Tick the consignments they are taking.", true);
     setBusy(true);
-    const at = new Date().toISOString();
-    const values = { runner_name: name.trim(), runner_phone: phone.trim(), runner_out_at: at, runner_by: me.full_name, runner_settled_at: null, runner_amount: 0 };
-    const ok = await patchMany("shipments", chosen.map((s) => s.id), values);
+    const values = { runner_name: name.trim(), runner_phone: phone.trim(), runner_out_at: new Date().toISOString(), runner_by: me.full_name, runner_settled_at: null, runner_amount: 0 };
+    const ok = await patch<Shipment>("shipments", s.id, values);
+    if (ok) {
+      let msg = "";
+      try { const { printSlips } = await import("../printer"); msg = await printSlips("receipt", { ...s, ...values }, company, { account: accounts.find((x) => x.id === s.account_id)?.name }); } catch { msg = "Print the receipt from the consignment."; }
+      toast(`${s.no} given to ${name.trim()}${balanceOf(s) ? `, to collect TZS ${tzs(balanceOf(s))}` : ""}. ${msg}`);
+      setOpen(false); setName(""); setPhone("");
+    }
     setBusy(false);
-    if (!ok) return;
-    toast(`${chosen.length} consignment${chosen.length === 1 ? "" : "s"} handed to ${name.trim()}. Money to hand in: TZS ${tzs(toCollect)}. Handover sheet downloading.`);
-    try { await downloadHandover(name.trim(), phone.trim(), chosen.map((s) => ({ ...s, ...values })), company, me.full_name); } catch { /* the sheet can be downloaded again from the person's card */ }
-    onDone();
   }
 
   return (
-    <form className="panel" noValidate onSubmit={go} style={{ marginTop: 10 }}>
-      <div className="fields">
-        <label className="f">Delivery person<input value={name} list="runner-names" onChange={(e) => { setName(e.target.value); const k = known.find(([n]) => n.toLowerCase() === e.target.value.trim().toLowerCase()); if (k && !phone) setPhone(k[1]); }} placeholder="e.g. Musa Juma" aria-label="Delivery person name" /></label>
-        <datalist id="runner-names">{known.map(([n]) => <option key={n} value={n} />)}</datalist>
-        <label className="f">Their phone <small>optional</small><input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" aria-label="Delivery person phone" /></label>
-        <label className="f">Find goods<input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Receiver, phone or waybill" aria-label="Find goods to hand out" /></label>
-      </div>
-      <div className="lbl" style={{ margin: "12px 0 6px" }}>Tick the goods they are taking · {free.length} waiting at the office</div>
-      <div className="picklist">
-        {free.map((s) => (
-          <label className="check pickrow" key={s.id}>
-            <input type="checkbox" checked={picked.includes(s.id)} onChange={(e) => setPicked((p) => e.target.checked ? [...p, s.id] : p.filter((x) => x !== s.id))} aria-label={`Hand out ${s.no}`} />
-            <span style={{ flex: 1, minWidth: 0 }}><b>{s.r_name}</b> <span className="sub mono">{prettyPhone(s.r_phone)}</span>
-              <span className="sub" style={{ display: "block" }}><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg · {regShort(s.dest)}</span></span>
-            <span className="num" style={{ whiteSpace: "nowrap", color: balanceOf(s) ? "var(--bad)" : "var(--ok)" }}>{balanceOf(s) ? `TZS ${tzs(balanceOf(s))}` : "Paid"}</span>
-          </label>
-        ))}
-        {!free.length && <p className="quiet">No goods waiting at the office{ql ? " match this search" : ""}.</p>}
-      </div>
-      <div className="actions">
-        <button className="btn primary" type="submit" disabled={busy || !chosen.length}>{chosen.length ? `Hand out ${chosen.length} · TZS ${tzs(toCollect)} to collect` : "Hand out"}</button>
-        <button className="btn" type="button" onClick={onDone}>Cancel</button>
-      </div>
+    <form className="runner-give" noValidate onSubmit={give} style={compact ? { flexBasis: "100%" } : undefined}>
+      <input value={name} list="runner-names" autoFocus onChange={(e) => { setName(e.target.value); const k = known.find(([n]) => n.toLowerCase() === e.target.value.trim().toLowerCase()); if (k && !phone) setPhone(k[1]); }} placeholder="Delivery person's name" aria-label="Delivery person name" />
+      <datalist id="runner-names">{known.map(([n]) => <option key={n} value={n} />)}</datalist>
+      <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Phone (optional)" aria-label="Delivery person phone" />
+      <button className="btn sm primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Give & print receipt"}</button>
+      <button className="btn sm" type="button" onClick={() => setOpen(false)}>Cancel</button>
     </form>
   );
 }
@@ -115,10 +101,11 @@ function HandOut({ onDone }: { onDone: () => void }) {
 function RunnerCard({ name, list }: { name: string; list: Shipment[] }) {
   const { patch, takePayment, me, toast, company, can } = useStore();
   const ui = useUi();
-  const [ticked, setTicked] = useState<string[]>(() => list.map((s) => s.id));
+  // Everything is ticked unless staff untick it (goods added later are ticked too).
+  const [skip, setSkip] = useState<string[]>([]);
   const [method, setMethod] = useState(METHODS[0]);
   const [busy, setBusy] = useState(false);
-  const sel = list.filter((s) => ticked.includes(s.id));
+  const sel = list.filter((s) => !skip.includes(s.id));
   const owe = list.reduce((a, s) => a + balanceOf(s), 0);
   const now = sel.reduce((a, s) => a + balanceOf(s), 0);
   const phone = list.find((s) => s.runner_phone)?.runner_phone || "";
@@ -153,7 +140,7 @@ function RunnerCard({ name, list }: { name: string; list: Shipment[] }) {
       </div>
       {list.map((s) => (
         <div className="rrow" key={s.id}>
-          {can("pay") && <input type="checkbox" checked={ticked.includes(s.id)} onChange={(e) => setTicked((t) => e.target.checked ? [...t, s.id] : t.filter((x) => x !== s.id))} aria-label={`Delivered ${s.no}`} />}
+          {can("pay") && <input type="checkbox" checked={!skip.includes(s.id)} onChange={(e) => setSkip((t) => e.target.checked ? t.filter((x) => x !== s.id) : [...t, s.id])} aria-label={`Delivered ${s.no}`} />}
           <div style={{ flex: 1, minWidth: 0 }}>
             <button className="link" style={{ color: "var(--fg)" }} onClick={() => ui.openShip(s.id)}><b>{s.r_name}</b></button> <span className="sub mono">{prettyPhone(s.r_phone)}</span>
             <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg</div>
@@ -174,10 +161,9 @@ function RunnerCard({ name, list }: { name: string; list: Shipment[] }) {
   );
 }
 
-/** Arrivals section: delivery people with goods out, and the form to hand out more. */
+/** Arrivals section: delivery people with goods out, waiting to hand in their money. */
 export function DeliveryPeople() {
-  const { shipments, hasRunners, me, can } = useStore();
-  const [open, setOpen] = useState(false);
+  const { shipments, hasRunners, me } = useStore();
   if (!hasRunners) return null;
   const out = shipments.filter((s) => isOut(s) && (!me.station || s.dest === me.station));
   const groups = new Map<string, Shipment[]>();
@@ -188,11 +174,9 @@ export function DeliveryPeople() {
       <div className="group-h" style={{ marginTop: 26 }}>
         <h2>Delivery people</h2>
         <span className="sub">{groups.size ? `${groups.size} out · TZS ${tzs(total)} to hand in` : "none out"}</span>
-        {can("pay") && <button className={`btn sm${open ? "" : " primary"}`} style={{ marginLeft: "auto" }} onClick={() => setOpen(!open)}>{open ? "Cancel" : "Give goods to a delivery person"}</button>}
       </div>
-      {open && <HandOut onDone={() => setOpen(false)} />}
       {[...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([n, L]) => <RunnerCard key={n} name={n} list={L} />)}
-      {!groups.size && !open && <p className="quiet">No goods are out with delivery people. When casual workers take goods to customers, hand them out here so their money can be checked when they come back.</p>}
+      {!groups.size && <p className="quiet">To send goods with a delivery person, find the consignment below (search the receipt number or the customer) and press <b>Give to delivery person</b>. The receipt prints for them to carry.</p>}
     </>
   );
 }

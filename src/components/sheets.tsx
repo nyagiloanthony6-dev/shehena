@@ -7,6 +7,7 @@ import { printSlips, type PrintKind } from "./printer";
 import { PrinterSetup, modeLabel, usePrinterPrefs } from "./PrinterSetup";
 import { downloadManifest } from "./manifest";
 import { DeliveryNoteCard, ReleaseForm } from "./release";
+import { GiveToRunner } from "./views/Runners";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
 import { PAY_LABEL, canRecordFound, settled } from "@/lib/domain";
 import { METHODS, balanceOf, isPart, paidOf, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
@@ -43,6 +44,7 @@ export function ShipmentSheet({ id }: { id: string }) {
         {s.runner_name && <p className="note">Delivery person <b>{s.runner_name}</b>{s.runner_phone ? ` · ${s.runner_phone}` : ""} · given {fmtDate(s.runner_out_at)}{s.runner_by ? ` by ${s.runner_by}` : ""}{s.runner_settled_at ? ` · delivered, TZS ${tzs(s.runner_amount || 0)} handed in ${fmtDate(s.runner_settled_at)}` : " · still out"}</p>}
         <div className="actions">
           {s.status === "received" && can("load") && <button className="btn" onClick={() => ui.go("trips")}>{air ? "Add to a MAWB" : "Load onto a vehicle"}</button>}
+          {s.status === "arrived" && !releasing && <GiveToRunner s={s} />}
           {s.status === "arrived" && can("dispatch") && (settled(s) || can("pay")) && !releasing && <button className="btn primary" onClick={() => setReleasing(true)}>{s.pay === "unpaid" ? `Take TZS ${tzs(balanceOf(s))} & release` : "Release goods to customer"}</button>}
           {s.status === "collected" && can("undo") && <button className="btn sm" onClick={() => P({ status: "arrived", collected_at: null, collected_by: null })}>Undo collected</button>}
         </div>

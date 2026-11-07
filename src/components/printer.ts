@@ -92,7 +92,9 @@ export function receiptSlip(s: Shipment, company: Company, account?: string): Sl
     { t: "pair", k: "Discount", v: "- TZS " + tzs(disc) + (s.discount_reason ? ` (${s.discount_reason})` : "") });
   L.push({ t: "text", text: `TOTAL  TZS ${tzs(s.charge)}`, align: "right", bold: true, size: 2 },
     { t: "pair", k: "Payment", v: payText(s, account), bold: true },
-    { t: "pair", k: "Served by", v: s.created_by_name || "-" }, { t: "rule" },
+    { t: "pair", k: "Served by", v: s.created_by_name || "-" },
+    ...(s.runner_name && !s.runner_settled_at ? [{ t: "pair", k: "Delivery by", v: `${s.runner_name}${s.runner_phone ? `, ${s.runner_phone}` : ""}`, bold: true } as Line] : []),
+    { t: "rule" },
     { t: "qr", data: s.no },
     { t: "text", text: "Keep this receipt. The receiver collects with ID and the waybill number.", align: "center" },
     { t: "text", text: "Shehena - Serengeti Labs", align: "center" });
