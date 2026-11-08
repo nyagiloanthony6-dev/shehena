@@ -110,11 +110,11 @@ export function DeliveryNoteCard({ s }: { s: Shipment }) {
   );
 }
 
-/** 80 mm delivery note, same printer as the receipt. No amounts; signature lines for both sides. */
+/** 80 mm delivery note, same printer as the receipt: goods with their charges, payment, signature lines. */
 export async function downloadDeliveryNote(s: Shipment, company: Company, trip?: Trip) {
   const { jsPDF } = await import("jspdf");
   const lines = itemsOf(s);
-  const doc = new jsPDF({ unit: "mm", format: [80, 190 + Math.max(0, lines.length - 1) * 6] });
+  const doc = new jsPDF({ unit: "mm", format: [80, 205 + Math.max(0, lines.length - 1) * 6] });
   let y = 10;
   const L = 6, W = 68;
   const line = (t: string, sz = 9, b = false) => { doc.setFont("helvetica", b ? "bold" : "normal"); doc.setFontSize(sz); const w = doc.splitTextToSize(String(t), W); doc.text(w, L, y); y += w.length * sz * 0.42 + 1.6; };
@@ -130,11 +130,14 @@ export async function downloadDeliveryNote(s: Shipment, company: Company, trip?:
   pair("Sender", s.s_name || "-");
   pair("Receiver", `${s.r_name}, ${prettyPhone(s.r_phone)}`);
   dash();
-  doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.text("Goods", L, y); doc.text("Pkgs", L + W, y, { align: "right" }); y += 4;
+  doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.text("Goods", L, y); doc.text("Pkgs", L + 46, y, { align: "right" }); doc.text("TZS", L + W, y, { align: "right" }); y += 4;
   doc.setFont("helvetica", "normal");
-  for (const l of lines) { const w = doc.splitTextToSize(l.name, 54); doc.text(w, L, y); doc.text(String(l.pkgs), L + W, y, { align: "right" }); y += w.length * 3.6 + 1; }
+  for (const l of lines) { const w = doc.splitTextToSize(l.name, 38); doc.text(w, L, y); doc.text(String(l.pkgs), L + 46, y, { align: "right" }); doc.text(tzs(l.charge), L + W, y, { align: "right" }); y += w.length * 3.6 + 1; }
   y += 1; pair("Total packages", String(s.pkgs));
-  pair("Payment", s.pay === "paid" ? "Paid" : PAY_LABEL[s.pay]);
+  const disc = Number(s.discount || 0);
+  if (disc > 0) { pair("Subtotal", `TZS ${tzs(s.gross_charge ?? Number(s.charge) + disc)}`); pair("Discount", `- TZS ${tzs(disc)}`); }
+  pair("Amount charged", `TZS ${tzs(s.charge)}`);
+  pair("Payment", s.pay === "paid" ? `Paid${s.method ? ` (${s.method})` : ""}` : s.pay === "bill" ? "On monthly bill" : PAY_LABEL[s.pay]);
   dash();
   pair("Collected by", s.collector_name || s.r_name);
   if (s.collector_phone) pair("Phone", prettyPhone(s.collector_phone));

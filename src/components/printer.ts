@@ -130,10 +130,13 @@ export function deliverySlip(s: Shipment, company: Company, trip?: Trip): Slip {
     ...(trip ? [{ t: "pair", k: "Vehicle", v: trip.plate } as Line] : []),
     { t: "pair", k: "Sender", v: s.s_name || "-" },
     { t: "pair", k: "Receiver", v: `${s.r_name}, ${prettyPhone(s.r_phone)}` }, { t: "rule" },
-    { t: "item", name: "Goods", pkgs: "Pkgs", amount: "", bold: true });
-  for (const l of itemsOf(s)) L.push({ t: "item", name: l.name, pkgs: String(l.pkgs), amount: "" });
+    { t: "item", name: "Goods", pkgs: "Pkgs", amount: "TZS", bold: true });
+  for (const l of itemsOf(s)) L.push({ t: "item", name: l.name, pkgs: String(l.pkgs), amount: tzs(l.charge) });
+  const disc = Number(s.discount || 0);
+  if (disc > 0) L.push({ t: "pair", k: "Subtotal", v: `TZS ${tzs(s.gross_charge ?? Number(s.charge) + disc)}` }, { t: "pair", k: "Discount", v: `- TZS ${tzs(disc)}` });
+  L.push({ t: "text", text: `CHARGED  TZS ${tzs(s.charge)}`, align: "right", bold: true, size: 2 });
   L.push({ t: "pair", k: "Packages", v: String(s.pkgs) },
-    { t: "pair", k: "Payment", v: s.pay === "paid" ? "Paid" : PAY_LABEL[s.pay] }, { t: "rule" },
+    { t: "pair", k: "Payment", v: s.pay === "paid" ? `Paid${s.method ? ` (${s.method})` : ""}` : s.pay === "bill" ? "On monthly bill" : PAY_LABEL[s.pay] }, { t: "rule" },
     { t: "pair", k: "Collected by", v: s.collector_name || s.r_name });
   if (s.collector_phone) L.push({ t: "pair", k: "Phone", v: prettyPhone(s.collector_phone) });
   if (s.collector_id) L.push({ t: "pair", k: "ID", v: s.collector_id });
