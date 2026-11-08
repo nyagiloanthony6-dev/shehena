@@ -6,7 +6,7 @@ import { useUi } from "../CargoApp";
 import { RunnerReport } from "./Runners";
 import { PayPill, StatusPill, TripPill } from "../parts";
 import { DailyChart, YearPanel } from "../charts";
-import { sumPaid, sumBalance, balanceOf, CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { stLabel, sumPaid, sumBalance, balanceOf, CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 type Period = "today" | "7" | "30" | "month" | "all" | "custom";
 type Tab = "overview" | "pay" | "trucks" | "claims" | "discounts" | "bills" | "deliveries" | "runners";
@@ -240,7 +240,9 @@ export default function Reports() {
       })()}
 
       {tab === "discounts" && (() => {
-        const D = S.filter((x) => Number(x.discount || 0) > 0);
+        // Every discount given in the period: at receiving or later (e.g. at release), by the day it was given.
+        const D = shipments.filter((x) => Number(x.discount || 0) > 0 && inPeriod(x.discount_at || x.received_at))
+          .sort((a, b) => String(b.discount_at || b.received_at).localeCompare(String(a.discount_at || a.received_at)));
         const amt = D.reduce((a, x) => a + Number(x.discount || 0), 0);
         const by: Record<string, { n: number; v: number }> = {};
         D.forEach((x) => { const k = x.discount_by || "—"; (by[k] = by[k] || { n: 0, v: 0 }).n++; by[k].v += Number(x.discount || 0); });
@@ -257,11 +259,16 @@ export default function Reports() {
                     {!D.length && <tr><td colSpan={3} className="sub">No discounts in this period.</td></tr>}</tbody></table></div>
               </div>
               <div className="panel"><div className="ph"><div><h2>Every discount</h2></div>
-                <XL onClick={() => downloadCsv(`Shehena-discounts-${label}`, ["Waybill", "Received", "Sender", "Receiver", "Before discount", "Discount", "After discount", "Reason", "Given by", "Payment"],
-                  D.map((x) => [x.no, fmtDate(x.received_at), x.s_name, x.r_name, Number(x.gross_charge ?? Number(x.charge) + Number(x.discount || 0)), Number(x.discount), Number(x.charge), x.discount_reason || "", x.discount_by || "", PAY_LABEL[x.pay]]))} /></div>
-                <div className="ledger"><table className="small"><thead><tr><th>Waybill</th><th>Reason</th><th className="r">TZS</th></tr></thead>
-                  <tbody>{D.map((x) => <tr key={x.id} className="row" onClick={() => ui.openShip(x.id)}><td className="mono wb">{x.no}<div className="sub">{x.r_name}</div></td><td>{x.discount_reason}<div className="sub">by {x.discount_by}</div></td><td className="r num">{tzs(x.discount)}</td></tr>)}
-                    {!D.length && <tr><td colSpan={3} className="sub">None.</td></tr>}</tbody></table></div>
+                <XL onClick={() => downloadCsv(`Shehena-discounts-${label}`, ["Waybill", "Given on", "Received", "Route", "Sender", "Receiver", "Before discount", "Discount", "After discount", "Reason", "Given by", "Payment", "Status"],
+                  D.map((x) => [x.no, fmtDate(x.discount_at || x.received_at), fmtDate(x.received_at), `${regShort(x.origin)} - ${regShort(x.dest)}`, x.s_name, x.r_name, Number(x.gross_charge ?? Number(x.charge) + Number(x.discount || 0)), Number(x.discount), Number(x.charge), x.discount_reason || "", x.discount_by || "", PAY_LABEL[x.pay], stLabel(x.status)]))} /></div>
+                <div className="ledger"><table className="small"><thead><tr><th>Waybill</th><th>Reason</th><th className="r">Charge</th><th className="r">Discount</th></tr></thead>
+                  <tbody>{D.map((x) => <tr key={x.id} className="row" onClick={() => ui.openShip(x.id)}>
+                    <td className="mono wb">{x.no}<div className="sub">{x.r_name} · {fmtDate(x.discount_at || x.received_at)}</div></td>
+                    <td>{x.discount_reason || "—"}<div className="sub">by {x.discount_by || "—"}</div></td>
+                    <td className="r num">{tzs(x.charge)}<div className="sub">of {tzs(x.gross_charge ?? Number(x.charge) + Number(x.discount || 0))}</div></td>
+                    <td className="r num"><b>{tzs(x.discount)}</b></td></tr>)}
+                    {!D.length && <tr><td colSpan={4} className="sub">None.</td></tr>}</tbody>
+                  {D.length > 1 && <tfoot><tr><td colSpan={2}>Total · {D.length}</td><td className="r num">{tzs(D.reduce((a, x) => a + Number(x.charge || 0), 0))}</td><td className="r num">{tzs(amt)}</td></tr></tfoot>}</table></div>
               </div>
             </div>
           </>
@@ -306,17 +313,19 @@ export default function Reports() {
               <div className="stat"><div className="lbl">Waiting now</div><div className="v">{shipments.filter((s) => s.status === "arrived").length}</div><div className="s">arrived, not collected</div></div>
             </div>
             <div className="panel"><div className="ph"><div><h2>Delivery notes</h2><div className="sub">{Object.entries(by).map(([k, n]) => `${k}: ${n}`).join(" · ") || "Released in the period"}</div></div>
-              <XL onClick={() => downloadCsv(`Shehena-deliveries-${label}`, ["Delivery note", "Collected", "Waybill", "To", "Receiver", "Collected by", "Collector phone", "ID", "Packages", "Goods", "Payment", "Released by", "Remarks"],
-                D.map((s) => [s.dn_no || "", fmtDate(s.collected_at), s.no, regShort(s.dest), s.r_name, s.collector_name || "", s.collector_phone || "", s.collector_id || "", s.pkgs, goodsLabel(s), PAY_LABEL[s.pay], s.collected_by || "", s.collect_note || ""]))} /></div>
-              <div className="ledger"><table className="small"><thead><tr><th>Delivery note</th><th>Receiver → collected by</th><th>Goods</th><th>Released by</th></tr></thead>
+              <XL onClick={() => downloadCsv(`Shehena-deliveries-${label}`, ["Delivery note", "Collected", "Waybill", "To", "Receiver", "Collected by", "Collector phone", "ID", "Packages", "Goods", "Before discount", "Discount", "Charged", "Payment", "Released by", "Remarks"],
+                D.map((s) => [s.dn_no || "", fmtDate(s.collected_at), s.no, regShort(s.dest), s.r_name, s.collector_name || "", s.collector_phone || "", s.collector_id || "", s.pkgs, goodsLabel(s), Number(s.gross_charge ?? Number(s.charge) + Number(s.discount || 0)), Number(s.discount || 0), Number(s.charge), PAY_LABEL[s.pay], s.collected_by || "", s.collect_note || ""]))} /></div>
+              <div className="ledger"><table className="small"><thead><tr><th>Delivery note</th><th>Receiver → collected by</th><th>Goods</th><th className="r">Charged</th><th>Released by</th></tr></thead>
                 <tbody>{D.slice(0, 300).map((s) => (
                   <tr key={s.id} className="row" onClick={() => ui.openShip(s.id)}>
                     <td className="mono wb">{s.dn_no || "—"}<div className="sub">{fmtDate(s.collected_at)}</div></td>
                     <td>{s.r_name}{s.collector_name && s.collector_name !== s.r_name ? <> → <b>{s.collector_name}</b></> : null}<div className="sub">{s.collector_id}</div></td>
                     <td>{goodsLabel(s)} · {s.pkgs} pkg<div className="sub mono">{s.no}</div></td>
+                    <td className="r num">{tzs(s.charge)}{Number(s.discount || 0) > 0 && <div className="sub">discount {tzs(s.discount)}</div>}</td>
                     <td>{s.collected_by}{s.collect_note ? <div className="sub">{s.collect_note}</div> : null}</td>
                   </tr>))}
-                  {!D.length && <tr><td colSpan={4} className="sub">No goods released in this period.</td></tr>}</tbody></table></div>
+                  {!D.length && <tr><td colSpan={5} className="sub">No goods released in this period.</td></tr>}</tbody>
+                  {D.length > 1 && <tfoot><tr><td colSpan={3}>Total · {D.length}</td><td className="r num">{tzs(D.reduce((a, x) => a + Number(x.charge || 0), 0))}{D.some((x) => Number(x.discount || 0) > 0) && <div className="sub">discounts {tzs(D.reduce((a, x) => a + Number(x.discount || 0), 0))}</div>}</td><td /></tr></tfoot>}</table></div>
             </div>
           </>
         );

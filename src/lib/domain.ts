@@ -196,6 +196,7 @@ export const hasFeature = (c: Pick<Company, "features"> | null | undefined, f: s
 /** Extra features a company can switch on in Settings. */
 export const FEATURES: [string, string, string][] = [
   ["delivery", "Delivery people", "Casual workers who take arrived goods to customers and bring back the money. Adds a Delivery people page."],
+  ["require_id", "Require an ID when releasing goods", "Staff must enter the ID type and number of the person collecting. When off, the ID is optional."],
 ];
 /** Out with a delivery person and not settled yet. */
 export const isOut = (s: Shipment) => !!s.runner_name && !s.runner_settled_at && s.status === "arrived";

@@ -299,7 +299,7 @@ function FeaturesForm() {
   }
   return (
     <fieldset><legend>Extra features</legend>
-      <p className="sub" style={{ marginTop: 0 }}>Switch on only what your company uses. Each feature adds its own page to the side bar for your staff.</p>
+      <p className="sub" style={{ marginTop: 0 }}>Switch on only what your company uses.</p>
       {FEATURES.map(([k, label, about]) => (
         <label className="check" key={k} style={{ alignItems: "start", gap: 10, margin: "8px 0" }}>
           <input type="checkbox" checked={on.includes(k)} disabled={busy} onChange={(e) => toggle(k, label, e.target.checked)} aria-label={label} />

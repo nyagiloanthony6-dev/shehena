@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "./store";
 import { printSlips } from "./printer";
-import { paidOf, METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
+import { hasFeature, paidOf, METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 
 export const ID_TYPES = ["NIDA", "Driving licence", "Voter ID", "Passport", "Work ID", "Other"];
 
@@ -22,6 +22,7 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   const unpaid = s.pay === "unpaid";
+  const needId = hasFeature(company, "require_id");
   if (unpaid && !can("pay")) return <p className="note">This consignment is unpaid. Only staff who take payments can release it.</p>;
   // Unpaid goods: pay now or put on the customer's monthly bill, with an optional discount.
   const before = paidOf(s); // part paid earlier (e.g. at the origin)
@@ -38,7 +39,8 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
   async function release(e: React.FormEvent) {
     e.preventDefault();
     if (!f.name.trim()) return toast("Enter the name of the person collecting.", true);
-    if (!f.idNo.trim()) return toast("Enter their ID number (as on the ID shown).", true);
+    // The ID is optional unless the company requires it (Settings → Extra features).
+    if (needId && !f.idNo.trim()) return toast("Enter their ID number (as on the ID shown).", true);
     if (disc < 0 || disc > gross) return toast(`The discount must be between 0 and TZS ${tzs(gross)}.`, true);
     if (due < before) return toast(`TZS ${tzs(before)} has already been paid; the discount can be at most TZS ${tzs(gross - before)}.`, true);
     if (disc !== d0 && disc > 0 && !f.reason.trim()) return toast("Write the reason for the discount.", true);
@@ -46,7 +48,7 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
     setBusy(true);
     const at = new Date().toISOString();
     const dn = dnNumber();
-    const details = { collector_name: f.name.trim(), collector_phone: f.phone.trim(), collector_id: `${f.idType} ${f.idNo.trim()}`, collect_note: f.note.trim() };
+    const details = { collector_name: f.name.trim(), collector_phone: f.phone.trim(), collector_id: f.idNo.trim() ? `${f.idType} ${f.idNo.trim()}` : "", collect_note: f.note.trim() };
     const values: Partial<Shipment> = {
       status: "collected", collected_at: at, collected_by: me.full_name,
       ...(disc !== d0 ? { discount: disc, discount_reason: disc ? f.reason.trim() : "", discount_by: disc ? me.full_name : null, discount_at: disc ? at : null, gross_charge: gross, charge: due } : {}),
@@ -70,8 +72,8 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
       <div className="fields">
         <label className="f">Collected by<input value={f.name} onChange={(e) => set("name", e.target.value)} aria-label="Collected by" /></label>
         <label className="f">Their phone<input value={f.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" aria-label="Collector phone" /></label>
-        <label className="f">ID type<select value={f.idType} onChange={(e) => set("idType", e.target.value)} aria-label="ID type">{ID_TYPES.map((x) => <option key={x}>{x}</option>)}</select></label>
-        <label className="f">ID number<input value={f.idNo} onChange={(e) => set("idNo", e.target.value)} aria-label="ID number" /></label>
+        <label className="f">ID type {!needId && <small>optional</small>}<select value={f.idType} onChange={(e) => set("idType", e.target.value)} aria-label="ID type">{ID_TYPES.map((x) => <option key={x}>{x}</option>)}</select></label>
+        <label className="f">ID number {!needId && <small>optional</small>}<input value={f.idNo} onChange={(e) => set("idNo", e.target.value)} aria-label="ID number" /></label>
         <label className="f full">Remarks <small>optional: condition of goods, packages short…</small><input value={f.note} onChange={(e) => set("note", e.target.value)} placeholder={`All ${s.pkgs} package${s.pkgs === 1 ? "" : "s"} received in good condition`} aria-label="Release remarks" /></label>
         {unpaid && bills.length > 0 && <label className="f">Payment<select value={f.how} onChange={(e) => set("how", e.target.value)} aria-label="Release payment"><option value="pay">Pays now</option><option value="bill">Monthly bill</option></select></label>}
         {unpaid && !onBill && <label className="f">{before ? <>Balance TZS {tzs(balance)} <small>TZS {tzs(before)} paid before</small></> : <>Payment of TZS {tzs(due)}</>}<select value={f.method} onChange={(e) => set("method", e.target.value)} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>}
