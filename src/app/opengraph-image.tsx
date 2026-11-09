@@ -22,8 +22,8 @@ export default async function OgImage() {
             </g>
           </svg>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 56, fontWeight: 700, lineHeight: 1, fontFamily: grotesk ? "Space Grotesk" : undefined }}>shehena</div>
-            <div style={{ display: "flex", alignItems: "center", width: 210 }}>
+            <div style={{ fontSize: 56, fontWeight: 700, lineHeight: 1, fontFamily: grotesk ? "Space Grotesk" : undefined, letterSpacing: 3 }}>SHEHENA</div>
+            <div style={{ display: "flex", alignItems: "center", width: 262 }}>
               <div style={{ width: 12, height: 12, borderRadius: 6, border: "3px solid #F2A23A" }} />
               <div style={{ flex: 1, height: 3, background: "#F2A23A" }} />
               <div style={{ width: 13, height: 13, borderRadius: 7, background: "#F2A23A" }} />

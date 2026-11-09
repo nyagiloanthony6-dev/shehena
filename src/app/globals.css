@@ -244,7 +244,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stro
 .mark{display:inline-grid;place-items:center;width:34px;height:34px;flex:none}
 .mark svg{width:100%;height:100%;display:block;filter:drop-shadow(0 2px 4px rgba(0,0,0,.22))}
 .wordmark{display:inline-flex;flex-direction:column;align-items:stretch;gap:5px;line-height:1}
-.wm-t{font-family:"Space Grotesk",var(--f-display);font-weight:700;font-size:23px;letter-spacing:.005em;color:inherit;line-height:.9}
+.wm-t{font-family:"Space Grotesk",var(--f-display);font-weight:700;font-size:19px;letter-spacing:.07em;margin-right:-.07em;color:inherit;line-height:.9}
 .wm-r{position:relative;height:2px;margin:0 3px;background:#F2A23A;border-radius:2px}
 .wm-r::before,.wm-r::after{content:"";position:absolute;top:50%;width:7px;height:7px;border-radius:50%;transform:translate(-50%,-50%)}
 .wm-r::before{left:0;border:2px solid #F2A23A;box-sizing:border-box;background:var(--nav-bg)}
@@ -348,7 +348,7 @@ details.panel[open]>summary{margin-bottom:10px}
 .login-brand{background:var(--nav-bg);color:var(--nav-fg);padding:0 32px 32px;display:flex;flex-direction:column;gap:12px}
 .login-brand{padding-top:32px;background:radial-gradient(rgba(255,255,255,.07) 1px,transparent 1.2px) 0 0/18px 18px,radial-gradient(120% 80% at 100% 100%,rgba(240,178,90,.16),transparent 60%),var(--nav-bg)}
 .login-brand .mark{width:64px;height:64px;margin-bottom:8px}
-.login-brand .wm-t{font-size:46px}
+.login-brand .wm-t{font-size:40px}
 .login-brand .wordmark{gap:9px;align-self:flex-start}
 .login-brand .wm-r{height:3px}
 .login-brand .wm-r::before,.login-brand .wm-r::after{width:10px;height:10px}
@@ -362,7 +362,7 @@ details.panel[open]>summary{margin-bottom:10px}
 .stops li:last-child::after{display:none}
 .stops li:last-child::before{background:var(--tape)}
 .login-form{padding:32px;background:var(--surface)}
-@media (max-width:720px){.login-card{grid-template-columns:1fr}.login-brand{padding:0 20px 20px}.login-brand{padding-top:22px}.login-brand .wm-t{font-size:34px}.stops{display:none}.login-form{padding:22px 20px}}
+@media (max-width:720px){.login-card{grid-template-columns:1fr}.login-brand{padding:0 20px 20px}.login-brand{padding-top:22px}.login-brand .wm-t{font-size:30px}.stops{display:none}.login-form{padding:22px 20px}}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:slide .18s ease-out}@keyframes slide{from{transform:translateX(24px);opacity:.6}}}
 
 /* ===== app additions ===== */
@@ -543,6 +543,6 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 .datefilter{display:flex;align-items:center;gap:6px}
 
 .mtop .mark{width:30px;height:30px}
-.otop .wm-t{font-size:20px}
+.otop .wm-t{font-size:17px}
 .side-brand .brandrow{gap:11px}
 .side-brand .mark{width:38px;height:38px}

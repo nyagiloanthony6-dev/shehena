@@ -1,4 +1,4 @@
-/** Shehena logo: a cargo tag with an S cut through it, plus the lowercase "shehena" wordmark. */
+/** Shehena logo: a cargo tag with an S cut through it, plus the "SHEHENA" wordmark. */
 export const BRAND = { navy: "#14213F", amber: "#F2A23A" };
 
 const TAG = "M30 20 H62 L80 38 V76 A6 6 0 0 1 74 82 H30 A6 6 0 0 1 24 76 V26 A6 6 0 0 1 30 20 Z";
@@ -38,15 +38,15 @@ type Pdf = {
   circle: (x: number, y: number, r: number, s: string) => unknown;
 };
 
-/** Draws the full logo (tag + "shehena" + route line) on a jsPDF page. `light` = white text for dark headers. */
+/** Draws the full logo (tag + "SHEHENA" + route line) on a jsPDF page. `light` = white text for dark headers. */
 export async function pdfLogo(doc: Pdf, x: number, y: number, light = true) {
   const png = await tagPng();
   if (png) doc.addImage(png, "PNG", x, y - 9, 13, 13);
   const tx = png ? x + 15.5 : x;
-  doc.setFont("helvetica", "bold"); doc.setFontSize(21);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(19);
   if (light) doc.setTextColor(255, 255, 255); else doc.setTextColor(20, 33, 63);
-  doc.text("shehena", tx, y);
-  const w = doc.getTextWidth("shehena");
+  doc.text("SHEHENA", tx, y);
+  const w = doc.getTextWidth("SHEHENA");
   doc.setDrawColor(242, 162, 58); doc.setFillColor(242, 162, 58); doc.setLineWidth(0.7);
   doc.line(tx + 1.2, y + 3.2, tx + w - 1.2, y + 3.2);
   doc.circle(tx + 1.2, y + 3.2, 0.9, "S");

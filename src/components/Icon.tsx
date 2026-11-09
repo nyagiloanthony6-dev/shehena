@@ -34,11 +34,11 @@ export function Mark() {
   );
 }
 
-/** "shehena" wordmark with the origin-to-destination route line under it. */
+/** "SHEHENA" wordmark with the origin-to-destination route line under it. */
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
     <span className={`wordmark ${className}`.trim()}>
-      <span className="wm-t">shehena</span>
+      <span className="wm-t">SHEHENA</span>
       <span className="wm-r" aria-hidden="true" />
     </span>
   );
