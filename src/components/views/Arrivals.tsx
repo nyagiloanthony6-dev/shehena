@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { ReleaseForm } from "../release";
 import { DeliveryPeople, GiveToRunner } from "./Runners";
-import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub } from "../parts";
+import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub, FoundPicker } from "../parts";
 import { isOut, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
@@ -114,6 +114,7 @@ export default function Arrivals() {
     <section>
       <div className="sectionhead">
         <div><h1>Arrivals</h1><div className="sub">{air ? "Flights coming in" : "Trucks coming in"}, goods waiting for customers, and payments to collect before release.</div></div>
+        <div><FoundPicker label="Record found goods" /></div>
       </div>
       <div className="stats">
         <div className="stat"><div className="lbl">{W.onRoad}</div><div className="v">{road.length}</div><div className="s">{W.vehicle}{road.length === 1 ? "" : "s"} to receive</div></div>

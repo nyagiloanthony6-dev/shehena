@@ -93,6 +93,7 @@ export function receiptSlip(s: Shipment, company: Company, account?: string): Sl
   L.push({ t: "text", text: `TOTAL  TZS ${tzs(s.charge)}`, align: "right", bold: true, size: 2 },
     { t: "pair", k: "Payment", v: payText(s, account), bold: true },
     { t: "pair", k: "Served by", v: s.created_by_name || "-" },
+    ...(s.found_on_arrival ? [{ t: "pair", k: "Note", v: `Found on arrival at ${regShort(s.dest)}, recorded at destination` } as Line] : []),
     ...(s.runner_name && !s.runner_settled_at ? [{ t: "pair", k: "Delivery by", v: `${s.runner_name}${s.runner_phone ? `, ${s.runner_phone}` : ""}`, bold: true } as Line] : []),
     { t: "rule" },
     { t: "qr", data: s.no },

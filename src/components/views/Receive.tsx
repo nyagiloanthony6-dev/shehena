@@ -5,7 +5,7 @@ import { PrinterLine } from "../PrinterSetup";
 import { RegionOptions } from "../RegionOptions";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
-import { Slip } from "../parts";
+import { FoundPicker, Slip } from "../parts";
 import { METHODS, REGIONS, INTL, canRecordFound, chargeableKg, isAir, kgFmt, terms, volumeKg, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment, officesOf } from "@/lib/domain";
 
 type Line = { name: string; pkgs: string; kg: string; unit: string; charge: string; l: string; w: string; h: string; rate: string };
@@ -160,7 +160,13 @@ export default function Receive() {
   return (
     <section>
       <div className="sectionhead"><h1>{found ? "Record found goods" : "Receive goods"}</h1><span className="sub">{found ? `Goods that came off the ${W.vehicle} but were never recorded at loading.` : "Record the consignment, then hand the sender the receipt."}</span></div>
-      {!found && <div style={{ margin: "-6px 0 12px" }}><PrinterLine /></div>}
+      <div style={{ margin: "-6px 0 12px" }}><PrinterLine /></div>
+      {!found && canRecordFound(me.role, company) && (
+        <div className="notice" role="note" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span>Goods came off an arrived {W.vehicle} but are not on its manifest? Record them here with the proper charge and a receipt.</span>
+          <FoundPicker />
+        </div>
+      )}
       {found && (
         <div className="notice warn" role="status">
           <span><b>Found on {trip!.plate}</b> · trip {trip!.no} · {regShort(trip!.origin)} → {regShort(trip!.dest)}, arrived {fmtDate(trip!.arrived_at)}. Enter the receiver and the proper charge.{me.role !== "admin" && " The Admin will check this record."}</span>

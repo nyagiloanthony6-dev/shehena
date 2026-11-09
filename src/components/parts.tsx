@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
-import { sumPaid, sumBalance, balanceOf, isPart, paidOf,
+import { canRecordFound, sumPaid, sumBalance, balanceOf, isPart, paidOf,
   PAY_LABEL, type Pay, cwOf, isAir, kgFmt, terms, fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
   type Company, type NoticeKind, type NoticeTo, type Shipment, type Trip,
 } from "@/lib/domain";
@@ -215,6 +215,7 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
   pair(disc > 0 ? "Total to pay" : lines.length > 1 ? "Total charge" : "Charge", "TZS " + tzs(s.charge));
   pair("Payment", s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : s.pay === "bill" ? "MONTHLY BILL" + (account ? ` (${account})` : "") : isPart(s) ? `PART PAID - TZS ${tzs(paidOf(s))}${s.method ? ` (${s.method})` : ""}` : "NOT PAID - due on collection");
   if (isPart(s)) pair("Balance", `TZS ${tzs(balanceOf(s))} due on collection`);
+  if (s.found_on_arrival) pair("Note", `Found on arrival at ${regShort(s.dest)}, recorded at destination`);
   if (s.runner_name && !s.runner_settled_at) pair("Delivery by", `${s.runner_name}${s.runner_phone ? ", " + s.runner_phone : ""}`);
   pair("Served by", s.created_by_name || "-"); dash();
   line("Keep this receipt. The receiver collects with ID and the waybill number.", 7.5);
@@ -341,5 +342,33 @@ export function TrucksByDate({ initial = "departed" }: { initial?: "loaded" | "d
         </table></div>
       ) : <p className="quiet">No {W.vehicles} {basis === "loaded" && air ? "started" : basis === "arrived" && air ? "landed" : basis} on this date.</p>}
     </div>
+  );
+}
+
+/**
+ * Goods that came off an arrived truck but were not on its manifest: pick the truck (arrived in the
+ * last 30 days, at this office for branch staff) and record them with a proper charge and receipt.
+ */
+export function FoundPicker({ label = "Record found goods", primary = false }: { label?: string; primary?: boolean }) {
+  const { trips, me, company } = useStore();
+  const ui = useUi();
+  const [open, setOpen] = useState(false);
+  const [id, setId] = useState("");
+  if (!canRecordFound(me.role, company)) return null;
+  const W = terms(company);
+  const list = trips.filter((t) => t.status === "arrived" && (!me.station || t.dest === me.station) && Date.now() - new Date(t.arrived_at || 0).getTime() < 30 * 864e5)
+    .sort((a, b) => (b.arrived_at || "").localeCompare(a.arrived_at || ""));
+  if (!open) return <button className={`btn sm${primary ? " primary" : ""}`} type="button" onClick={() => setOpen(true)}>{label}</button>;
+  return (
+    <span className="runner-give">
+      {list.length ? <>
+        <select value={id} onChange={(e) => setId(e.target.value)} autoFocus aria-label={`Arrived ${W.vehicle}`} style={{ width: "auto", minWidth: 220 }}>
+          <option value="">Which {W.vehicle} were they found on?</option>
+          {list.map((t) => <option key={t.id} value={t.id}>{t.plate} · {regShort(t.origin)} → {regShort(t.dest)} · arrived {fmtDate(t.arrived_at).slice(0, 11)}</option>)}
+        </select>
+        <button className="btn sm primary" type="button" disabled={!id} onClick={() => { setOpen(false); ui.recordFound(id); }}>Record goods</button>
+      </> : <span className="sub">No {W.vehicle} has arrived{me.station ? ` at ${regShort(me.station)}` : ""} in the last 30 days.</span>}
+      <button className="btn sm" type="button" onClick={() => setOpen(false)}>Cancel</button>
+    </span>
   );
 }
