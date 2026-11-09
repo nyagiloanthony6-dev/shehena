@@ -1,4 +1,4 @@
-import { BRAND, S_PATH, TAG_PATH } from "@/lib/brand";
+import { ON_DARK, ROUTE_PATH } from "@/lib/brand";
 
 const PATHS: Record<string, React.ReactNode> = {
   home: <path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
@@ -19,27 +19,22 @@ const PATHS: Record<string, React.ReactNode> = {
 export function Icon({ name }: { name: string }) {
   return <svg className="i" viewBox="0 0 24 24" aria-hidden="true">{PATHS[name]}</svg>;
 }
-/** Shehena symbol: a cargo tag with an S cut through it. */
+/** Shehena symbol "Njia": an S-shaped road from origin (ring) to destination (dot). Drawn for navy surfaces. */
 export function Mark() {
+  const c = ON_DARK;
   return (
     <span className="mark" aria-hidden="true">
       <svg viewBox="0 0 100 100">
-        <g transform="rotate(-8 52 51)">
-          <path d={TAG_PATH} fill={BRAND.amber} />
-          <circle cx="66" cy="32" r="5" fill={BRAND.navy} />
-          <path d={S_PATH} fill="none" stroke={BRAND.navy} strokeWidth="7.5" strokeLinecap="round" />
-        </g>
+        <rect width="100" height="100" rx="24" fill={c.tile} />
+        <path d={ROUTE_PATH} fill="none" stroke={c.route} strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="30" cy="72" r="6.5" fill={c.tile} stroke={c.ring} strokeWidth="3.5" />
+        <circle cx="70" cy="20" r="7" fill={c.dot} />
       </svg>
     </span>
   );
 }
 
-/** "SHEHENA" wordmark with the origin-to-destination route line under it. */
+/** "SHEHENA" wordmark. */
 export function Wordmark({ className = "" }: { className?: string }) {
-  return (
-    <span className={`wordmark ${className}`.trim()}>
-      <span className="wm-t">SHEHENA</span>
-      <span className="wm-r" aria-hidden="true" />
-    </span>
-  );
+  return <span className={`wordmark ${className}`.trim()}><span className="wm-t">SHEHENA</span></span>;
 }
