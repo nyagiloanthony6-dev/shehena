@@ -98,7 +98,7 @@ export function receiptSlip(s: Shipment, company: Company, account?: string): Sl
     { t: "rule" },
     { t: "qr", data: s.no },
     { t: "text", text: "Keep this receipt. The receiver collects with ID and the waybill number.", align: "center" },
-    { t: "text", text: "Shehena - Serengeti Labs", align: "center" });
+    { t: "text", text: "Powered by shehena - Serengeti Labs", align: "center" });
   return { lines: L, label: `Receipt ${s.no}` };
 }
 

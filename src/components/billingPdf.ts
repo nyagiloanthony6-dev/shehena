@@ -1,3 +1,4 @@
+import { pdfLogo } from "@/lib/brand";
 import { dayLabel } from "@/lib/billing";
 
 /** A4 receipt from Serengeti Labs to a client company for a Shehena subscription payment. */
@@ -8,8 +9,8 @@ export async function downloadSubscriptionReceipt(p: {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const L = 20, R = 190;
   doc.setFillColor(20, 33, 61); doc.rect(0, 0, 210, 34, "F");
-  doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(20); doc.text("Shehena", L, 17);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text("Cargo management · Developed by Serengeti Labs", L, 25);
+  await pdfLogo(doc, L, 16); doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text("Cargo management · Developed by Serengeti Labs", L, 27);
   doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("PAYMENT RECEIPT", R, 17, { align: "right" });
   doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text(`No. SH-${String(p.id).slice(0, 8).toUpperCase()}`, R, 25, { align: "right" });
   doc.setTextColor(20, 24, 31);
@@ -43,8 +44,8 @@ export async function downloadAgentStatement(agent: { name: string; phone: strin
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const L = 20, R = 190;
   doc.setFillColor(20, 33, 61); doc.rect(0, 0, 210, 34, "F");
-  doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(20); doc.text("Shehena", L, 17);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text("Serengeti Labs · Sales commission", L, 25);
+  await pdfLogo(doc, L, 16); doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text("Serengeti Labs · Sales commission", L, 27);
   doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text(payout ? "COMMISSION STATEMENT" : "COMMISSION OWED", R, 17, { align: "right" });
   doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text(payout ? `Paid ${dayLabel(payout.paid_on)}` : `As of ${dayLabel(new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10))}`, R, 25, { align: "right" });
   doc.setTextColor(20, 24, 31);

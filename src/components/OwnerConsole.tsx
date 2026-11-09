@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Mark } from "./Icon";
+import { Mark, Wordmark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
   createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
@@ -109,7 +109,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
   return (
     <div className="owner">
       <header className="otop">
-        <div className="brandrow"><Mark /><div><div className="sys">Shehena</div><div className="otitle">Owner console</div></div></div>
+        <div className="brandrow"><Mark /><Wordmark /><div className="otitle" style={{ marginLeft: 6, paddingLeft: 12, borderLeft: "1px solid rgba(255,255,255,.15)" }}>Owner console</div></div>
         <div className="mtop-r" style={{ gap: 8 }}>
           <span className="sub" style={{ color: "var(--nav-muted)" }}>{data.me}</span>
           {data.hasCompany && <a className="btn sm" href="/app">My company</a>}

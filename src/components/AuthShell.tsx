@@ -1,5 +1,4 @@
-import { Mark } from "./Icon";
-import { SYSTEM } from "@/lib/domain";
+import { Mark, Wordmark } from "./Icon";
 
 /** Two-panel card used by sign in, company sign up and password reset. */
 export default function AuthShell({ children }: { children: React.ReactNode }) {
@@ -8,7 +7,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       <div className="login-card">
         <div className="login-brand">
           <Mark />
-          <div className="sys">{SYSTEM}</div>
+          <Wordmark />
           <p>Cargo management system</p>
           <ol className="stops">
             <li>Receive<small>Record goods and issue the receipt</small></li>

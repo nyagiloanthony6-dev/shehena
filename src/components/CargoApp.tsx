@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { StoreProvider, useStore } from "./store";
-import { Icon, Mark } from "./Icon";
+import { Icon, Mark, Wordmark } from "./Icon";
 import { ShipmentSheet, TripSheet } from "./sheets";
 import Overview from "./views/Overview";
 import Consignments from "./views/Consignments";
@@ -167,7 +167,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
       <div className="shell">
         <aside className="side">
           <div className="side-brand">
-            <div className="brandrow"><Mark /><div className="sys">{SYSTEM}</div></div>
+            <div className="brandrow"><Mark /><Wordmark /></div>
             <div className="co">{st.company.name}</div>
             <div className="br">{st.company.branch}</div>
           </div>
