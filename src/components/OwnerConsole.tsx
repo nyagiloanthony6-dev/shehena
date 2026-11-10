@@ -320,45 +320,43 @@ function Trucks({ companyId }: { companyId: string }) {
         {rows && <span className="sub">{rows.length} truck{rows.length === 1 ? "" : "s"} · {sum("trips")} trip{sum("trips") === 1 ? "" : "s"} · TZS {tzs(sum("charged"))} charged{collectPct(sum("paid"), sum("charged")) !== null && <> · <b>{collectPct(sum("paid"), sum("charged"))}% collected</b></>}</span>}
       </div>
       {err ? <p className="sub" style={{ color: "var(--bad)" }}>{err}</p> : !rows ? <p className="sub">Loading…</p> : !rows.length ? <p className="sub">No trucks loaded in {monthName(month)}.</p> : (
-        <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small" style={{ minWidth: 0 }}>
-          <thead><tr><th>Truck</th><th className="r">Trips</th><th className="r">Consignments</th><th className="r">Charged</th><th className="r">Paid</th><th className="r">Owed</th><th className="r">Collected</th></tr></thead>
+        <div className="ledger" style={{ border: 0, marginTop: 6 }}><table className="small trk-tbl" style={{ minWidth: 0 }}>
+          <thead><tr><th>Truck</th><th className="r">Trips</th><th className="r">Charged</th><th className="r">Paid</th><th className="r">Owed</th><th className="r">Collected</th></tr></thead>
           {rows.map((r) => {
             const isOpen = open.has(r.plate);
             return (
               <tbody key={r.plate} className={isOpen ? "trk open" : "trk"}>
-                <tr className="trk-row">
+                <tr className="trk-row" onClick={() => toggle(r.plate)}>
                   <td>
-                    <button type="button" className="trk-toggle" onClick={() => toggle(r.plate)} aria-expanded={isOpen} aria-label={`${isOpen ? "Hide" : "Show"} trips for ${r.plate}`}>
+                    <button type="button" className="trk-toggle" onClick={(e) => { e.stopPropagation(); toggle(r.plate); }} aria-expanded={isOpen} aria-label={`${isOpen ? "Hide" : "Show"} trips for ${r.plate}`}>
                       <span className="chev" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
-                      <b className="mono" style={{ whiteSpace: "nowrap" }}>{r.plate}</b>
+                      <b className="mono">{r.plate}</b>
                     </button>
-                    <div className="sub" style={{ paddingLeft: 18 }}>{r.ownership === "rental" ? `Rental${r.rent ? `, rent ${tzs(r.rent)}` : ""}` : "Own"}</div>
+                    <span className="sub"> {r.ownership === "rental" ? `Rental${r.rent ? ` ${tzs(r.rent)}` : ""}` : "Own"} · {r.consignments} cons</span>
                   </td>
                   <td className="r num">{r.trips}</td>
-                  <td className="r num">{r.consignments}<div className="sub">{r.packages} pkgs</div></td>
                   <td className="r num">{tzs(r.charged)}</td>
                   <td className="r num">{tzs(r.paid)}</td>
-                  <td className="r num">{tzs(r.bill + r.unpaid)}{r.bill > 0 && <div className="sub">{tzs(r.bill)} bills</div>}</td>
+                  <td className="r num" title={r.bill > 0 ? `${tzs(r.bill)} on monthly bills` : undefined}>{tzs(r.bill + r.unpaid)}{r.bill > 0 && <span className="sub"> *</span>}</td>
                   <td className="r"><Collected paid={r.paid} charged={r.charged} /></td>
                 </tr>
                 {isOpen && r.list.map((t) => (
                   <tr key={t.id} className="trip-row">
-                    <td><div style={{ paddingLeft: 18 }}><span className="mono">{t.no || "Trip"}</span> <span className="sub">{new Date(t.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Dar_es_Salaam" })}</span><div className="sub">{[t.route, t.status].filter(Boolean).join(" · ")}</div></div></td>
-                    <td className="r num sub">1</td>
-                    <td className="r num">{t.consignments}</td>
+                    <td><span className="trip-ln"><span className="mono">{t.no || "Trip"}</span><span className="sub"> · {new Date(t.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Dar_es_Salaam" })}{t.route ? ` · ${t.route}` : ""} · {t.consignments} cons{t.status ? ` · ${t.status}` : ""}</span></span></td>
+                    <td className="r num sub"></td>
                     <td className="r num">{tzs(t.charged)}</td>
                     <td className="r num">{tzs(t.paid)}</td>
-                    <td className="r num">{tzs(t.bill + t.unpaid)}{t.bill > 0 && <div className="sub">{tzs(t.bill)} bills</div>}</td>
+                    <td className="r num" title={t.bill > 0 ? `${tzs(t.bill)} on monthly bills` : undefined}>{tzs(t.bill + t.unpaid)}{t.bill > 0 && <span className="sub"> *</span>}</td>
                     <td className="r"><Collected paid={t.paid} charged={t.charged} /></td>
                   </tr>
                 ))}
               </tbody>
             );
           })}
-          <tfoot><tr><td>Total</td><td className="r num">{sum("trips")}</td><td className="r num">{sum("consignments")}</td><td className="r num">{tzs(sum("charged"))}</td><td className="r num">{tzs(sum("paid"))}</td><td className="r num">{tzs(sum("bill") + sum("unpaid"))}</td><td className="r"><Collected paid={sum("paid")} charged={sum("charged")} /></td></tr></tfoot>
+          <tfoot><tr><td>Total <span className="sub">· {sum("consignments")} cons</span></td><td className="r num">{sum("trips")}</td><td className="r num">{tzs(sum("charged"))}</td><td className="r num">{tzs(sum("paid"))}</td><td className="r num">{tzs(sum("bill") + sum("unpaid"))}</td><td className="r"><Collected paid={sum("paid")} charged={sum("charged")} /></td></tr></tfoot>
         </table></div>
       )}
-      <p className="note">Trips are counted in the month the truck started loading. Charged = all consignments on those trips (after discounts); Paid = already paid. Owed = on monthly bills or still to be paid at collection. Collected = Paid ÷ Charged (green 90%+, amber 60–89%, red below 60%). Tap a truck to see each trip.</p>
+      <p className="note">Collected = Paid ÷ Charged (green 90%+, amber 60–89%, red below 60%). * part of Owed is on monthly bills. Tap a truck for its trips. Trips count in the month loading started.</p>
     </div>
   );
 }

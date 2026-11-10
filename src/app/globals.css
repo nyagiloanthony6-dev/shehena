@@ -541,9 +541,9 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 .side-brand .brandrow{gap:11px}
 .side-brand .mark{width:38px;height:38px}
 
-.colpct{display:inline-flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:54px}
-.colpct b{font-size:13px}
-.colbar{display:block;width:54px;height:5px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.colpct{display:inline-flex;flex-direction:row-reverse;align-items:center;gap:7px;white-space:nowrap}
+.colpct b{font-size:12.5px;min-width:34px;text-align:right}
+.colbar{display:block;width:44px;height:5px;border-radius:3px;background:var(--sunk);overflow:hidden}
 .colbar span{display:block;height:100%;border-radius:3px}
 .colpct.good b{color:var(--good)}.colpct.good .colbar span{background:var(--good)}
 .colpct.mid b{color:var(--amber)}.colpct.mid .colbar span{background:var(--amber)}
@@ -552,4 +552,9 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 .trk-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 .trk-toggle .chev{width:12px;color:var(--muted);font-size:11px}
 .trk.open .trk-row td{border-bottom-color:transparent}
-.trip-row td{background:var(--sunk);font-size:12.5px}
+.trip-row td{background:var(--sunk);font-size:12px}
+.trk-tbl th,.trk-tbl td{padding-top:6px;padding-bottom:6px;white-space:nowrap}
+.trk-tbl td:first-child{white-space:normal}
+.trk-row{cursor:pointer}
+.trk-row:hover td{background:var(--sunk)}
+.trip-ln{padding-left:18px;display:inline-block}
