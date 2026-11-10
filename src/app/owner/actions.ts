@@ -384,7 +384,8 @@ export async function deletePayout(id: number | string): Promise<Result> {
 
 // ---------------- truck activity (read only)
 
-export type TruckRow = { plate: string; ownership: string; trips: number; consignments: number; packages: number; charged: number; paid: number; bill: number; unpaid: number; rent: number; last: string };
+export type TripMoney = { id: string; no: string; date: string; route: string; status: string; consignments: number; charged: number; paid: number; bill: number; unpaid: number };
+export type TruckRow = { plate: string; ownership: string; trips: number; consignments: number; packages: number; charged: number; paid: number; bill: number; unpaid: number; rent: number; last: string; list: TripMoney[] };
 /**
  * A client's trucks for one month (YYYY-MM, Tanzania time): trips loaded per plate, and what the
  * consignments on those trips were charged, paid, put on monthly bills or still owed.
@@ -409,19 +410,23 @@ export async function truckActivity(companyId: string, month: string): Promise<{
     const rows = new Map<string, TruckRow>();
     for (const t of inMonth) {
       const key = String(t.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") || "?";
-      const r = rows.get(key) || { plate: String(t.plate || "?").trim().toUpperCase(), ownership: t.ownership || "own", trips: 0, consignments: 0, packages: 0, charged: 0, paid: 0, bill: 0, unpaid: 0, rent: 0, last: t.created_at };
+      const r = rows.get(key) || { plate: String(t.plate || "?").trim().toUpperCase(), ownership: t.ownership || "own", trips: 0, consignments: 0, packages: 0, charged: 0, paid: 0, bill: 0, unpaid: 0, rent: 0, last: t.created_at, list: [] as TripMoney[] };
       r.trips++; r.rent += Number(t.rent_cost || 0);
       if (t.ownership === "rental") r.ownership = "rental";
       if (t.created_at > r.last) r.last = t.created_at;
+      const trip: TripMoney = { id: t.id, no: String(t.no || ""), date: t.created_at, route: [t.origin, t.dest].filter(Boolean).join(" → "), status: String(t.status || ""), consignments: 0, charged: 0, paid: 0, bill: 0, unpaid: 0 };
       for (const s of ships.filter((x) => x.trip_id === t.id)) {
         const c = Number(s.charge || 0);
-        r.consignments++; r.packages += Number(s.pkgs || 0); r.charged += c;
+        trip.consignments++; r.packages += Number(s.pkgs || 0); trip.charged += c;
         // Part payments count as paid; the rest is still owed.
         const part = s.pay === "unpaid" ? Math.min(Number(s.paid_amount || 0), c) : 0;
-        if (s.pay === "paid") r.paid += c; else if (s.pay === "bill") r.bill += c; else { r.paid += part; r.unpaid += c - part; }
+        if (s.pay === "paid") trip.paid += c; else if (s.pay === "bill") trip.bill += c; else { trip.paid += part; trip.unpaid += c - part; }
       }
+      r.consignments += trip.consignments; r.charged += trip.charged; r.paid += trip.paid; r.bill += trip.bill; r.unpaid += trip.unpaid;
+      r.list.push(trip);
       rows.set(key, r);
     }
+    for (const r of rows.values()) r.list.sort((a, b) => b.date.localeCompare(a.date));
     return { rows: [...rows.values()].sort((a, b) => b.charged - a.charged || b.trips - a.trips) };
   } catch (e) { return { error: (e as Error).message }; }
 }

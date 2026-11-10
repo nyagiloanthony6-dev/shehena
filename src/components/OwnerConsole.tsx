@@ -278,15 +278,35 @@ function lastMonths(n: number) {
   return Array.from({ length: n }, (_, i) => { const d = new Date(Date.UTC(y, m - 1 - i, 1)); return d.toISOString().slice(0, 7); });
 }
 
+/** Collected share of what was charged, e.g. 82%. Empty when nothing was charged. */
+function collectPct(paid: number, charged: number) {
+  return charged > 0 ? Math.round((paid / charged) * 100) : null;
+}
+
+/** "82%" with a small bar, green from 90%, amber from 60%, red below. */
+function Collected({ paid, charged }: { paid: number; charged: number }) {
+  const p = collectPct(paid, charged);
+  if (p === null) return <span className="sub">–</span>;
+  const tone = p >= 90 ? "good" : p >= 60 ? "mid" : "low";
+  return (
+    <span className={`colpct ${tone}`} title={`TZS ${tzs(paid)} paid of TZS ${tzs(charged)} charged`}>
+      <b className="num">{p}%</b>
+      <span className="colbar" aria-hidden="true"><span style={{ width: `${Math.min(100, p)}%` }} /></span>
+    </span>
+  );
+}
+
 /** Each truck's trips in a month, and what the goods on those trips were charged and collected. */
 function Trucks({ companyId }: { companyId: string }) {
   const months = useMemo(() => lastMonths(6), []);
   const [month, setMonth] = useState(months[0]);
   const [rows, setRows] = useState<TruckRow[] | null>(null);
   const [err, setErr] = useState("");
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (plate: string) => setOpen((o) => { const n = new Set(o); if (n.has(plate)) n.delete(plate); else n.add(plate); return n; });
   useEffect(() => {
     let live = true;
-    setRows(null); setErr("");
+    setRows(null); setErr(""); setOpen(new Set());
     truckActivity(companyId, month).then((r) => { if (!live) return; if (r.error) setErr(r.error); else setRows(r.rows || []); });
     return () => { live = false; };
   }, [companyId, month]);
@@ -297,25 +317,48 @@ function Trucks({ companyId }: { companyId: string }) {
         <select value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Truck month" style={{ width: "auto" }}>
           {months.map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
         </select>
-        {rows && <span className="sub">{rows.length} truck{rows.length === 1 ? "" : "s"} · {sum("trips")} trip{sum("trips") === 1 ? "" : "s"} · TZS {tzs(sum("charged"))} charged</span>}
+        {rows && <span className="sub">{rows.length} truck{rows.length === 1 ? "" : "s"} · {sum("trips")} trip{sum("trips") === 1 ? "" : "s"} · TZS {tzs(sum("charged"))} charged{collectPct(sum("paid"), sum("charged")) !== null && <> · <b>{collectPct(sum("paid"), sum("charged"))}% collected</b></>}</span>}
       </div>
       {err ? <p className="sub" style={{ color: "var(--bad)" }}>{err}</p> : !rows ? <p className="sub">Loading…</p> : !rows.length ? <p className="sub">No trucks loaded in {monthName(month)}.</p> : (
         <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small" style={{ minWidth: 0 }}>
-          <thead><tr><th>Truck</th><th className="r">Trips</th><th className="r">Consignments</th><th className="r">Charged</th><th className="r">Paid</th><th className="r">Owed</th></tr></thead>
-          <tbody>{rows.map((r) => (
-            <tr key={r.plate}>
-              <td><b className="mono" style={{ whiteSpace: "nowrap" }}>{r.plate}</b><div className="sub">{r.ownership === "rental" ? `Rental${r.rent ? `, rent ${tzs(r.rent)}` : ""}` : "Own"}</div></td>
-              <td className="r num">{r.trips}</td>
-              <td className="r num">{r.consignments}<div className="sub">{r.packages} pkgs</div></td>
-              <td className="r num">{tzs(r.charged)}</td>
-              <td className="r num">{tzs(r.paid)}</td>
-              <td className="r num">{tzs(r.bill + r.unpaid)}{r.bill > 0 && <div className="sub">{tzs(r.bill)} bills</div>}</td>
-            </tr>))}
-          </tbody>
-          <tfoot><tr><td>Total</td><td className="r num">{sum("trips")}</td><td className="r num">{sum("consignments")}</td><td className="r num">{tzs(sum("charged"))}</td><td className="r num">{tzs(sum("paid"))}</td><td className="r num">{tzs(sum("bill") + sum("unpaid"))}</td></tr></tfoot>
+          <thead><tr><th>Truck</th><th className="r">Trips</th><th className="r">Consignments</th><th className="r">Charged</th><th className="r">Paid</th><th className="r">Owed</th><th className="r">Collected</th></tr></thead>
+          {rows.map((r) => {
+            const isOpen = open.has(r.plate);
+            return (
+              <tbody key={r.plate} className={isOpen ? "trk open" : "trk"}>
+                <tr className="trk-row">
+                  <td>
+                    <button type="button" className="trk-toggle" onClick={() => toggle(r.plate)} aria-expanded={isOpen} aria-label={`${isOpen ? "Hide" : "Show"} trips for ${r.plate}`}>
+                      <span className="chev" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
+                      <b className="mono" style={{ whiteSpace: "nowrap" }}>{r.plate}</b>
+                    </button>
+                    <div className="sub" style={{ paddingLeft: 18 }}>{r.ownership === "rental" ? `Rental${r.rent ? `, rent ${tzs(r.rent)}` : ""}` : "Own"}</div>
+                  </td>
+                  <td className="r num">{r.trips}</td>
+                  <td className="r num">{r.consignments}<div className="sub">{r.packages} pkgs</div></td>
+                  <td className="r num">{tzs(r.charged)}</td>
+                  <td className="r num">{tzs(r.paid)}</td>
+                  <td className="r num">{tzs(r.bill + r.unpaid)}{r.bill > 0 && <div className="sub">{tzs(r.bill)} bills</div>}</td>
+                  <td className="r"><Collected paid={r.paid} charged={r.charged} /></td>
+                </tr>
+                {isOpen && r.list.map((t) => (
+                  <tr key={t.id} className="trip-row">
+                    <td><div style={{ paddingLeft: 18 }}><span className="mono">{t.no || "Trip"}</span> <span className="sub">{new Date(t.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Dar_es_Salaam" })}</span><div className="sub">{[t.route, t.status].filter(Boolean).join(" · ")}</div></div></td>
+                    <td className="r num sub">1</td>
+                    <td className="r num">{t.consignments}</td>
+                    <td className="r num">{tzs(t.charged)}</td>
+                    <td className="r num">{tzs(t.paid)}</td>
+                    <td className="r num">{tzs(t.bill + t.unpaid)}{t.bill > 0 && <div className="sub">{tzs(t.bill)} bills</div>}</td>
+                    <td className="r"><Collected paid={t.paid} charged={t.charged} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            );
+          })}
+          <tfoot><tr><td>Total</td><td className="r num">{sum("trips")}</td><td className="r num">{sum("consignments")}</td><td className="r num">{tzs(sum("charged"))}</td><td className="r num">{tzs(sum("paid"))}</td><td className="r num">{tzs(sum("bill") + sum("unpaid"))}</td><td className="r"><Collected paid={sum("paid")} charged={sum("charged")} /></td></tr></tfoot>
         </table></div>
       )}
-      <p className="note">Trips are counted in the month the truck started loading. Charged = all consignments on those trips (after discounts); Paid = already paid. Owed = on monthly bills or still to be paid at collection.</p>
+      <p className="note">Trips are counted in the month the truck started loading. Charged = all consignments on those trips (after discounts); Paid = already paid. Owed = on monthly bills or still to be paid at collection. Collected = Paid ÷ Charged (green 90%+, amber 60–89%, red below 60%). Tap a truck to see each trip.</p>
     </div>
   );
 }
@@ -360,13 +403,13 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
         <button className="btn sm" onClick={close}>Close</button>
       </div>
 
+      <Trucks companyId={r.id} />
+
       <div className="sheet-cols">
         <div className="sheet-col">
       <Billing r={r} agents={agents} settings={settings} busy={busy} run={run} />
         </div>
         <div className="sheet-col">
-
-      <Trucks companyId={r.id} />
 
       <div className="card"><h3>Account status</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
