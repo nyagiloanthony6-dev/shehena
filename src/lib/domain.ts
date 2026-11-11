@@ -234,6 +234,9 @@ export interface Claim {
 export interface ClaimPayment { id: string; company_id: string; claim_id: string; amount: number; paid_on: string; method: string; reference: string; recorded_by: string | null; created_at: string }
 
 export const SYSTEM = "Shehena";
+/** Footer printed on every receipt, sticker and delivery note. */
+export const POWERED_BY = "Powered by SHEHENA - Serengeti Labs";
+export const WEBSITE = "www.shehenacargo.co.tz";
 
 export const REGIONS: [string, string][] = [
   ["ARU", "Arusha"], ["DAR", "Dar es Salaam"], ["DOD", "Dodoma"], ["GEI", "Geita"], ["IRI", "Iringa"],

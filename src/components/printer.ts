@@ -11,7 +11,7 @@
 //   rawbt     – Android phones with the free RawBT app (works with classic Bluetooth printers too).
 //   pdf       – the PDF files, as before.
 // Direct modes send ESC/POS commands (the language almost every thermal printer understands).
-import { isPart, paidOf, balanceOf, PAY_LABEL, cwOf, isAir, kgFmt, fmtDate, itemsOf, prettyPhone, regName, regShort, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
+import { POWERED_BY, WEBSITE, isPart, paidOf, balanceOf, PAY_LABEL, cwOf, isAir, kgFmt, fmtDate, itemsOf, prettyPhone, regName, regShort, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 import { packages, stickerPrefs } from "./stickers";
 
 export type PrintMode = "system" | "bluetooth" | "usb" | "rawbt" | "pdf";
@@ -98,7 +98,8 @@ export function receiptSlip(s: Shipment, company: Company, account?: string): Sl
     { t: "rule" },
     { t: "qr", data: s.no },
     { t: "text", text: "Keep this receipt. The receiver collects with ID and the waybill number.", align: "center" },
-    { t: "text", text: "Powered by SHEHENA - Serengeti Labs", align: "center" });
+    { t: "text", text: POWERED_BY, align: "center" },
+    { t: "text", text: WEBSITE, align: "center" });
   return { lines: L, label: `Receipt ${s.no}` };
 }
 
@@ -119,6 +120,7 @@ export function stickerSlips(s: Shipment, company: Company): Slip[] {
       { t: "text", text: isAir(company) ? "PIECE" : "PACKAGE", align: "center" },
       { t: "text", text: `${k.n} / ${total}`, align: "center", bold: true, size: 3 },
       ...(showItem ? [{ t: "text", text: k.item, align: "center" } as Line] : []),
+      { t: "text", text: WEBSITE.replace(/^www\./, ""), align: "center" },
     ],
   }));
 }
@@ -144,7 +146,9 @@ export function deliverySlip(s: Shipment, company: Company, trip?: Trip): Slip {
   if (s.collect_note) L.push({ t: "pair", k: "Remarks", v: s.collect_note });
   L.push({ t: "pair", k: "Released by", v: s.collected_by || "-" }, { t: "feed", n: 3 },
     { t: "sign", left: "Released by (sign)", right: "Received by (sign)" }, { t: "feed", n: 1 },
-    { t: "text", text: "The goods above were received complete and in the condition stated.", align: "center" });
+    { t: "text", text: "The goods above were received complete and in the condition stated.", align: "center" },
+    { t: "text", text: POWERED_BY, align: "center" },
+    { t: "text", text: WEBSITE, align: "center" });
   return { lines: L, label: `Delivery note ${s.dn_no || s.no}` };
 }
 

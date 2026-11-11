@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "./store";
 import { printSlips } from "./printer";
-import { hasFeature, paidOf, METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
+import { POWERED_BY, WEBSITE, hasFeature, paidOf, METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 
 export const ID_TYPES = ["NIDA", "Driving licence", "Voter ID", "Passport", "Work ID", "Other"];
 
@@ -116,7 +116,7 @@ export function DeliveryNoteCard({ s }: { s: Shipment }) {
 export async function downloadDeliveryNote(s: Shipment, company: Company, trip?: Trip) {
   const { jsPDF } = await import("jspdf");
   const lines = itemsOf(s);
-  const doc = new jsPDF({ unit: "mm", format: [80, 205 + Math.max(0, lines.length - 1) * 6] });
+  const doc = new jsPDF({ unit: "mm", format: [80, 217 + Math.max(0, lines.length - 1) * 6] });
   let y = 10;
   const L = 6, W = 68;
   const line = (t: string, sz = 9, b = false) => { doc.setFont("helvetica", b ? "bold" : "normal"); doc.setFontSize(sz); const w = doc.splitTextToSize(String(t), W); doc.text(w, L, y); y += w.length * sz * 0.42 + 1.6; };
@@ -151,5 +151,7 @@ export async function downloadDeliveryNote(s: Shipment, company: Company, trip?:
   doc.setFontSize(7.5); doc.setFont("helvetica", "normal");
   doc.text("Released by (sign)", L, y); doc.text("Received by (sign)", L + 38, y); y += 7;
   line("The goods above were received complete and in the condition stated.", 7.5);
+  y += 1; doc.setFont("helvetica", "normal"); doc.setFontSize(7);
+  doc.text(POWERED_BY, 40, y, { align: "center" }); doc.text(WEBSITE, 40, y + 3.4, { align: "center" }); y += 7;
   doc.save(`Delivery-note-${s.dn_no || s.no}.pdf`);
 }

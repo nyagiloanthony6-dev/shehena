@@ -5,6 +5,7 @@ import { useUi } from "./CargoApp";
 import { canRecordFound, sumPaid, sumBalance, balanceOf, isPart, paidOf,
   PAY_LABEL, type Pay, cwOf, isAir, kgFmt, terms, fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
   type Company, type NoticeKind, type NoticeTo, type Shipment, type Trip,
+  POWERED_BY, WEBSITE,
 } from "@/lib/domain";
 
 export const StatusPill = ({ s }: { s: string }) => { const { company } = useStore(); return <span className={`pill st-${s}`}>{stLabel(s, isAir(company))}</span>; };
@@ -158,6 +159,7 @@ export function Slip({ s, company, servedBy, account }: { s: Partial<Shipment>; 
       </div>
       {isPart(s) && <dl style={{ marginTop: 8 }}><dt>Paid now</dt><dd className="num">TZS {tzs(paidOf(s))}{s.method ? ` · ${s.method}` : ""}</dd><dt>Balance</dt><dd className="num"><b>TZS {tzs(balanceOf(s))}</b> due on collection</dd></dl>}
       <p className="sub" style={{ margin: "12px 0 0" }}>Served by {s.created_by_name || servedBy || "—"}. Keep this receipt. The receiver collects with ID and the waybill number.</p>
+      <p className="sub" style={{ margin: "8px 0 0", textAlign: "center", fontSize: 11 }}>{POWERED_BY}<br />{WEBSITE}</p>
     </div>
   );
 }
@@ -169,7 +171,7 @@ export async function downloadReceipt(s: Shipment, company: Company, account?: s
 /** The 80 mm receipt as a PDF document (first page), so stickers can be added after it. */
 export async function receiptDoc(s: Shipment, company: Company, account?: string) {
   const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ unit: "mm", format: [80, 160 + Math.max(0, itemsOf(s).length - 1) * 6] });
+  const doc = new jsPDF({ unit: "mm", format: [80, 172 + Math.max(0, itemsOf(s).length - 1) * 6] });
   let y = 10;
   const L = 6, W = 68;
   const line = (t: string, sz = 9, b = false) => {
@@ -219,6 +221,8 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
   if (s.runner_name && !s.runner_settled_at) pair("Delivery by", `${s.runner_name}${s.runner_phone ? ", " + s.runner_phone : ""}`);
   pair("Served by", s.created_by_name || "-"); dash();
   line("Keep this receipt. The receiver collects with ID and the waybill number.", 7.5);
+  y += 1; doc.setFont("helvetica", "normal"); doc.setFontSize(7);
+  doc.text(POWERED_BY, 40, y, { align: "center" }); doc.text(WEBSITE, 40, y + 3.4, { align: "center" }); y += 7;
   return doc;
 }
 
