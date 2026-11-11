@@ -75,7 +75,10 @@ export default function Receive() {
   // "Found on arrival" mode: goods discovered on an arrived truck that were never recorded at loading.
   const trip = ui.foundTrip ? trips.find((t) => t.id === ui.foundTrip && t.status === "arrived") || null : null;
   // Edit mode: correcting a consignment that was already saved.
-  const editing = ui.editId ? shipments.find((x) => x.id === ui.editId) || null : null;
+  // Keep the consignment being edited even if the lists reload for a moment, so an edit can
+  // never turn into a new consignment with a new number.
+  const [editSnap] = useState(() => (ui.editId ? shipments.find((x) => x.id === ui.editId) || null : null));
+  const editing = ui.editId ? shipments.find((x) => x.id === ui.editId) || editSnap : null;
   const found = !editing && !!trip && canRecordFound(me.role, company);
   const routeLocked = !!editing && editing.status !== "received";
   const [foundNote, setFoundNote] = useState("");
@@ -166,6 +169,7 @@ export default function Receive() {
     if (items.some((i) => i.pkgs < 1)) miss.push(cfg.air ? "at least 1 piece for every item" : "at least 1 package for every item");
     if (cfg.air && items.some((i) => !Number(i.kg) && !Number(i.vol))) miss.push("the weight (or the size) of every item");
     if (!found && f.origin === f.dest) miss.push("a destination different from the origin");
+    if (ui.editId && !editing) return setErr("That consignment couldn't be found. Close this page and open the consignment again.");
     if (editing) {
       if (miss.length) return setErr("Please add " + miss.join(", ") + ".");
       if (disc > tot.charge) return setErr(`The charge can't be less than the discount already given (TZS ${tzs(disc)}). Change the discount on the consignment first.`);
@@ -368,9 +372,9 @@ export default function Receive() {
           )}
           <div className="err" role="alert">{err}</div>
           <div className="actions">
-            {editing ? <>
-              <button className="btn primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button>
-              <button className="btn" type="button" onClick={() => { ui.editShip(null); ui.go("list"); ui.openShip(editing.id); }}>Cancel</button>
+            {ui.editId ? <>
+              <button className="btn primary" type="submit" disabled={busy || !editing}>{busy ? "Saving…" : "Save changes"}</button>
+              <button className="btn" type="button" onClick={() => { const id = ui.editId; ui.editShip(null); ui.go("list"); if (id) ui.openShip(id); }}>Cancel</button>
             </> : <>
             <button className="btn primary" type="submit" disabled={busy}>{busy ? "Saving…" : found ? "Save found goods & issue receipt" : "Save & issue receipt"}</button>
             <button className="btn" type="button" onClick={() => { setF(blank(home, firstDest)); setLines([blankLine(defRate)]); setErr(""); }}>Clear</button>

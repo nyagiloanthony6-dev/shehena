@@ -125,10 +125,11 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
       sb.from("companies").select("*").eq("id", initialCompany.id).single(),
     ]);
     if (s.error || t.error || v.error) toast("Could not load all records. Check your connection and reload.", true);
-    setShipments((s.data as Shipment[]) || []);
-    setTrips((t.data as Trip[]) || []);
-    setVehicles((v.data as Vehicle[]) || []);
-    setStaff((p.data as Profile[]) || []);
+    // Keep what is on screen if a reload fails (weak signal), instead of emptying the lists.
+    if (!s.error && s.data) setShipments(s.data as Shipment[]);
+    if (!t.error && t.data) setTrips(t.data as Trip[]);
+    if (!v.error && v.data) setVehicles(v.data as Vehicle[]);
+    if (!p.error && p.data) setStaff(p.data as Profile[]);
     if (c.data) setCompany(c.data as Company);
     const extra = await Promise.all(EXTRA.map((tb) => sb.from(tb).select("*").order(SORT[tb], { ascending: ASC.has(tb) }).limit(5000)));
     const num = (r: Record<string, unknown>) => ({ ...r, ...(["amount", "goods_value", "compensation"].reduce((o, k) => (k in r ? { ...o, [k]: Number(r[k]) } : o), {})) });
