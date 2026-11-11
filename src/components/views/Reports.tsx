@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { RunnerReport } from "./Runners";
 import { PayPill, StatusPill, TripPill } from "../parts";
-import { DailyChart, YearPanel } from "../charts";
+import { DailyChart, YearPanel, chartDays } from "../charts";
 import { stLabel, sumPaid, sumBalance, balanceOf, CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 type Period = "today" | "7" | "30" | "month" | "all" | "custom";
@@ -47,7 +47,7 @@ export default function Reports() {
     if (period === "today") return [today, today];
     if (period === "month") return [today.slice(0, 8) + "01", today];
     if (period === "all") return ["0000-01-01", "9999-12-31"];
-    return [localDay(new Date(now.getTime() - Number(period) * 864e5)), today];
+    return [localDay(new Date(now.getTime() - (Number(period) - 1) * 864e5)), today]; // 7 days = today and the 6 before
   }, [period, from, to]);
   const inPeriod = (iso?: string | null) => { if (!iso) return false; const d = iso.length === 10 ? iso : localDay(new Date(iso)); return d >= range[0] && d <= range[1]; };
   const label = period === "all" ? "all-time" : `${range[0]}_to_${range[1]}`;
@@ -78,7 +78,7 @@ export default function Reports() {
       <nav className="tabs" role="tablist" style={{ marginBottom: 16 }}>{TABS.filter(([k]) => (hasExtras || !["claims", "bills"].includes(k)) && (k !== "runners" || delivery)).map(([k, l]) =>
         <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}</nav>
 
-      {tab === "overview" && <Overview S={S} />}
+      {tab === "overview" && <Overview S={S} range={range} />}
 
       {tab === "pay" && (() => {
         const V = payView === "paid" ? paid : payView === "unpaid" ? U : payView === "bill" ? B : S;
@@ -336,7 +336,16 @@ export default function Reports() {
 }
 
 /** The general picture: charts, totals, by destination, by staff. */
-function Overview({ S }: { S: Shipment[] }) {
+/** "11 Nov 2026" or "1 – 11 Nov 2026" for the chosen report period. */
+function periodText(range: [string, string]) {
+  if (range[0] <= "0001") return "All time";
+  const f = (d: string, o: Intl.DateTimeFormatOptions) => new Date(d + "T12:00:00").toLocaleDateString("en-GB", o);
+  if (range[0] === range[1]) return f(range[0], { day: "numeric", month: "short", year: "numeric" });
+  return `${f(range[0], { day: "numeric", month: "short", year: range[0].slice(0, 4) === range[1].slice(0, 4) ? undefined : "numeric" })} – ${f(range[1], { day: "numeric", month: "short", year: "numeric" })}`;
+}
+
+function Overview({ S, range }: { S: Shipment[]; range: [string, string] }) {
+  const days = chartDays(range);
   const { shipments } = useStore();
   const billed = sumCharge(S);
   const paid = S.filter((s) => s.pay === "paid");
@@ -351,7 +360,7 @@ function Overview({ S }: { S: Shipment[] }) {
   paid.forEach((s) => { const k = s.paid_by || s.created_by_name || "—"; (staffRows[k] = staffRows[k] || { n: 0, c: 0 }).c += Number(s.charge || 0); });
   return (
     <>
-      <div className="panel ypanel" style={{ marginBottom: 16 }}><YearPanel /></div>
+      <div className="periodline"><b>{periodText(range)}</b><span className="sub"> · {S.length} consignment{S.length === 1 ? "" : "s"} received in this period</span></div>
       <div className="stats six">
         <div className="stat"><div className="lbl">Consignments</div><div className="v">{S.length}</div><div className="s">{pkgsOf(S)} packages</div></div>
         <div className="stat"><div className="lbl">Billed</div><div className="v">{tzs(billed)}</div><div className="s">TZS</div></div>
@@ -361,7 +370,7 @@ function Overview({ S }: { S: Shipment[] }) {
         <div className="stat"><div className="lbl">Awaiting pickup</div><div className="v">{shipments.filter((s) => s.status === "arrived").length}</div><div className="s">at destinations now</div></div>
       </div>
       <div className="rgrid">
-        <div className="panel"><h2>Billed per day</h2><div className="sub">TZS, last 14 days. Faded bars are days with unpaid charges still open.</div><DailyChart /></div>
+        <div className="panel"><h2>Billed per day</h2><div className="sub">TZS, {days.length} days to {new Date(days[days.length - 1] + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}. Faded bars: unpaid charges still open, or days outside the period.</div><DailyChart range={range} /></div>
         <div className="panel"><h2>Payments by method</h2><div className="sub">Paid consignments in the period</div>
           <div className="ledger"><table className="small"><thead><tr><th>Method</th><th className="r">Count</th><th className="r">TZS</th></tr></thead>
             <tbody>{Object.entries(methods).sort((a, b) => b[1].v - a[1].v).map(([k, x]) => <tr key={k}><td>{k}</td><td className="r num">{x.n}</td><td className="r num">{tzs(x.v)}</td></tr>)}
@@ -383,6 +392,7 @@ function Overview({ S }: { S: Shipment[] }) {
               {!Object.keys(staffRows).length && <tr><td colSpan={3} className="sub">No activity in this period.</td></tr>}</tbody></table></div>
         </div>
       </div>
+      <div className="panel ypanel" style={{ marginTop: 16 }}><YearPanel /></div>
     </>
   );
 }

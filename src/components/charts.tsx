@@ -102,21 +102,36 @@ export function YearPanel() {
   );
 }
 
-/** Billed TZS per day for the last 14 days. */
-export function DailyChart() {
+const dayKey = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+const MAX_DAYS = 31;
+
+/** Which days the chart shows for a report period: the period's days (at least 7, at most the last 31). */
+export function chartDays(range?: [string, string]): string[] {
+  const today = dayKey(new Date());
+  const end = !range || range[1] > today ? today : range[1];
+  const endD = new Date(end + "T12:00:00");
+  const span = range && range[0] > "0001" ? Math.round((endD.getTime() - new Date(range[0] + "T12:00:00").getTime()) / 864e5) + 1 : 14;
+  const n = Math.min(MAX_DAYS, Math.max(7, span));
+  return Array.from({ length: n }, (_, i) => dayKey(new Date(endD.getTime() - (n - 1 - i) * 864e5)));
+}
+
+/** Billed TZS per day for the report period (or the last 14 days). Days outside the period are greyed. */
+export function DailyChart({ range }: { range?: [string, string] }) {
   const { shipments } = useStore();
+  const days = useMemo(() => chartDays(range), [range]);
   const bars = useMemo(() => {
-    const out: Bar[] = [];
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
-      const L = shipments.filter((s) => new Date(s.received_at).toDateString() === d.toDateString());
+    const byDay = new Map<string, typeof shipments>();
+    for (const s of shipments) { const k = dayKey(new Date(s.received_at)); const L = byDay.get(k); if (L) L.push(s); else byDay.set(k, [s]); }
+    return days.map((k): Bar => {
+      const d = new Date(k + "T12:00:00");
+      const L = byDay.get(k) || [];
       const v = L.reduce((a, s) => a + Number(s.charge || 0), 0);
-      out.push({
-        label: String(d.getDate()), value: v, tone: L.some((s) => s.pay === "unpaid") ? "dim" : undefined,
-        tip: `${d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })}: TZS ${tzs(v)} · ${L.length} consignment${L.length === 1 ? "" : "s"}`,
-      });
-    }
-    return out;
-  }, [shipments]);
-  return <BarChart bars={bars} aria="Billed TZS per day for the last 14 days" />;
+      const outside = !!range && (k < range[0] || k > range[1]);
+      return {
+        label: String(d.getDate()), value: v, tone: outside || L.some((s) => s.pay === "unpaid") ? "dim" : undefined,
+        tip: `${d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })}: TZS ${tzs(v)} · ${L.length} consignment${L.length === 1 ? "" : "s"}${outside ? " (outside the period)" : ""}`,
+      };
+    });
+  }, [shipments, days, range]);
+  return <BarChart bars={bars} aria={`Billed TZS per day, ${days[0]} to ${days[days.length - 1]}`} />;
 }
