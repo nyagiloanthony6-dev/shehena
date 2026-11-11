@@ -130,7 +130,7 @@ export async function downloadDeliveryNote(s: Shipment, company: Company, trip?:
   pair("Route", `${regName(s.origin)} to ${regName(s.dest)}`);
   if (trip) pair("Vehicle", trip.plate);
   pair("Sender", s.s_name || "-");
-  pair("Receiver", `${s.r_name}, ${prettyPhone(s.r_phone)}`);
+  pair("Receiver", [s.r_name, prettyPhone(s.r_phone)].filter(Boolean).join(", "));
   dash();
   doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.text("Goods", L, y); doc.text("Pkgs", L + 46, y, { align: "right" }); doc.text("TZS", L + W, y, { align: "right" }); y += 4;
   doc.setFont("helvetica", "normal");

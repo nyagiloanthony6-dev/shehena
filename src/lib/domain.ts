@@ -115,6 +115,9 @@ export interface Notice {
   at: string;
   by: string;
 }
+/** One correction to a saved consignment: field → [before, after], shown as text. */
+export type EditEntry = { at: string; by: string; changes: Record<string, [string, string]> };
+
 export interface Shipment {
   id: string;
   company_id: string;
@@ -141,6 +144,10 @@ export interface Shipment {
   runner_settled_at?: string | null;
   runner_amount?: number;
   runner_id?: string | null;
+  /** last correction made after saving, and the full history of corrections (migration 0021) */
+  edited_at?: string | null;
+  edited_by?: string | null;
+  edit_log?: EditEntry[];
   account_id?: string | null;
   /** charge before discount; `charge` is what the customer owes after the discount */
   gross_charge?: number | null;
@@ -199,6 +206,13 @@ export const FEATURES: [string, string, string][] = [
   ["require_id", "Require an ID when releasing goods", "Staff must enter the ID type and number of the person collecting. When off, the ID is optional."],
 ];
 /** Out with a delivery person and not settled yet. */
+/** Saved without a charge ("price later"): the price must be added by editing before release. */
+export const noPrice = (s: Pick<Shipment, "charge" | "pay">) => !(Number(s.charge) > 0) && s.pay !== "paid";
+/** Name or a dash, for consignments saved without one. */
+export const nameOr = (n: string | null | undefined) => (n && n.trim()) || "—";
+/** Can this person correct a saved consignment? Collected goods: Admin only. */
+export const canEditShip = (s: Pick<Shipment, "status">, role: string, canReceive: boolean) =>
+  (role === "admin" || canReceive) && (s.status !== "collected" || role === "admin");
 export const isOut = (s: Shipment) => !!s.runner_name && !s.runner_settled_at && s.status === "arrived";
 /** Nothing to collect at the counter: paid, or charged to a monthly bill. */
 export const settled = (s: Pick<Shipment, "pay">) => s.pay === "paid" || s.pay === "bill";
@@ -336,11 +350,16 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   const sw = company.message_lang !== "en";
   const co = company.name || SYSTEM;
   const ph = company.phone?.trim() || "";
+  // Names are optional when goods are received; use a polite word instead of a blank.
+  const who = sw ? "mteja" : "customer";
+  s = { ...s, s_name: s.s_name?.trim() || who, r_name: s.r_name?.trim() || who };
   const lines = itemsOf(s);
   const items = lines.length > 1
     ? `${lines.map((l) => `${l.name} (${l.pkgs})`).join(", ")}; ${sw ? "jumla vifurushi" : "total packages"} ${s.pkgs}`
     : `${s.item}, ${sw ? "vifurushi" : "packages"} ${s.pkgs}`;
-  const payLine = s.pay === "paid"
+  const payLine = noPrice(s)
+    ? (sw ? "Malipo: kiasi kitathibitishwa na ofisi." : "Payment: the amount will be confirmed by our office.")
+    : s.pay === "paid"
     ? (sw ? "Malipo: IMELIPWA." : "Payment: PAID.")
     : s.pay === "bill" ? (sw ? `Malipo: kwenye bili ya mwezi - TZS ${tzs(s.charge)}.` : `Payment: on your monthly bill - TZS ${tzs(s.charge)}.`)
     : isPart(s)

@@ -558,3 +558,6 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 .trk-row{cursor:pointer}
 .trk-row:hover td{background:var(--sunk)}
 .trip-ln{padding-left:18px;display:inline-block}
+.editlog{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;font-size:13px}
+.editlog li{border-left:3px solid var(--line);padding-left:10px}
+.editlog s{color:var(--muted)}

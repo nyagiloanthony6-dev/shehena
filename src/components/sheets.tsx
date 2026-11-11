@@ -9,7 +9,7 @@ import { downloadManifest } from "./manifest";
 import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { GiveToRunner } from "./views/Runners";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
-import { PAY_LABEL, canRecordFound, settled } from "@/lib/domain";
+import { PAY_LABEL, canRecordFound, settled, noPrice, canEditShip } from "@/lib/domain";
 import { METHODS, balanceOf, isPart, paidOf, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 export function ShipmentSheet({ id }: { id: string }) {
@@ -26,13 +26,25 @@ export function ShipmentSheet({ id }: { id: string }) {
   const times: Record<string, string | null> = { received: s.received_at, loaded: s.loaded_at, transit: s.transit_at, arrived: s.arrived_at, collected: s.collected_at };
   const now = () => new Date().toISOString();
   const P = (v: Partial<Shipment>) => patch<Shipment>("shipments", s.id, v);
+  const editable = canEditShip(s, me.role, can("receive"));
 
   return (
     <>
       <div className="sheet-h">
-        <div><div className="lbl">{air ? "House air waybill (HAWB)" : "Waybill"}</div><h2 style={{ fontFamily: "var(--f-mono)" }}>{s.no}</h2></div>
-        <button className="btn sm" onClick={ui.close}>Close</button>
+        <div><div className="lbl">{air ? "House air waybill (HAWB)" : "Waybill"}</div><h2 style={{ fontFamily: "var(--f-mono)" }}>{s.no}</h2>
+          {s.edited_at && <div className="sub">Edited {fmtDate(s.edited_at)}{s.edited_by ? ` by ${s.edited_by}` : ""}</div>}</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {editable && <button className="btn sm" onClick={() => ui.editShip(s.id)}>Edit</button>}
+          <button className="btn sm" onClick={ui.close}>Close</button>
+        </div>
       </div>
+
+      {noPrice(s) && (
+        <div className="notice warn" role="status" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span><b>No charge yet.</b> These goods were saved without a price. Add the charge before they are released.</span>
+          {editable && <button className="btn sm primary" onClick={() => ui.editShip(s.id)}>Add the charge</button>}
+        </div>
+      )}
 
       {s.found_on_arrival && <FoundCard s={s} />}
 
@@ -45,7 +57,7 @@ export function ShipmentSheet({ id }: { id: string }) {
         <div className="actions">
           {s.status === "received" && can("load") && <button className="btn" onClick={() => ui.go("trips")}>{air ? "Add to a MAWB" : "Load onto a vehicle"}</button>}
           {s.status === "arrived" && !releasing && <GiveToRunner s={s} />}
-          {s.status === "arrived" && can("dispatch") && (settled(s) || can("pay")) && !releasing && <button className="btn primary" onClick={() => setReleasing(true)}>{s.pay === "unpaid" ? `Take TZS ${tzs(balanceOf(s))} & release` : "Release goods to customer"}</button>}
+          {s.status === "arrived" && can("dispatch") && (settled(s) || can("pay")) && !releasing && !noPrice(s) && <button className="btn primary" onClick={() => setReleasing(true)}>{s.pay === "unpaid" ? `Take TZS ${tzs(balanceOf(s))} & release` : "Release goods to customer"}</button>}
           {s.status === "collected" && can("undo") && <button className="btn sm" onClick={() => P({ status: "arrived", collected_at: null, collected_by: null })}>Undo collected</button>}
         </div>
         {releasing && s.status === "arrived" && <ReleaseForm s={s} onDone={() => setReleasing(false)} />}
@@ -73,6 +85,15 @@ export function ShipmentSheet({ id }: { id: string }) {
       <div className="card"><h3>Receipt and stickers</h3><Slip s={s} company={company} />
         <PrintActions s={s} />
       </div>
+      {!!s.edit_log?.length && (
+        <div className="card"><h3>Changes after saving</h3>
+          <ul className="editlog">{[...s.edit_log].reverse().map((e, i) => (
+            <li key={i}><div className="sub">{fmtDate(e.at)} · {e.by}</div>
+              {Object.entries(e.changes).map(([k, [a, b]]) => <div key={k}><b>{k}</b>: {a ? <><s>{a}</s> → </> : null}{b}</div>)}
+            </li>))}
+          </ul>
+        </div>
+      )}
       <ShipmentClaims s={s} />
       {can("delete") && (
         <div className="card"><h3>Record</h3>
@@ -346,7 +367,7 @@ function PaymentCard({ s }: { s: Shipment }) {
         </div>
         {(s.pay === "paid" || isPart(s)) && can("undo") && <button className="btn sm" onClick={() => P({ pay: "unpaid", paid_at: null, method: null, paid_by: null, ...(isPart(s) ? { paid_amount: 0 } : {}) })}>{isPart(s) ? "Clear payments" : "Mark not paid"}</button>}
         {s.pay === "bill" && can("undo") && <button className="btn sm" onClick={() => P({ pay: "unpaid", account_id: null })}>Take off the bill</button>}
-        {s.pay === "unpaid" && can("pay") && (
+        {s.pay === "unpaid" && can("pay") && !noPrice(s) && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             {hasPart && <input type="number" min={0} step={500} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={tzs(bal)} style={{ width: 120 }} aria-label="Payment amount" title="Leave empty to pay the full balance" />}
             <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: "auto" }} aria-label="Payment method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
@@ -358,7 +379,7 @@ function PaymentCard({ s }: { s: Shipment }) {
           </div>
         )}
       </div>
-      {s.pay === "unpaid" && hasPart && can("pay") && <p className="note" style={{ margin: "6px 0 0" }}>Enter part of the amount for a part payment, or leave it empty to take the full balance.</p>}
+      {s.pay === "unpaid" && hasPart && can("pay") && !noPrice(s) && <p className="note" style={{ margin: "6px 0 0" }}>Enter part of the amount for a part payment, or leave it empty to take the full balance.</p>}
       {pays.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div className="lbl">Payments</div>
@@ -372,7 +393,7 @@ function PaymentCard({ s }: { s: Shipment }) {
           <button className="btn sm" disabled={!billTo} onClick={async () => { if (await P({ pay: "bill", account_id: billTo })) toast("Put on the monthly bill"); }}>Put on bill</button>
         </div>
       )}
-      {s.pay !== "paid" && can("pay") && hasExtras && (
+      {s.pay !== "paid" && can("pay") && hasExtras && !noPrice(s) && (
         disc.open ? (
           <div className="paybox">
             <div className="fields">

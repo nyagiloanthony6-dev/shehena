@@ -185,8 +185,8 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
   line([company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ") || " ", 8); y += 2;
   const air = isAir(company);
   line(air ? "AIR CARGO RECEIPT - HAWB" : "CARGO RECEIPT", 8, true); line(s.no, 12, true); y += 1;
-  pair("Date", fmtDate(s.received_at)); pair("Sender", `${s.s_name}, ${prettyPhone(s.s_phone)}`);
-  pair("Receiver", `${s.r_name}, ${prettyPhone(s.r_phone)}`); pair("Route", `${regName(s.origin)} to ${regName(s.dest)}`); dash();
+  pair("Date", fmtDate(s.received_at)); pair("Sender", [s.s_name, prettyPhone(s.s_phone)].filter(Boolean).join(", ") || "-");
+  pair("Receiver", [s.r_name, prettyPhone(s.r_phone)].filter(Boolean).join(", ")); pair("Route", `${regName(s.origin)} to ${regName(s.dest)}`); dash();
   const lines = itemsOf(s);
   if (air) {
     doc.setFontSize(8); doc.setFont("helvetica", "bold");
@@ -253,7 +253,7 @@ export function NotifyBlock({ s, kind, to }: { s: Shipment; kind: NoticeKind; to
   const logs = sentLog(s, kind, to);
   return (
     <>
-      <div className="to"><b>{to === "sender" ? "Sender" : "Receiver"}:</b> {name} · <span className="mono">{prettyPhone(phone)}</span></div>
+      <div className="to"><b>{to === "sender" ? "Sender" : "Receiver"}:</b> {name ? <>{name} · </> : null}<span className="mono">{prettyPhone(phone)}</span></div>
       <div className="msg">{message(s, kind, to, company, tripById(s.trip_id)?.plate)}</div>
       <div className="actions"><SendButtons s={s} kind={kind} to={to} /></div>
       {logs.length

@@ -49,6 +49,9 @@ interface Ui {
   /** Trip whose found (unrecorded) goods are being keyed in on the Receive screen. */
   foundTrip: string | null;
   recordFound: (tripId: string | null) => void;
+  /** Saved consignment being corrected on the Receive screen. */
+  editId: string | null;
+  editShip: (id: string | null) => void;
 }
 /** On phones the bottom bar holds the daily screens; the rest are under "More". */
 const MOBILE_MAIN: View[] = ["home", "list", "new", "trips", "arrivals"];
@@ -91,6 +94,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
   const [listPay, setListPay] = useState<"" | "paid" | "unpaid" | "bill">("");
   const [tripFormOpen, setTripFormOpen] = useState(false);
   const [foundTrip, setFoundTrip] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
   const [more, setMore] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"company" | "subscription">("company");
   const [claimFor, setClaimFor] = useState<string | null>(null);
@@ -105,7 +109,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
 
   const go = useCallback((v: View) => {
     const next = allowed(v) ? v : "home";
-    if (next !== "new") setFoundTrip(null);
+    if (next !== "new") { setFoundTrip(null); setEditId(null); }
     if (next !== "claims") setClaimFor(null);
     if (next !== "set") setSettingsTab("company");
     setSheet(null);
@@ -146,7 +150,9 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
     close: () => setSheet(null),
     listPay, setListPay, tripFormOpen, setTripFormOpen,
     foundTrip,
-    recordFound: (tripId) => { setFoundTrip(tripId); if (tripId) go("new"); },
+    recordFound: (tripId) => { setFoundTrip(tripId); setEditId(null); if (tripId) go("new"); },
+    editId,
+    editShip: (id) => { setEditId(id); setFoundTrip(null); if (id) go("new"); },
   };
   const loadingN = st.trips.filter((t) => t.status === "loading").length;
   const roadN = st.trips.filter((t) => t.status === "departed").length;
@@ -155,7 +161,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
   // Optional features: Delivery people only for companies that switched it on in Settings.
   const items = TABS.filter(([k, , need]) => (!need || st.can(need)) && (k !== "people" || (st.delivery && (st.can("pay") || st.can("reports"))))).map(([k, l, need, m]) => (k === "trips" && air ? [k, "Flights", need, "Flights"] : [k, l, need, m]) as typeof TABS[number]);
   const navBtn = (k: View, label: string) => (
-    <button key={k} onClick={() => go(k)} aria-current={view === k ? "page" : undefined}>
+    <button key={k} onClick={() => { setEditId(null); setFoundTrip(null); go(k); }} aria-current={view === k ? "page" : undefined}>
       <Icon name={k} /><span>{label}</span>{k === "trips" && loadingN > 0 && <span className="nbadge">{loadingN}</span>}{k === "arrivals" && roadN > 0 && <span className="nbadge">{roadN}</span>}
     </button>
   );
@@ -213,7 +219,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
               <>
                 {view === "home" && <Overview />}
                 {view === "list" && <Consignments />}
-                {view === "new" && <Receive />}
+                {view === "new" && <Receive key={editId || "new"} />}
                 {view === "trips" && <Loading />}
                 {view === "arrivals" && <Arrivals />}
                 {view === "bills" && <Bills />}

@@ -5,7 +5,7 @@ import { useUi } from "../CargoApp";
 import { ReleaseForm } from "../release";
 import { DeliveryPeople, GiveToRunner } from "./Runners";
 import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub, FoundPicker } from "../parts";
-import { isOut, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { isOut, noPrice, nameOr, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
 
@@ -52,11 +52,11 @@ function WaitingRow({ s }: { s: Shipment }) {
   return (
     <div className="nrow" style={{ alignItems: "start", flexWrap: "wrap" }}>
       <div style={{ minWidth: 0 }}>
-        <button className="link" style={{ fontSize: 14.5, color: "var(--fg)" }} onClick={() => ui.openShip(s.id)}><b>{s.r_name}</b></button>{" "}
+        <button className="link" style={{ fontSize: 14.5, color: "var(--fg)" }} onClick={() => ui.openShip(s.id)}><b>{nameOr(s.r_name)}</b></button>{" "}
         <span className="mono sub">{prettyPhone(s.r_phone)}</span>
         <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg · {regShort(s.dest)}{t ? ` · ${t.plate}` : ""}</div>
         <div className="sub" style={{ marginTop: 2, display: "flex", gap: "4px 10px", flexWrap: "wrap", alignItems: "center" }}>
-          <PayPill pay={s.pay} part={isPart(s)} />
+          {noPrice(s) ? <span className="pill pay-part">No charge yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}
           {isOut(s) && <span className="pill pay-part">With {s.runner_name}</span>}
           {s.pay === "unpaid" && <b style={{ color: "var(--bad)" }}>TZS {tzs(balanceOf(s))} {isPart(s) ? "balance" : "due"}</b>}
           <span>{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</span>
