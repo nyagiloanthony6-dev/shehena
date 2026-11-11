@@ -6,6 +6,9 @@ import { Icon } from "../Icon";
 import { PayPill, StatusPill } from "../parts";
 import { sumPaid, sumBalance, isPart, noPrice, nameOr, isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
 
+const localDay = (iso: string) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+const inDays = (iso: string, from: string, to: string) => { const d = localDay(iso); return (!from || d >= from) && (!to || d <= to); };
+
 export default function Consignments() {
   const { shipments, tripById, can, company } = useStore();
   // Only the towns this company delivers to: its offices (not the head office), plus any other town it has actually sent goods to.
@@ -19,16 +22,22 @@ export default function Consignments() {
   const [q, setQ] = useState("");
   const [dest, setDest] = useState("");
   const [status, setStatus] = useState("");
+  // Received between these dates (inclusive), in the office's local time.
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const pay = ui.listPay;
 
   const list = useMemo(() => {
     const ql = q.trim().toLowerCase();
     const qd = ql.replace(/\D/g, "").replace(/^0/, "");
     return shipments.filter((s) =>
+      (!from && !to || inDays(s.received_at, from, to)) &&
       (!dest || s.dest === dest) && (!status || s.status === status) && (!pay || s.pay === pay) &&
       (!ql || [s.no, s.s_name, s.r_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql) ||
         (qd.length >= 4 && (intlPhone(s.s_phone).includes(qd) || intlPhone(s.r_phone).includes(qd)))));
-  }, [shipments, q, dest, status, pay]);
+  }, [shipments, q, dest, status, pay, from, to]);
+  const today = localDay(new Date().toISOString());
+  const quick = (days: number) => { setFrom(localDay(new Date(Date.now() - (days - 1) * 864e5).toISOString())); setTo(today); };
   const paidSum = sumPaid(list), owed = sumBalance(list);
 
   return (
@@ -42,6 +51,19 @@ export default function Consignments() {
         <select value={dest} onChange={(e) => setDest(e.target.value)} aria-label="Destination" style={{ width: "auto", maxWidth: "100%" }}>
           <option value="">All destinations</option>{destList.map(([c, n]) => <option key={c} value={c}>{n}</option>)}
         </select>
+      </div>
+      <div className="filters datefilters" style={{ marginTop: 8 }}>
+        <span className="sub">Received</span>
+        <div className="chips">
+          <button className="chip" aria-pressed={from === today && to === today} onClick={() => { setFrom(today); setTo(today); }}>Today</button>
+          <button className="chip" aria-pressed={to === today && from === localDay(new Date(Date.now() - 6 * 864e5).toISOString())} onClick={() => quick(7)}>7 days</button>
+          <button className="chip" aria-pressed={to === today && from === today.slice(0, 8) + "01" && from !== today} onClick={() => { setFrom(today.slice(0, 8) + "01"); setTo(today); }}>This month</button>
+        </div>
+        <label className="datefilter"><span className="sub">from</span>
+          <input type="date" value={from} max={to || today} onChange={(e) => setFrom(e.target.value)} aria-label="Received from date" style={{ width: "auto" }} /></label>
+        <label className="datefilter"><span className="sub">to</span>
+          <input type="date" value={to} min={from || undefined} max={today} onChange={(e) => setTo(e.target.value)} aria-label="Received to date" style={{ width: "auto" }} /></label>
+        {(from || to) && <button className="btn sm" type="button" onClick={() => { setFrom(""); setTo(""); }}>All dates</button>}
       </div>
       <div className="filters" style={{ marginTop: 8 }}>
         <div className="chips">{([["", "All statuses"], ...statusList(isAir(company))] as [string, string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={status === k} onClick={() => setStatus(k)}>{l}</button>)}</div>
