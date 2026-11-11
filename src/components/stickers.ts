@@ -44,7 +44,8 @@ const clip = (doc: JsPDF, text: string, width: number) => {
   return t + "…";
 };
 
-async function qr(text: string) {
+/** QR code as a PNG data URL, for PDFs. */
+export async function qr(text: string) {
   const QR = (await import("qrcode")).default;
   return QR.toDataURL(text, { margin: 0, width: 300, errorCorrectionLevel: "M" });
 }

@@ -1,5 +1,6 @@
 "use client";
 // Releasing goods at the destination: who collected them, payment if still owed, and the delivery note.
+import { qr } from "./stickers";
 import { useState } from "react";
 import { useStore } from "./store";
 import { printSlips } from "./printer";
@@ -116,7 +117,7 @@ export function DeliveryNoteCard({ s }: { s: Shipment }) {
 export async function downloadDeliveryNote(s: Shipment, company: Company, trip?: Trip) {
   const { jsPDF } = await import("jspdf");
   const lines = itemsOf(s);
-  const doc = new jsPDF({ unit: "mm", format: [80, 217 + Math.max(0, lines.length - 1) * 6] });
+  const doc = new jsPDF({ unit: "mm", format: [80, 228 + Math.max(0, lines.length - 1) * 6] });
   let y = 10;
   const L = 6, W = 68;
   const line = (t: string, sz = 9, b = false) => { doc.setFont("helvetica", b ? "bold" : "normal"); doc.setFontSize(sz); const w = doc.splitTextToSize(String(t), W); doc.text(w, L, y); y += w.length * sz * 0.42 + 1.6; };
@@ -151,6 +152,7 @@ export async function downloadDeliveryNote(s: Shipment, company: Company, trip?:
   doc.setFontSize(7.5); doc.setFont("helvetica", "normal");
   doc.text("Released by (sign)", L, y); doc.text("Received by (sign)", L + 38, y); y += 7;
   line("The goods above were received complete and in the condition stated.", 7.5);
+  { const img = await qr(s.no); y += 1; doc.addImage(img, "PNG", 40 - 12, y, 24, 24); y += 27; }
   y += 1; doc.setFont("helvetica", "normal"); doc.setFontSize(7);
   doc.text(POWERED_BY, 40, y, { align: "center" }); doc.text(WEBSITE, 40, y + 3.4, { align: "center" }); y += 7;
   doc.save(`Delivery-note-${s.dn_no || s.no}.pdf`);

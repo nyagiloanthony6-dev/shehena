@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { qr } from "./stickers";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
 import { canRecordFound, sumPaid, sumBalance, balanceOf, isPart, paidOf,
@@ -171,7 +172,7 @@ export async function downloadReceipt(s: Shipment, company: Company, account?: s
 /** The 80 mm receipt as a PDF document (first page), so stickers can be added after it. */
 export async function receiptDoc(s: Shipment, company: Company, account?: string) {
   const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ unit: "mm", format: [80, 172 + Math.max(0, itemsOf(s).length - 1) * 6] });
+  const doc = new jsPDF({ unit: "mm", format: [80, 186 + Math.max(0, itemsOf(s).length - 1) * 6] });
   let y = 10;
   const L = 6, W = 68;
   const line = (t: string, sz = 9, b = false) => {
@@ -220,6 +221,8 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
   if (s.found_on_arrival) pair("Note", `Found on arrival at ${regShort(s.dest)}, recorded at destination`);
   if (s.runner_name && !s.runner_settled_at) pair("Delivery by", `${s.runner_name}${s.runner_phone ? ", " + s.runner_phone : ""}`);
   pair("Served by", s.created_by_name || "-"); dash();
+  // Waybill QR, the same as on the thermal receipt: scanned to find the consignment at collection.
+  { const img = await qr(s.no); y += 1; doc.addImage(img, "PNG", 40 - 12, y, 24, 24); y += 28; }
   line("Keep this receipt. The receiver collects with ID and the waybill number.", 7.5);
   y += 1; doc.setFont("helvetica", "normal"); doc.setFontSize(7);
   doc.text(POWERED_BY, 40, y, { align: "center" }); doc.text(WEBSITE, 40, y + 3.4, { align: "center" }); y += 7;

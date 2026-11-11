@@ -147,6 +147,7 @@ export function deliverySlip(s: Shipment, company: Company, trip?: Trip): Slip {
   L.push({ t: "pair", k: "Released by", v: s.collected_by || "-" }, { t: "feed", n: 3 },
     { t: "sign", left: "Released by (sign)", right: "Received by (sign)" }, { t: "feed", n: 1 },
     { t: "text", text: "The goods above were received complete and in the condition stated.", align: "center" },
+    { t: "qr", data: s.no },
     { t: "text", text: POWERED_BY, align: "center" },
     { t: "text", text: WEBSITE, align: "center" });
   return { lines: L, label: `Delivery note ${s.dn_no || s.no}` };
