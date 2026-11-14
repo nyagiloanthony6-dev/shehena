@@ -381,22 +381,24 @@ export function FoundPicker({ label = "Record found goods", primary = false }: {
 }
 
 /** Page through a long list. Resets to page 1 when `resetKey` changes (new search or filter). */
-const PAGE_SIZES = [25, 50, 100, 200];
+/** Rows per page; 0 means all rows on one page. */
+const PAGE_SIZES = [25, 50, 100, 200, 1000, 0];
 const SIZE_KEY = "shehena.pageSize";
 export function usePaged<T>(items: T[], resetKey: string, initialSize = 50) {
   // Rows per page is remembered on this device.
   const [size, setSizeState] = useState(initialSize);
   useEffect(() => {
-    try { const n = Number(localStorage.getItem(SIZE_KEY)); if (PAGE_SIZES.includes(n)) setSizeState(n); } catch { /* private mode */ }
+    try { const v = localStorage.getItem(SIZE_KEY); const n = Number(v); if (v !== null && v !== "" && PAGE_SIZES.includes(n)) setSizeState(n); } catch { /* private mode */ }
   }, []);
   const setSize = (n: number) => { setSizeState(n); try { localStorage.setItem(SIZE_KEY, String(n)); } catch { /* private mode */ } };
   const [page, setPage] = useState(1);
   const [key, setKey] = useState(resetKey);
   if (key !== resetKey) { setKey(resetKey); setPage(1); }
-  const pages = Math.max(1, Math.ceil(items.length / size));
+  const per = size || Math.max(1, items.length); // "All"
+  const pages = Math.max(1, Math.ceil(items.length / per));
   const cur = Math.min(page, pages);
   return {
-    rows: items.slice((cur - 1) * size, cur * size),
+    rows: items.slice((cur - 1) * per, cur * per),
     pager: { page: cur, pages, size, total: items.length, setPage, setSize: (n: number) => { setSize(n); setPage(1); } },
   };
 }
@@ -413,7 +415,8 @@ export function Pager({ pager, label = "consignments" }: { pager: PagerState; la
     if (i === 1 || i === pages || Math.abs(i - page) <= 1) nums.push(i);
     else if (nums[nums.length - 1] !== "…") nums.push("…");
   }
-  const a = (page - 1) * size + 1, b = Math.min(total, page * size);
+  const per = size || total;
+  const a = (page - 1) * per + 1, b = Math.min(total, page * per);
   return (
     <nav className="pager" aria-label={`Pages of ${label}`}>
       <span className="sub">Showing <b>{a.toLocaleString("en-US")}–{b.toLocaleString("en-US")}</b> of {total.toLocaleString("en-US")}</span>
@@ -428,7 +431,7 @@ export function Pager({ pager, label = "consignments" }: { pager: PagerState; la
       )}
       <label className="perpage"><span className="sub">Per page</span>
         <select value={size} onChange={(e) => setSize(Number(e.target.value))} style={{ width: "auto" }}>
-          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n ? n.toLocaleString("en-US") : "All"}</option>)}
         </select>
       </label>
     </nav>
