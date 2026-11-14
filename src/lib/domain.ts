@@ -213,6 +213,19 @@ export const nameOr = (n: string | null | undefined) => (n && n.trim()) || "—"
 /** Can this person correct a saved consignment? Collected goods: Admin only. */
 export const canEditShip = (s: Pick<Shipment, "status">, role: string, canReceive: boolean) =>
   (role === "admin" || canReceive) && (s.status !== "collected" || role === "admin");
+/** Plate in a comparable form: "t 186 dnh" and "T186-DNH" both become "T186DNH". */
+export const plateKey = (p: string | null | undefined) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+/** Trip id → plate key and trip number, for searching consignments by truck. */
+export const tripSearchIndex = (trips: Pick<Trip, "id" | "plate" | "no">[]) => {
+  const m = new Map<string, string>();
+  for (const t of trips) m.set(t.id, `${plateKey(t.plate)} ${plateKey(t.no)}`);
+  return m;
+};
+/** Does this consignment's truck (plate or trip number) match the search? Needs at least 3 letters/digits. */
+export const truckMatches = (idx: Map<string, string>, tripId: string | null | undefined, q: string) => {
+  const k = plateKey(q);
+  return k.length >= 3 && !!tripId && (idx.get(tripId) || "").replace(/ /g, "|").split("|").some((part) => part.includes(k));
+};
 export const isOut = (s: Shipment) => !!s.runner_name && !s.runner_settled_at && s.status === "arrived";
 /** Nothing to collect at the counter: paid, or charged to a monthly bill. */
 export const settled = (s: Pick<Shipment, "pay">) => s.pay === "paid" || s.pay === "bill";

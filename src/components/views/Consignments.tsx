@@ -4,13 +4,14 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { PayPill, StatusPill, usePaged, Pager } from "../parts";
-import { sumPaid, sumBalance, isPart, noPrice, nameOr, isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
+import { sumPaid, sumBalance, isPart, noPrice, nameOr, tripSearchIndex, truckMatches, isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
 
 const localDay = (iso: string) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const inDays = (iso: string, from: string, to: string) => { const d = localDay(iso); return (!from || d >= from) && (!to || d <= to); };
 
 export default function Consignments() {
-  const { shipments, tripById, can, company } = useStore();
+  const { shipments, trips, tripById, can, company } = useStore();
+  const tripIdx = useMemo(() => tripSearchIndex(trips), [trips]);
   // Only the towns this company delivers to: its offices (not the head office), plus any other town it has actually sent goods to.
   const destList = useMemo(() => {
     const head = company.default_origin || "DAR";
@@ -34,8 +35,9 @@ export default function Consignments() {
       (!from && !to || inDays(s.received_at, from, to)) &&
       (!dest || s.dest === dest) && (!status || s.status === status) && (!pay || s.pay === pay) &&
       (!ql || [s.no, s.s_name, s.r_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql) ||
-        (qd.length >= 4 && (intlPhone(s.s_phone).includes(qd) || intlPhone(s.r_phone).includes(qd)))));
-  }, [shipments, q, dest, status, pay, from, to]);
+        (qd.length >= 4 && (intlPhone(s.s_phone).includes(qd) || intlPhone(s.r_phone).includes(qd))) ||
+        truckMatches(tripIdx, s.trip_id, q)));
+  }, [shipments, q, dest, status, pay, from, to, tripIdx]);
   const { rows, pager } = usePaged(list, [q, dest, status, pay, from, to].join("|"));
   const today = localDay(new Date().toISOString());
   const quick = (days: number) => { setFrom(localDay(new Date(Date.now() - (days - 1) * 864e5).toISOString())); setTo(today); };
@@ -48,7 +50,7 @@ export default function Consignments() {
         {can("receive") && <button className="btn primary" onClick={() => ui.go("new")}><Icon name="new" />Receive goods</button>}
       </div>
       <div className="filters">
-        <div className="searchbox"><Icon name="search" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search waybill no., name, phone or item" aria-label="Search" /></div>
+        <div className="searchbox"><Icon name="search" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search waybill, name, phone, item or truck plate (T 186 DNH)" aria-label="Search" /></div>
         <select value={dest} onChange={(e) => setDest(e.target.value)} aria-label="Destination" style={{ width: "auto", maxWidth: "100%" }}>
           <option value="">All destinations</option>{destList.map(([c, n]) => <option key={c} value={c}>{n}</option>)}
         </select>

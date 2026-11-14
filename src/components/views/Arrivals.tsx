@@ -5,7 +5,7 @@ import { useUi } from "../CargoApp";
 import { ReleaseForm } from "../release";
 import { DeliveryPeople, GiveToRunner } from "./Runners";
 import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub, FoundPicker, usePaged, Pager } from "../parts";
-import { isOut, noPrice, nameOr, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { isOut, noPrice, nameOr, tripSearchIndex, truckMatches, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
 
@@ -104,11 +104,12 @@ export default function Arrivals() {
   const collectedToday = shipments.filter((s) => s.status === "collected" && s.collected_at && new Date(s.collected_at).toDateString() === today);
   const destOptions = REGIONS.filter(([c]) => waitingAll.some((s) => s.dest === c));
   const ql = q.trim().toLowerCase();
+  const tripIdx = useMemo(() => tripSearchIndex(trips), [trips]);
   const waiting = waitingAll.filter((s) =>
     (show === "all" || (show === "unpaid" ? s.pay === "unpaid" : show === "paid" ? settled(s) : !sentLog(s, "arrived", "receiver").length)) &&
     (!dest || s.dest === dest) &&
     (!day || localDay(s.arrived_at) === day) &&
-    (!ql || [s.no, s.r_name, s.r_phone, s.s_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql)));
+    (!ql || [s.no, s.r_name, s.r_phone, s.s_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql) || truckMatches(tripIdx, s.trip_id, q)));
   const { rows: waitRows, pager: waitPager } = usePaged(waiting, [show, dest, day, ql].join("|"));
 
   return (
@@ -185,7 +186,7 @@ export default function Arrivals() {
           <input type="date" value={day} max={localDay(new Date().toISOString())} onChange={(e) => setDay(e.target.value)} aria-label="Arrived on date" style={{ width: "auto" }} />
           {day && <button className="btn sm" type="button" onClick={() => setDay("")} aria-label="Clear date">✕</button>}
         </label>
-        <div className="searchbox" style={{ flex: "1 1 200px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Receipt / waybill no., customer or phone" aria-label="Search waiting goods" style={{ paddingLeft: 11 }} /></div>
+        <div className="searchbox" style={{ flex: "1 1 200px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Waybill, customer, phone or truck plate" aria-label="Search waiting goods" style={{ paddingLeft: 11 }} /></div>
       </div>
       <div className="panel" style={{ marginTop: 12 }}>
         {waitRows.map((s) => <WaitingRow key={s.id} s={s} />)}

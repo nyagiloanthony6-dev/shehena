@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { qr } from "./stickers";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
@@ -381,8 +381,15 @@ export function FoundPicker({ label = "Record found goods", primary = false }: {
 }
 
 /** Page through a long list. Resets to page 1 when `resetKey` changes (new search or filter). */
+const PAGE_SIZES = [25, 50, 100, 200];
+const SIZE_KEY = "shehena.pageSize";
 export function usePaged<T>(items: T[], resetKey: string, initialSize = 50) {
-  const [size, setSize] = useState(initialSize);
+  // Rows per page is remembered on this device.
+  const [size, setSizeState] = useState(initialSize);
+  useEffect(() => {
+    try { const n = Number(localStorage.getItem(SIZE_KEY)); if (PAGE_SIZES.includes(n)) setSizeState(n); } catch { /* private mode */ }
+  }, []);
+  const setSize = (n: number) => { setSizeState(n); try { localStorage.setItem(SIZE_KEY, String(n)); } catch { /* private mode */ } };
   const [page, setPage] = useState(1);
   const [key, setKey] = useState(resetKey);
   if (key !== resetKey) { setKey(resetKey); setPage(1); }
@@ -421,7 +428,7 @@ export function Pager({ pager, label = "consignments" }: { pager: PagerState; la
       )}
       <label className="perpage"><span className="sub">Per page</span>
         <select value={size} onChange={(e) => setSize(Number(e.target.value))} style={{ width: "auto" }}>
-          {[25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
       </label>
     </nav>
