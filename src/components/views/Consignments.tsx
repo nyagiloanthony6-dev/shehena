@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
-import { PayPill, StatusPill } from "../parts";
+import { PayPill, StatusPill, usePaged, Pager } from "../parts";
 import { sumPaid, sumBalance, isPart, noPrice, nameOr, isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
 
 const localDay = (iso: string) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
@@ -36,6 +36,7 @@ export default function Consignments() {
       (!ql || [s.no, s.s_name, s.r_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql) ||
         (qd.length >= 4 && (intlPhone(s.s_phone).includes(qd) || intlPhone(s.r_phone).includes(qd)))));
   }, [shipments, q, dest, status, pay, from, to]);
+  const { rows, pager } = usePaged(list, [q, dest, status, pay, from, to].join("|"));
   const today = localDay(new Date().toISOString());
   const quick = (days: number) => { setFrom(localDay(new Date(Date.now() - (days - 1) * 864e5).toISOString())); setTo(today); };
   const paidSum = sumPaid(list), owed = sumBalance(list);
@@ -77,7 +78,7 @@ export default function Consignments() {
       {list.length > 0 && (
         <div className="ledger main"><table>
           <thead><tr><th>Waybill</th><th>Goods</th><th>Sender → receiver</th><th>Route</th><th className="r">Charge (TZS)</th><th>Status</th></tr></thead>
-          <tbody>{list.map((s) => {
+          <tbody>{rows.map((s) => {
             const t = tripById(s.trip_id);
             return (
               <tr className="row" key={s.id} tabIndex={0} onClick={() => ui.openShip(s.id)} onKeyDown={(e) => e.key === "Enter" && ui.openShip(s.id)}>
@@ -92,7 +93,7 @@ export default function Consignments() {
           })}</tbody>
         </table></div>
       )}
-      <div className="cards">{list.map((s) => (
+      <div className="cards">{rows.map((s) => (
         <button className="ccard" key={s.id} onClick={() => ui.openShip(s.id)}>
           <div className="ctop"><span className="mono wb sub">{s.no}{s.found_on_arrival && <span className="tag-found">Found</span>}</span><StatusPill s={s.status} /></div>
           <div><b>{goodsLabel(s)}</b> · {s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}</div>
@@ -100,6 +101,7 @@ export default function Consignments() {
           <div className="cbot"><b>TZS {tzs(s.charge)}</b>{noPrice(s) ? <span className="pill pay-part">No charge yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}</div>
         </button>
       ))}</div>
+      <Pager pager={pager} />
       {!shipments.length && (
         <div className="empty"><h3>No consignments yet</h3><p>Each parcel recorded under <b>Receive goods</b> appears here with its payment and delivery status.</p>
           {can("receive") && <button className="btn primary" onClick={() => ui.go("new")}>Receive the first consignment</button>}</div>

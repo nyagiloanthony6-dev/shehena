@@ -38,19 +38,25 @@ const send = (res, code, body, headers = {}) => {
 };
 const readBody = (req) => new Promise((r) => { let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => r(d ? JSON.parse(d) : {})); });
 
+const MAX_ROWS = Number(process.env.MOCK_MAX_ROWS || 1000);
 function applyFilters(rows, params) {
   let out = rows;
   for (const [k, v] of params) {
-    if (["select", "order", "limit", "columns", "on_conflict"].includes(k)) continue;
+    if (["select", "order", "limit", "offset", "columns", "on_conflict"].includes(k)) continue;
     if (v === "is.null") out = out.filter((r) => r[k] == null);
     else if (v.startsWith("eq.")) out = out.filter((r) => String(r[k]) === v.slice(3));
     else if (v.startsWith("gte.")) out = out.filter((r) => String(r[k]) >= v.slice(4) || Number(r[k]) >= Number(v.slice(4)));
     else if (v.startsWith("in.(")) { const set = v.slice(4, -1).split(",").map((x) => x.replace(/^"|"$/g, "")); out = out.filter((r) => set.includes(String(r[k]))); }
   }
   const order = params.get("order");
-  if (order) { const [col, dir] = order.split("."); out = [...out].sort((a, b) => String(a[col] ?? "").localeCompare(String(b[col] ?? "")) * (dir === "desc" ? -1 : 1)); }
-  const limit = params.get("limit");
-  if (limit) out = out.slice(0, Number(limit));
+  if (order) {
+    const keys = order.split(",").map((o) => { const [col, dir] = o.split("."); return { col, desc: dir === "desc" }; });
+    out = [...out].sort((a, b) => { for (const k of keys) { const c = String(a[k.col] ?? "").localeCompare(String(b[k.col] ?? "")); if (c) return k.desc ? -c : c; } return 0; });
+  }
+  // Like Supabase: at most MAX_ROWS rows per request (default 1,000), with offset paging.
+  const offset = Number(params.get("offset") || 0);
+  const limit = Math.min(Number(params.get("limit") || MAX_ROWS), MAX_ROWS);
+  out = out.slice(offset, offset + limit);
   return out;
 }
 // Row visibility = same company (mirrors the RLS policies).

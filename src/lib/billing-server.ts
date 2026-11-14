@@ -1,3 +1,4 @@
+import { allRows } from "./all-rows";
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -18,9 +19,11 @@ export async function billingSettings(): Promise<BillingSettings> {
  */
 export async function activeTrucks(companyId?: string): Promise<Record<string, string[]>> {
   const since = new Date(Date.now() - ACTIVE_DAYS * 864e5).toISOString();
-  let q = supabaseAdmin().from("trips").select("company_id, plate").gte("created_at", since).limit(50000);
-  if (companyId) q = q.eq("company_id", companyId);
-  const { data } = await q;
+  const { data } = await allRows<{ company_id: string; plate: string }>((a, b) => {
+    let q = supabaseAdmin().from("trips").select("company_id, plate, id").gte("created_at", since);
+    if (companyId) q = q.eq("company_id", companyId);
+    return q.order("id").range(a, b);
+  });
   const out: Record<string, Map<string, string>> = {};
   for (const t of (data || []) as { company_id: string; plate: string }[]) {
     const k = normPlate(t.plate);

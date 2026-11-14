@@ -379,3 +379,51 @@ export function FoundPicker({ label = "Record found goods", primary = false }: {
     </span>
   );
 }
+
+/** Page through a long list. Resets to page 1 when `resetKey` changes (new search or filter). */
+export function usePaged<T>(items: T[], resetKey: string, initialSize = 50) {
+  const [size, setSize] = useState(initialSize);
+  const [page, setPage] = useState(1);
+  const [key, setKey] = useState(resetKey);
+  if (key !== resetKey) { setKey(resetKey); setPage(1); }
+  const pages = Math.max(1, Math.ceil(items.length / size));
+  const cur = Math.min(page, pages);
+  return {
+    rows: items.slice((cur - 1) * size, cur * size),
+    pager: { page: cur, pages, size, total: items.length, setPage, setSize: (n: number) => { setSize(n); setPage(1); } },
+  };
+}
+
+type PagerState = ReturnType<typeof usePaged>["pager"];
+
+/** "Showing 1–50 of 1,284", page numbers, Previous / Next and rows per page. Hidden when one page is enough. */
+export function Pager({ pager, label = "consignments" }: { pager: PagerState; label?: string }) {
+  const { page, pages, size, total, setPage, setSize } = pager;
+  if (total <= 25) return null;
+  const go = (n: number) => { setPage(n); if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const nums: (number | "…")[] = [];
+  for (let i = 1; i <= pages; i++) {
+    if (i === 1 || i === pages || Math.abs(i - page) <= 1) nums.push(i);
+    else if (nums[nums.length - 1] !== "…") nums.push("…");
+  }
+  const a = (page - 1) * size + 1, b = Math.min(total, page * size);
+  return (
+    <nav className="pager" aria-label={`Pages of ${label}`}>
+      <span className="sub">Showing <b>{a.toLocaleString("en-US")}–{b.toLocaleString("en-US")}</b> of {total.toLocaleString("en-US")}</span>
+      {pages > 1 && (
+        <div className="pages">
+          <button className="btn sm" disabled={page === 1} onClick={() => go(page - 1)}>‹ Previous</button>
+          {nums.map((n, i) => n === "…"
+            ? <span key={`g${i}`} className="sub gap">…</span>
+            : <button key={n} className={`btn sm pg${n === page ? " on" : ""}`} aria-current={n === page ? "page" : undefined} onClick={() => go(n)}>{n}</button>)}
+          <button className="btn sm" disabled={page === pages} onClick={() => go(page + 1)}>Next ›</button>
+        </div>
+      )}
+      <label className="perpage"><span className="sub">Per page</span>
+        <select value={size} onChange={(e) => setSize(Number(e.target.value))} style={{ width: "auto" }}>
+          {[25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </label>
+    </nav>
+  );
+}

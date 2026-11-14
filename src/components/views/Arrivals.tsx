@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { ReleaseForm } from "../release";
 import { DeliveryPeople, GiveToRunner } from "./Runners";
-import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub, FoundPicker } from "../parts";
+import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub, FoundPicker, usePaged, Pager } from "../parts";
 import { isOut, noPrice, nameOr, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
@@ -109,6 +109,7 @@ export default function Arrivals() {
     (!dest || s.dest === dest) &&
     (!day || localDay(s.arrived_at) === day) &&
     (!ql || [s.no, s.r_name, s.r_phone, s.s_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql)));
+  const { rows: waitRows, pager: waitPager } = usePaged(waiting, [show, dest, day, ql].join("|"));
 
   return (
     <section>
@@ -187,7 +188,8 @@ export default function Arrivals() {
         <div className="searchbox" style={{ flex: "1 1 200px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Receipt / waybill no., customer or phone" aria-label="Search waiting goods" style={{ paddingLeft: 11 }} /></div>
       </div>
       <div className="panel" style={{ marginTop: 12 }}>
-        {waiting.map((s) => <WaitingRow key={s.id} s={s} />)}
+        {waitRows.map((s) => <WaitingRow key={s.id} s={s} />)}
+        <Pager pager={waitPager} />
         {!waitingAll.length && <p className="quiet">No goods waiting. When a truck is marked arrived, its consignments appear here.</p>}
         {waitingAll.length > 0 && !waiting.length && <p className="quiet">Nothing matches this filter.</p>}
       </div>

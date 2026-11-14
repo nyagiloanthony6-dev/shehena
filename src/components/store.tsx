@@ -116,28 +116,46 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     runners: setRunners as React.Dispatch<React.SetStateAction<Row[]>>,
   }), []);
 
+  /**
+   * Every row of a table, newest first. Supabase returns at most 1,000 rows per request,
+   * so rows are fetched page by page until everything has arrived.
+   */
+  const fetchAll = useCallback(async (table: string, col: string, asc = false) => {
+    // Works whatever the server's cap is: keep asking until a page comes back shorter than the first one.
+    const PAGE = 1000, rows: Record<string, unknown>[] = [];
+    let first = 0;
+    for (;;) {
+      const r = await sb.from(table).select("*").order(col, { ascending: asc }).order("id", { ascending: true }).range(rows.length, rows.length + PAGE - 1);
+      if (r.error) return { data: rows.length ? rows : null, error: r.error };
+      const got = (r.data || []) as Record<string, unknown>[];
+      if (!first) first = got.length;
+      rows.push(...got);
+      if (!got.length || got.length < first) return { data: rows, error: null };
+    }
+  }, [sb]);
+
   const loadAll = useCallback(async () => {
     const [s, t, v, p, c] = await Promise.all([
-      sb.from("shipments").select("*").order("received_at", { ascending: false }).limit(10000),
-      sb.from("trips").select("*").order("created_at", { ascending: false }).limit(5000),
+      fetchAll("shipments", "received_at"),
+      fetchAll("trips", "created_at"),
       sb.from("vehicles").select("*").order("plate"),
       sb.from("profiles").select("*").order("created_at"),
       sb.from("companies").select("*").eq("id", initialCompany.id).single(),
     ]);
     if (s.error || t.error || v.error) toast("Could not load all records. Check your connection and reload.", true);
     // Keep what is on screen if a reload fails (weak signal), instead of emptying the lists.
-    if (!s.error && s.data) setShipments(s.data as Shipment[]);
-    if (!t.error && t.data) setTrips(t.data as Trip[]);
+    if (!s.error && s.data) setShipments(s.data as unknown as Shipment[]);
+    if (!t.error && t.data) setTrips(t.data as unknown as Trip[]);
     if (!v.error && v.data) setVehicles(v.data as Vehicle[]);
     if (!p.error && p.data) setStaff(p.data as Profile[]);
     if (c.data) setCompany(c.data as Company);
-    const extra = await Promise.all(EXTRA.map((tb) => sb.from(tb).select("*").order(SORT[tb], { ascending: ASC.has(tb) }).limit(5000)));
+    const extra = await Promise.all(EXTRA.map((tb) => fetchAll(tb, SORT[tb], ASC.has(tb))));
     const num = (r: Record<string, unknown>) => ({ ...r, ...(["amount", "goods_value", "compensation"].reduce((o, k) => (k in r ? { ...o, [k]: Number(r[k]) } : o), {})) });
     EXTRA.forEach((tb, i) => setters[tb](((extra[i].data || []) as Record<string, unknown>[]).map(num) as unknown as Row[]));
     setHasExtras(!extra[0].error);
     const v9 = await sb.from("trips").select("rent_cost").limit(1);
     setHasV9(!v9.error);
-    const sp = await sb.from("shipment_payments").select("*").order("paid_at", { ascending: false }).limit(20000);
+    const sp = await fetchAll("shipment_payments", "paid_at");
     setHasPart(!sp.error);
     const rn = await sb.from("shipments").select("runner_name").limit(1);
     setHasRunners(!rn.error);
@@ -146,7 +164,7 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     setRunners((rl.data || []) as Runner[]);
     setShipPayments(((sp.data || []) as Record<string, unknown>[]).map((r) => ({ ...r, amount: Number(r.amount) })) as unknown as ShipPayment[]);
     setReady(true);
-  }, [sb, initialCompany.id, toast, setters]);
+  }, [sb, initialCompany.id, toast, setters, fetchAll]);
 
   const reloadStaff = useCallback(async () => {
     const { data } = await sb.from("profiles").select("*").order("created_at");

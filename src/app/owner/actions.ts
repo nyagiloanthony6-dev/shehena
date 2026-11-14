@@ -1,4 +1,5 @@
 "use server";
+import { allRows } from "@/lib/all-rows";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { currentOwner, type AccountStatus } from "@/lib/owner";
@@ -398,14 +399,15 @@ export async function truckActivity(companyId: string, month: string): Promise<{
     const from = new Date(Date.UTC(y, m - 1, 1) - 3 * 3600e3).toISOString();
     const to = new Date(Date.UTC(y, m, 1) - 3 * 3600e3).toISOString();
     const admin = supabaseAdmin();
-    const { data: trips, error } = await admin.from("trips").select("*").eq("company_id", companyId).gte("created_at", from).limit(5000);
+    const { data: trips, error } = await allRows<Record<string, any>>((a, b) => admin.from("trips").select("*").eq("company_id", companyId).gte("created_at", from).lt("created_at", to).order("id").range(a, b));
     if (error) return { error: "Couldn't load the trips." };
     const inMonth = (trips || []).filter((t) => t.created_at < to);
     const ids = inMonth.map((t) => t.id);
     const ships: { trip_id: string; charge: number; pay: string; pkgs: number; paid_amount?: number }[] = [];
     for (let i = 0; i < ids.length; i += 200) {
-      const { data } = await admin.from("shipments").select("*").in("trip_id", ids.slice(i, i + 200));
-      ships.push(...((data || []) as typeof ships));
+      const chunk = ids.slice(i, i + 200);
+      const { data } = await allRows<(typeof ships)[number]>((a, b) => admin.from("shipments").select("*").in("trip_id", chunk).order("id").range(a, b));
+      ships.push(...data);
     }
     const rows = new Map<string, TruckRow>();
     for (const t of inMonth) {

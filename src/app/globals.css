@@ -562,3 +562,12 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 .editlog li{border-left:3px solid var(--line);padding-left:10px}
 .editlog s{color:var(--muted)}
 .periodline{margin:-4px 0 12px;font-size:14px}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0 4px}
+.pager .sub b{color:var(--ink)}
+.pager .pages{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.pager .pg{min-width:34px;justify-content:center}
+.pager .pg.on{background:var(--nav-bg);color:#fff;border-color:var(--nav-bg)}
+.pager .gap{padding:0 2px}
+.pager .perpage{display:flex;align-items:center;gap:6px}
+.pager .perpage select{padding:5px 8px}
+@media (max-width:640px){.pager{justify-content:center}.pager .perpage{display:none}}
