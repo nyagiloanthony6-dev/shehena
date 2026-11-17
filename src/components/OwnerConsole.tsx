@@ -63,6 +63,72 @@ function dueText(r: Row) {
   return `due since ${dayLabel(r.bill.due)}`;
 }
 
+type Page = "overview" | "clients" | "billing" | "sales" | "demos" | "settings" | "activity";
+type Attn = { tone: "bad" | "warn" | "info" | "good"; icon: string; title: string; sub: string; act: string; go: () => void };
+type IconName = "home" | "clients" | "money" | "people" | "chat" | "gear" | "clock";
+
+/** "2026-11" for this month (0), last month (-1)… in Tanzania time. */
+function monthKey(offset = 0) {
+  const d = new Date(Date.now() + 3 * 3600e3);
+  const m = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + offset, 1));
+  return m.toISOString().slice(0, 7);
+}
+const mName = (key: string, style: "long" | "short" = "long") => new Date(key + "-15T12:00:00Z").toLocaleDateString("en-GB", { month: style });
+/** 184,600,000 → "184.6M"; 950,000 → "950K". */
+const short = (n: number) => n >= 1e9 ? `${+(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : String(Math.round(n));
+const initials = (name: string) => name.replace(/[^A-Za-z0-9 ]/g, " ").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+const AV = ["#23409A", "#B86A00", "#1D7A46", "#7A3FB8", "#0E7490", "#B42318", "#3F5BA9", "#8A5200"];
+const avatarColor = (name: string) => AV[[...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % AV.length];
+
+function OcIcon({ name }: { name: IconName }) {
+  const d: Record<IconName, React.ReactNode> = {
+    home: <path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
+    clients: <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" />,
+    money: <path d="M12 3v18M17 7H9.5a3 3 0 0 0 0 6h5a3 3 0 0 1 0 6H6" />,
+    people: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6" /></>,
+    chat: <path d="M4 4h16v12H8l-4 4z" />,
+    gear: <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></>,
+    clock: <path d="M12 8v4l3 2M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />,
+  };
+  return <svg viewBox="0 0 24 24" aria-hidden="true">{d[name]}</svg>;
+}
+
+/** "▲ 18% vs October" — or nothing when there is no earlier figure to compare with. */
+function Delta({ now, before, label }: { now: number; before: number; label: string }) {
+  if (!before) return null;
+  const pct = Math.round(((now - before) / before) * 100);
+  return <div className={`oc-delta ${pct >= 0 ? "up" : "down"}`}>{pct >= 0 ? "▲" : "▼"} {Math.abs(pct)}% vs {label}</div>;
+}
+
+/** Small trend line of the last months' money received. */
+function Spark({ values }: { values: number[] }) {
+  const max = Math.max(...values);
+  if (!max) return null;
+  const pts = values.map((v, i) => [(i / (values.length - 1)) * 150, 50 - (v / max) * 42]);
+  const [lx, ly] = pts[pts.length - 1];
+  return (
+    <svg className="oc-spark" width="150" height="54" viewBox="0 0 150 54" aria-hidden="true">
+      <polyline points={pts.map((p) => p.join(",")).join(" ")} fill="none" stroke="#F2A23A" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={lx} cy={ly} r="4" fill="#F2A23A" />
+    </svg>
+  );
+}
+
+/** Money received per month; this month in amber. */
+function MonthBars({ months, values }: { months: string[]; values: number[] }) {
+  const max = Math.max(1, ...values);
+  return (
+    <div className="oc-bars" role="img" aria-label={months.map((m, i) => `${mName(m)} TZS ${tzs(values[i])}`).join(", ")}>
+      {months.map((m, i) => (
+        <div key={m} className={`b${i === months.length - 1 ? " cur" : ""}`} title={`${mName(m)}: TZS ${tzs(values[i])}`}>
+          <span className="v">{values[i] ? short(values[i]) : "–"}</span>
+          <span className="bar" style={{ height: `${Math.max(3, (values[i] / max) * 130)}px` }} />
+          <span className="x">{mName(m, "short")}</span>
+        </div>))}
+    </div>
+  );
+}
+
 export default function OwnerConsole({ data }: { data: OwnerData }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -72,6 +138,8 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [agentId, setAgentId] = useState<string | null>(null);
+  const [page, setPage] = useState<Page>("overview");
+  const [menu, setMenu] = useState(false);
 
   const run = (fn: () => Promise<{ ok?: string; error?: string }>, after?: () => void) => start(async () => {
     const r = await fn();
@@ -106,88 +174,220 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
   const received = data.payments.filter((p) => p.paid_on.startsWith(month)).reduce((a, p) => a + p.amount, 0);
   const owed = rows.filter((r) => r.acc.status === "overdue").reduce((a, r) => a + r.bill.fee, 0);
 
+  // ----- Overview figures -----
+  const lastMonth = monthKey(-1);
+  const receivedLast = data.payments.filter((p) => p.paid_on.startsWith(lastMonth)).reduce((a, p) => a + p.amount, 0);
+  const months6 = Array.from({ length: 6 }, (_, i) => monthKey(i - 5));
+  const byMonth = months6.map((m) => data.payments.filter((p) => p.paid_on.startsWith(m)).reduce((a, p) => a + p.amount, 0));
+  const payingN = rows.filter((r) => r.acc.status === "active").length;
+  const trucksN = rows.reduce((a, r) => a + r.bill.trucks, 0);
+  const newLeads = data.leads.filter((l) => l.status === "new").length;
+  const openLeads = data.leads.filter((l) => !["won", "lost"].includes(l.status)).length;
+  const in7 = addDays(today(), 7), in5 = addDays(today(), 5);
+  const attention: Attn[] = [
+    ...rows.filter((r) => r.acc.status === "overdue").map((r): Attn => ({ tone: "bad", icon: "!", title: `${r.name} is overdue`, sub: `TZS ${tzs(r.bill.fee)} a month${r.bill.suspend_on ? ` · suspends on ${dayLabel(r.bill.suspend_on)}` : ""}`, act: "Record payment", go: () => setOpenId(r.id) })),
+    ...rows.filter((r) => r.acc.status === "trial" && r.bill.due && r.bill.due <= in7).map((r): Attn => ({ tone: "info", icon: `${Math.max(0, daysAgo(r.bill.due) === null ? 0 : -(daysAgo(r.bill.due) as number))}d`, title: `${r.name}'s trial ends ${dayLabel(r.bill.due as string)}`, sub: `${r.bill.trucks} truck${r.bill.trucks === 1 ? "" : "s"} used · ${r.st.ship_month} consignments this month`, act: "Open", go: () => setOpenId(r.id) })),
+    ...rows.filter((r) => r.acc.status === "active" && r.bill.due && r.bill.due <= in5).map((r): Attn => ({ tone: "warn", icon: "TZS", title: `${r.name} pays on ${dayLabel(r.bill.due as string)}`, sub: `TZS ${tzs(r.bill.fee)} due`, act: "Open", go: () => setOpenId(r.id) })),
+    ...quiet.map((r): Attn => ({ tone: "warn", icon: "zz", title: `${r.name} quiet ${daysAgo(r.st.last_activity)} days`, sub: `last activity ${fmtDate(r.st.last_activity || r.created_at).slice(0, 11)}`, act: "Open", go: () => setOpenId(r.id) })),
+    ...(newLeads ? [{ tone: "good", icon: "+", title: `${newLeads} new demo request${newLeads === 1 ? "" : "s"}`, sub: data.leads.filter((l) => l.status === "new").slice(0, 3).map((l) => l.company || l.name).join(", "), act: "View", go: () => setPage("demos") } as Attn] : []),
+  ];
+  const top = [...rows].filter((r) => r.acc.status !== "suspended").sort((x, y) => y.st.ship_month - x.st.ship_month || y.st.billed_month - x.st.billed_month).slice(0, 5);
+  const topMax = Math.max(1, ...top.map((r) => r.st.ship_month));
+  const billingDue = count("overdue") + rows.filter((r) => r.acc.status === "active" && r.bill.due && r.bill.due <= in5).length;
+  const NAV: [Page, string, IconName, number?][] = [
+    ["overview", "Overview", "home"], ["clients", "Clients", "clients", rows.length], ["billing", "Billing & payments", "money", billingDue || undefined],
+    ["sales", "Sales team", "people"], ["demos", "Demo requests", "chat", openLeads || undefined], ["settings", "Settings", "gear"], ["activity", "Activity log", "clock"],
+  ];
+  const hour = Number(new Date().toLocaleString("en-GB", { hour: "numeric", hour12: false, timeZone: "Africa/Dar_es_Salaam" }));
+  const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const first = (data.staff.find((p) => p.email === data.me)?.full_name || data.me.split("@")[0]).split(/[\s._-]+/)[0];
+  const firstCap = first.charAt(0).toUpperCase() + first.slice(1);
+  const goPage = (p: Page) => { setPage(p); setMenu(false); if (typeof window !== "undefined") window.scrollTo({ top: 0 }); };
+
   return (
-    <div className="owner">
-      <header className="otop">
-        <div className="brandrow"><Mark /><Wordmark /><div className="otitle" style={{ marginLeft: 6, paddingLeft: 12, borderLeft: "1px solid rgba(255,255,255,.15)" }}>Owner console</div></div>
-        <div className="mtop-r" style={{ gap: 8 }}>
-          <span className="sub" style={{ color: "var(--nav-muted)" }}>{data.me}</span>
-          {data.hasCompany && <a className="btn sm" href="/app">My company</a>}
-          <form action={signOut}><button className="btn sm" type="submit">Sign out</button></form>
+    <div className="owner oc">
+      <aside className={`oc-side${menu ? " open" : ""}`} aria-label="Owner console menu">
+        <div className="oc-brand"><Mark /><div><Wordmark /><small>Owner console</small></div></div>
+        <nav className="oc-nav">
+          {NAV.map(([k, label, icon, n]) => (
+            <button key={k} className={page === k ? "on" : ""} aria-current={page === k ? "page" : undefined} onClick={() => goPage(k)}>
+              <OcIcon name={icon} />{label}{n ? <span className={`ct${k === "clients" ? " muted" : ""}`}>{n}</span> : null}
+            </button>))}
+        </nav>
+        <div className="oc-foot">
+          <div className="sub">{data.me}</div>
+          <div className="oc-foot-actions">
+            {data.hasCompany && <a className="btn sm" href="/app">My company</a>}
+            <form action={signOut}><button className="btn sm" type="submit">Sign out</button></form>
+          </div>
+          <div className="sub">Developed by <b>Serengeti Labs</b></div>
         </div>
+      </aside>
+      {menu && <div className="oc-scrim" onClick={() => setMenu(false)} />}
+      <header className="oc-mtop">
+        <button className="btn sm" onClick={() => setMenu(true)} aria-label="Open menu">☰</button>
+        <div className="brandrow"><Mark /><Wordmark /></div>
+        <span className="sub" style={{ color: "var(--nav-muted)" }}>{NAV.find((n) => n[0] === page)?.[1]}</span>
       </header>
-      <main className="wrap">
+
+      <main className="oc-main">
         {data.error && <div className="banner">{data.error}</div>}
-        <div className="sectionhead"><div><h1>Client companies</h1><div className="sub">Every cargo company using Shehena. Developed by Serengeti Labs.</div></div>
-          <button className={`btn${adding ? "" : " primary"}`} onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "Add a company"}</button></div>
 
-        <div className="stats six">
-          <div className="stat"><div className="lbl">Clients</div><div className="v">{rows.length}</div><div className="s">{sum("active_staff")} active staff</div></div>
-          <div className="stat"><div className="lbl">Active</div><div className="v">{count("active")}</div><div className="s">{count("trial")} on trial</div></div>
-          <div className={`stat${count("overdue") ? " warn" : ""}`}><div className="lbl">Overdue</div><div className="v">{count("overdue")}</div><div className="s">{owed ? `TZS ${tzs(owed)} a month due` : "need to pay"}</div></div>
-          <div className="stat"><div className="lbl">Suspended</div><div className="v">{count("suspended")}</div><div className="s">no access</div></div>
-          <div className="stat"><div className="lbl">Monthly revenue</div><div className="v">{tzs(mrr)}</div><div className="s">TZS a month, paying clients</div></div>
-          <div className="stat"><div className="lbl">Received this month</div><div className="v">{tzs(received)}</div><div className="s">TZS · {sum("ship_month")} consignments by clients</div></div>
-        </div>
-
-        {adding && <AddCompany agents={data.agents} busy={pending} onSubmit={(v) => run(() => createCompany(v), () => setAdding(false))} />}
-
-        <div className="rgrid" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.4fr)" }}>
-          <div className="panel">
-            <h2>New company sign-up</h2>
-            <p className="sub" style={{ marginTop: 4 }}>{data.settings.signup_open
-              ? "Open: anyone can register a company from the sign-in page."
-              : "Closed: only you can add companies, from this console."}</p>
-            <div className="actions">
-              <button className={`btn${data.settings.signup_open ? "" : " primary"}`} disabled={pending} onClick={() => run(() => setSignupOpen(!data.settings.signup_open))}>
-                {data.settings.signup_open ? "Close self sign-up" : "Open self sign-up"}</button>
+        {page === "overview" && <>
+          <div className="oc-head">
+            <div><div className="sub">{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Dar_es_Salaam" })}</div><h1>{greet}, {firstCap}</h1></div>
+            <div className="oc-head-actions">{data.hasCompany && <a className="btn" href="/app">My company</a>}<button className="btn primary" onClick={() => { goPage("clients"); setAdding(true); }}>+ Add a company</button></div>
+          </div>
+          <div className="oc-kpis">
+            <div className="oc-card oc-hero">
+              <div className="lbl">Monthly revenue</div>
+              <div className="big">{tzs(mrr)}<small>TZS / month</small></div>
+              <div className="sub">from {payingN} paying client{payingN === 1 ? "" : "s"} · {trucksN} active truck{trucksN === 1 ? "" : "s"}</div>
+              <Spark values={byMonth} />
+            </div>
+            <div className="oc-card">
+              <div className="lbl">Received this month</div>
+              <div className="big">{tzs(received)}<small>TZS</small></div>
+              <Delta now={received} before={receivedLast} label={mName(lastMonth)} />
+              <div className="oc-prog" title="Received ÷ monthly revenue"><span style={{ width: `${mrr ? Math.min(100, Math.round((received / mrr) * 100)) : 0}%` }} /></div>
+              <div className="sub">{!mrr ? "No paying clients yet" : received >= mrr ? "More than a month's revenue (includes advance or multi-month payments)" : `${Math.round((received / mrr) * 100)}% of monthly revenue · ${tzs(mrr - received)} still to come`}</div>
+            </div>
+            <div className="oc-card">
+              <div className="lbl">Clients</div>
+              <div className="big">{rows.length}</div>
+              <div className="oc-seg" aria-hidden="true">{(["active", "trial", "overdue", "suspended"] as Status[]).map((k) => count(k) ? <span key={k} className={`s-${k}`} style={{ flex: count(k) }} /> : null)}</div>
+              <div className="oc-legend">{(["active", "trial", "overdue", "suspended"] as Status[]).map((k) => <button key={k} onClick={() => { setFilter(k); goPage("clients"); }}><i className={`s-${k}`} />{count(k)} {STATUS_LABEL[k].toLowerCase()}</button>)}</div>
+            </div>
+            <div className="oc-card">
+              <div className="lbl">Clients&apos; activity</div>
+              <div className="big">{sum("ship_month").toLocaleString("en-US")}<small>consignments</small></div>
+              <div className="sub">this month · TZS {short(sum("billed_month"))} billed by clients · {sum("active_staff")} active staff</div>
             </div>
           </div>
-          <Announcement current={data.settings.announcement} updated={data.settings.announcement_updated_at} busy={pending} onSave={(t) => run(() => setAnnouncement(t))} />
-        </div>
-
-        <Pricing settings={data.settings} rows={rows} busy={pending} run={run} />
-
-        <div className="filters" style={{ marginTop: 22 }}>
-          <div className="chips">
-            {([["", `All · ${rows.length}`], ["active", `Active · ${count("active")}`], ["trial", `Trial · ${count("trial")}`], ["overdue", `Overdue · ${count("overdue")}`], ["suspended", `Suspended · ${count("suspended")}`], ["quiet", `Quiet 14+ days · ${quiet.length}`]] as [typeof filter, string][])
-              .map(([k, l]) => <button key={k || "all"} className="chip" aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}</button>)}
+          <div className="oc-row2">
+            <div className="oc-card">
+              <div className="oc-hd"><h2>Money received</h2><span className="sub">Last 6 months, TZS</span></div>
+              <MonthBars months={months6} values={byMonth} />
+            </div>
+            <div className="oc-card">
+              <div className="oc-hd"><h2>Needs your attention</h2><span className="sub">{attention.length ? `${attention.length} item${attention.length === 1 ? "" : "s"}` : ""}</span></div>
+              {attention.length ? (
+                <ul className="oc-att">{attention.slice(0, 6).map((x, i) => (
+                  <li key={i}><span className={`ic t-${x.tone}`}>{x.icon}</span><div className="t"><b>{x.title}</b><span className="sub">{x.sub}</span></div><button className="btn sm" onClick={x.go}>{x.act}</button></li>))}
+                  {attention.length > 6 && <li className="sub">and {attention.length - 6} more on the Clients page</li>}
+                </ul>
+              ) : <div className="oc-allgood"><span>✓</span><div><b>All clear</b><div className="sub">No overdue clients, trials ending, quiet accounts or new requests.</div></div></div>}
+            </div>
           </div>
-          <div className="searchbox" style={{ flex: "1 1 220px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Account no., company, staff name or email" aria-label="Search companies" style={{ paddingLeft: 11 }} /></div>
-        </div>
-        <div className="ledger" style={{ marginTop: 12 }}><table>
-          <thead><tr><th>Company</th><th>Admin</th><th className="r">Staff</th><th className="r">Trucks <span className="sub">saved · active</span></th><th className="r">This month</th><th>Last activity</th><th className="r">Plan</th><th>Status</th></tr></thead>
-          <tbody>
-            {shown.map((r) => {
-              const d = daysAgo(r.st.last_activity) ?? 0;
-              return (
-                <tr key={r.id} className="row" tabIndex={0} onClick={() => setOpenId(r.id)} onKeyDown={(e) => e.key === "Enter" && setOpenId(r.id)}>
-                  <td><b>{r.name}</b>{r.mode === "air" ? <span className="tag-rental">Air cargo</span> : <span className="tag-rental tag-road">Road cargo</span>}<div className="sub">{r.account_no && <b className="mono" style={{ color: "var(--ink)" }}>{r.account_no} · </b>}{[r.branch, r.phone].filter(Boolean).join(" · ") || "No branch set"} · joined {fmtDate(r.created_at).slice(0, 11)}</div></td>
-                  <td>{r.admins[0] ? <>{r.admins[0].full_name}<div className="sub">{r.admins[0].email}</div></> : <span className="sub">No admin</span>}</td>
-                  <td className="r num">{r.st.active_staff}<span className="sub">/{r.st.staff}</span></td>
-                  <td className="r num">{r.st.vehicles} · <b>{r.bill.trucks}</b></td>
-                  <td className="r num">{r.st.ship_month} cons.<div className="sub">TZS {tzs(r.st.billed_month)}</div></td>
-                  <td><span style={d >= 14 && r.acc.status !== "suspended" ? { color: "var(--bad)", fontWeight: 600 } : undefined}>{ago(r.st.last_activity)}</span></td>
-                  <td className="r num">{tzs(r.bill.fee)}<div className="sub">{r.acc.custom_fee != null ? "custom fee" : r.bill.plan}</div></td>
-                  <td><StatusPill s={r.acc.status} /><div className="sub">{dueText(r)}</div></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-          {!rows.length && <div className="empty"><h3>No client companies yet</h3><p>Add your first company, or open self sign-up so companies can register.</p></div>}
-          {rows.length > 0 && !shown.length && <div className="empty"><p>No companies match.</p></div>}
-        </div>
+          <div className="oc-card" style={{ marginTop: 14 }}>
+            <div className="oc-hd"><h2>Top clients this month</h2><button className="linkbtn" onClick={() => goPage("clients")}>See all {rows.length} clients →</button></div>
+            {top.length ? (
+              <div className="ledger" style={{ border: 0, marginTop: 6 }}><table className="oc-top">
+                <thead><tr><th>Company</th><th className="r">Active trucks</th><th>Consignments</th><th className="r">Billed by them</th><th className="r">Pays you</th><th>Status</th></tr></thead>
+                <tbody>{top.map((r) => (
+                  <tr key={r.id} className="row" tabIndex={0} onClick={() => setOpenId(r.id)} onKeyDown={(e) => e.key === "Enter" && setOpenId(r.id)}>
+                    <td><span className="oc-av" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span><b>{r.name}</b>{r.account_no && <span className="mono sub"> {r.account_no}</span>}</td>
+                    <td className="r num">{r.bill.trucks}</td>
+                    <td className="num">{r.st.ship_month} <span className="oc-mbar"><span style={{ width: `${(r.st.ship_month / topMax) * 100}%` }} /></span></td>
+                    <td className="r num">{tzs(r.st.billed_month)}</td>
+                    <td className="r num">{tzs(r.bill.fee)}</td>
+                    <td><StatusPill s={r.acc.status} /></td>
+                  </tr>))}</tbody>
+              </table></div>
+            ) : <p className="sub">No clients yet. <button className="linkbtn" onClick={() => { goPage("clients"); setAdding(true); }}>Add your first company</button></p>}
+          </div>
+        </>}
 
-        <SalesTeam data={data} rows={rows} busy={pending} run={run} open={(id) => setAgentId(id)} />
+        {page === "clients" && <>
+          <div className="oc-head"><div><h1>Clients</h1><div className="sub">Every cargo company using Shehena. Tap a company for its details, billing and trucks.</div></div>
+            <button className={`btn${adding ? "" : " primary"}`} onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add a company"}</button></div>
+          {adding && <AddCompany agents={data.agents} busy={pending} onSubmit={(v) => run(() => createCompany(v), () => setAdding(false))} />}
+          <div className="filters" style={{ marginTop: 6 }}>
+            <div className="chips">
+              {([["", `All · ${rows.length}`], ["active", `Active · ${count("active")}`], ["trial", `Trial · ${count("trial")}`], ["overdue", `Overdue · ${count("overdue")}`], ["suspended", `Suspended · ${count("suspended")}`], ["quiet", `Quiet 14+ days · ${quiet.length}`]] as [typeof filter, string][])
+                .map(([k, l]) => <button key={k || "all"} className="chip" aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}</button>)}
+            </div>
+            <div className="searchbox" style={{ flex: "1 1 220px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Account no., company, staff name or email" aria-label="Search companies" style={{ paddingLeft: 11 }} /></div>
+          </div>
+          <div className="ledger oc-card" style={{ marginTop: 12, padding: 0 }}><table>
+            <thead><tr><th>Company</th><th>Admin</th><th className="r">Staff</th><th className="r">Trucks <span className="sub">saved · active</span></th><th className="r">This month</th><th>Last activity</th><th className="r">Plan</th><th>Status</th></tr></thead>
+            <tbody>
+              {shown.map((r) => {
+                const d = daysAgo(r.st.last_activity) ?? 0;
+                return (
+                  <tr key={r.id} className="row" tabIndex={0} onClick={() => setOpenId(r.id)} onKeyDown={(e) => e.key === "Enter" && setOpenId(r.id)}>
+                    <td className="oc-co" title={`Joined ${fmtDate(r.created_at).slice(0, 11)}`}><div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}><span className="oc-av" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span><div><b>{r.name}</b> {r.mode === "air" ? <span className="tag-rental">Air</span> : <span className="tag-rental tag-road">Road</span>}<div className="sub">{[r.account_no, r.branch, r.phone].filter(Boolean).join(" · ")}</div></div></div></td>
+                    <td>{r.admins[0] ? <>{r.admins[0].full_name}<div className="sub">{r.admins[0].email}</div></> : <span className="sub">No admin</span>}</td>
+                    <td className="r num">{r.st.active_staff}<span className="sub">/{r.st.staff}</span></td>
+                    <td className="r num">{r.st.vehicles} · <b>{r.bill.trucks}</b></td>
+                    <td className="r num">{r.st.ship_month} cons.<div className="sub">TZS {tzs(r.st.billed_month)}</div></td>
+                    <td><span style={d >= 14 && r.acc.status !== "suspended" ? { color: "var(--bad)", fontWeight: 600 } : undefined}>{ago(r.st.last_activity)}</span></td>
+                    <td className="r num">{tzs(r.bill.fee)}<div className="sub">{r.acc.custom_fee != null ? "custom fee" : r.bill.plan}</div></td>
+                    <td><StatusPill s={r.acc.status} /><div className="sub">{dueText(r)}</div></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+            {!rows.length && <div className="empty"><h3>No client companies yet</h3><p>Add your first company, or open self sign-up in Settings so companies can register.</p></div>}
+            {rows.length > 0 && !shown.length && <div className="empty"><p>No companies match.</p></div>}
+          </div>
+        </>}
 
-        <Leads leads={data.leads} agents={data.agents} siteUrl={data.siteUrl} busy={pending} run={run} />
+        {page === "billing" && <>
+          <div className="oc-head"><div><h1>Billing &amp; payments</h1><div className="sub">What clients pay you, and the rules for trials, due dates and suspension.</div></div></div>
+          <div className="oc-kpis three">
+            <div className="oc-card"><div className="lbl">Monthly revenue</div><div className="big">{tzs(mrr)}<small>TZS</small></div><div className="sub">{payingN} paying clients</div></div>
+            <div className="oc-card"><div className="lbl">Received this month</div><div className="big">{tzs(received)}<small>TZS</small></div><Delta now={received} before={receivedLast} label={mName(lastMonth)} /></div>
+            <div className={`oc-card${owed ? " warn" : ""}`}><div className="lbl">Overdue</div><div className="big">{count("overdue")}</div><div className="sub">{owed ? `TZS ${tzs(owed)} a month unpaid` : "Nobody is overdue"}</div></div>
+          </div>
+          <div className="oc-card" style={{ marginTop: 14 }}>
+            <div className="oc-hd"><h2>Payments received</h2><span className="sub">Newest first · record new payments from a client&apos;s details</span></div>
+            {data.payments.length ? (
+              <div className="ledger" style={{ border: 0, marginTop: 6 }}><table>
+                <thead><tr><th>Date</th><th>Client</th><th>Period</th><th>Method</th><th className="r">Amount (TZS)</th></tr></thead>
+                <tbody>{[...data.payments].sort((x, y) => y.paid_on.localeCompare(x.paid_on)).slice(0, 50).map((p) => {
+                  const r = rows.find((x) => x.id === p.company_id);
+                  return (
+                    <tr key={String(p.id)} className={r ? "row" : undefined} onClick={r ? () => setOpenId(r.id) : undefined}>
+                      <td>{dayLabel(p.paid_on)}</td>
+                      <td>{r ? <b>{r.name}</b> : <span className="sub">{(p as BillingPayment & { company_name?: string }).company_name || "Deleted company"}</span>}</td>
+                      <td className="sub">{dayLabel(p.period_from)} – {dayLabel(p.period_to)}{p.months > 1 ? ` · ${p.months} months` : ""}</td>
+                      <td>{p.method}{p.reference && <div className="sub mono">{p.reference}</div>}</td>
+                      <td className="r num"><b>{tzs(p.amount)}</b></td>
+                    </tr>);
+                })}</tbody>
+              </table></div>
+            ) : <p className="sub">No payments recorded yet.</p>}
+          </div>
+          <Pricing settings={data.settings} rows={rows} busy={pending} run={run} />
+        </>}
 
-        <div className="panel" style={{ marginTop: 22 }}>
-          <h2>Owner activity</h2><div className="sub">Everything done from this console, newest first.</div>
-          <AuditList items={data.audit} companies={data.companies} />
-        </div>
-        <div className="mcredit" style={{ display: "block" }}>Shehena · Developed by <b>Serengeti Labs</b></div>
+        {page === "sales" && <><div className="oc-head"><div><h1>Sales team</h1><div className="sub">Salespeople, the clients they brought, and what they earn.</div></div></div><SalesTeam data={data} rows={rows} busy={pending} run={run} open={(id) => setAgentId(id)} /></>}
+
+        {page === "demos" && <><div className="oc-head"><div><h1>Demo requests</h1><div className="sub">Companies that asked to see Shehena, and the sign-up links you share.</div></div></div><Leads leads={data.leads} agents={data.agents} siteUrl={data.siteUrl} busy={pending} run={run} /></>}
+
+        {page === "settings" && <>
+          <div className="oc-head"><div><h1>Settings</h1><div className="sub">Sign-up and messages for all clients. Prices and billing rules are under Billing &amp; payments.</div></div></div>
+          <div className="rgrid" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.4fr)" }}>
+            <div className="panel">
+              <h2>New company sign-up</h2>
+              <p className="sub" style={{ marginTop: 4 }}>{data.settings.signup_open
+                ? "Open: anyone can register a company from the sign-in page."
+                : "Closed: only you can add companies, from this console."}</p>
+              <div className="actions">
+                <button className={`btn${data.settings.signup_open ? "" : " primary"}`} disabled={pending} onClick={() => run(() => setSignupOpen(!data.settings.signup_open))}>
+                  {data.settings.signup_open ? "Close self sign-up" : "Open self sign-up"}</button>
+              </div>
+            </div>
+            <Announcement current={data.settings.announcement} updated={data.settings.announcement_updated_at} busy={pending} onSave={(t) => run(() => setAnnouncement(t))} />
+          </div>
+        </>}
+
+        {page === "activity" && <>
+          <div className="oc-head"><div><h1>Activity log</h1><div className="sub">Everything done from this console, newest first.</div></div></div>
+          <div className="panel"><AuditList items={data.audit} companies={data.companies} /></div>
+        </>}
       </main>
 
       {open && (
