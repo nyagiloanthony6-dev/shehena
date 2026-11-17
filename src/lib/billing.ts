@@ -59,7 +59,25 @@ export const PRICE_MODELS: Record<PriceModel, string> = {
 };
 export type ClientPrice = Pick<BillingAccount, "custom_fee"> & { price_model?: PriceModel | null; price_rate?: number | null; price_min?: number | null };
 /** Last ACTIVE_DAYS days of use: distinct trucks and number of trips. */
-export type Usage = { trucks: number; trips: number };
+export type Usage = { trucks: number; trips: number; /** e.g. "November so far" — per-trip clients are counted by calendar month */ tripsWhen?: string };
+
+/** "2026-11" for a timestamp, in Tanzania time. */
+export const monthOf = (iso: string) => new Date(new Date(iso).getTime() + 3 * 3600e3).toISOString().slice(0, 7);
+export const monthLabel = (key: string) => new Date(key + "-15T12:00:00Z").toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+/** First day of the month a date falls in. */
+export const monthStart = (day: string) => day.slice(0, 8) + "01";
+/**
+ * Per-trip fee for a payment covering `months` calendar months from `from` (a 1st of the month):
+ * each month is its trips × rate (never below the minimum). Returns the total and the lines.
+ */
+export function perTripFee(byMonth: Record<string, number>, from: string, months: number, rate: number, min = 0) {
+  const lines = Array.from({ length: Math.max(1, months) }, (_, i) => {
+    const key = addMonths(monthStart(from), i).slice(0, 7);
+    const trips = byMonth[key] || 0;
+    return { key, trips, fee: Math.max(min, trips * rate) };
+  });
+  return { total: lines.reduce((a, l) => a + l.fee, 0), lines };
+}
 /** The pricing a client is on. Before migration 0023, a custom fee means a flat fee. */
 export function priceOf(acc: ClientPrice): { model: PriceModel; rate: number; min: number } {
   const model = (acc.price_model || (acc.custom_fee != null ? "flat" : "list")) as PriceModel;
@@ -83,9 +101,10 @@ export function feeWorking(p: Pricing, use: Usage | number, acc: ClientPrice = {
   if (model === "flat") return "flat monthly fee";
   if (model === "per_truck" || model === "per_trip") {
     const [k, word] = model === "per_truck" ? [u.trucks, "truck"] : [u.trips, "trip"];
+    const when = model === "per_trip" && u.tripsWhen ? ` in ${u.tripsWhen}` : "";
     const per = k * rate;
-    if (per >= min) return `${k} ${word}${k === 1 ? "" : "s"} × TZS ${n0(rate)}`;
-    return `minimum fee (${k} ${word}${k === 1 ? "" : "s"} × ${n0(rate)} = ${n0(per)})`;
+    if (per >= min) return `${k} ${word}${k === 1 ? "" : "s"}${when} × TZS ${n0(rate)}`;
+    return `minimum fee (${k} ${word}${k === 1 ? "" : "s"}${when} × ${n0(rate)} = ${n0(per)})`;
   }
   const per = u.trucks * Number(p.truck_price);
   if (per >= Number(p.min_fee)) return `${u.trucks} truck${u.trucks === 1 ? "" : "s"} × TZS ${n0(p.truck_price)}`;

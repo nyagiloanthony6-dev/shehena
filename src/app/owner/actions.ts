@@ -3,8 +3,8 @@ import { allRows } from "@/lib/all-rows";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { currentOwner, type AccountStatus } from "@/lib/owner";
-import { billingSettings, refreshStatuses, usage } from "@/lib/billing-server";
-import { AGENT_DEFAULTS, PRICE_MODELS, addDays, dayLabel, commissionLines, periodEnd, refSlug, today, type CommissionKind, type PriceModel } from "@/lib/billing";
+import { billingSettings, refreshStatuses, tripsByMonth, usage } from "@/lib/billing-server";
+import { AGENT_DEFAULTS, PRICE_MODELS, perTripFee, priceOf, addDays, dayLabel, commissionLines, periodEnd, refSlug, today, type CommissionKind, type PriceModel } from "@/lib/billing";
 
 type Result = { ok?: string; error?: string };
 const STATUSES: AccountStatus[] = ["trial", "active", "overdue", "suspended"];
@@ -199,7 +199,15 @@ export async function recordPayment(input: {
     const { data: earlier } = await admin.from("billing_payments").select("amount, setup_fee").eq("company_id", input.companyId);
     const paid_on = input.paid_on || today();
     const use = (await usage(input.companyId))[input.companyId];
-    const trucks = use?.plates.length || 0, trips = use?.trips || 0;
+    const trucks = use?.plates.length || 0;
+    // Per-trip clients pay for the trips in the months the payment covers; record that count.
+    const { data: price } = await admin.from("company_accounts").select("*").eq("company_id", input.companyId).maybeSingle();
+    let trips = use?.trips || 0;
+    if (price && priceOf(price).model === "per_trip") {
+      // The same calendar-month count the payment form showed.
+      const byMonth = (await tripsByMonth(input.companyId, 40))[input.companyId] || {};
+      trips = perTripFee(byMonth, input.from, months, 0).lines.reduce((a, l) => a + l.trips, 0);
+    }
     const row = {
       company_id: input.companyId, amount, setup_fee, months, period_from: input.from, period_to,
       method: input.method.trim().slice(0, 40), reference: input.reference.trim().slice(0, 80), paid_on, recorded_by: by,

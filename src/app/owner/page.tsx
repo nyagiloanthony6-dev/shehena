@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isOwnerEmail } from "@/lib/owner";
-import { billingSettings, refreshStatuses, usage } from "@/lib/billing-server";
+import { billingSettings, refreshStatuses, tripsByMonth, usage } from "@/lib/billing-server";
 import { BILLING_DEFAULTS } from "@/lib/billing";
 import { allRows } from "@/lib/all-rows";
 import AuthShell from "@/components/AuthShell";
@@ -30,7 +30,7 @@ export default async function OwnerPage() {
   }
   const admin = supabaseAdmin();
   await refreshStatuses();
-  const [companies, accounts, stats, staff, settings, audit, own, leads, active, pricing, payments, agents, commissions, payouts] = await Promise.all([
+  const [companies, accounts, stats, staff, settings, audit, own, leads, active, pricing, payments, agents, commissions, payouts, monthTrips] = await Promise.all([
     allRows((a, b) => admin.from("companies").select("*").order("created_at", { ascending: false }).order("id").range(a, b)),
     allRows((a, b) => admin.from("company_accounts").select("*").order("company_id").range(a, b)),
     admin.rpc("owner_company_stats"),
@@ -45,6 +45,7 @@ export default async function OwnerPage() {
     admin.from("sales_agents").select("*").order("name"),
     allRows((a, b) => admin.from("commissions").select("*").order("earned_on", { ascending: false }).order("id").range(a, b)),
     admin.from("agent_payouts").select("*").order("paid_on", { ascending: false }).limit(500),
+    tripsByMonth(),
   ]);
   const n = <T extends Record<string, unknown>>(rows: T[] | null, keys: string[]) => (rows || []).map((r) => ({ ...r, ...Object.fromEntries(keys.map((k) => [k, Number(r[k])])) }));
   const data: OwnerData = {
@@ -57,6 +58,7 @@ export default async function OwnerPage() {
     settings: { signup_open: true, announcement: "", announcement_updated_at: null, ...BILLING_DEFAULTS, ...(settings.data || {}), truck_price: pricing.truck_price, min_fee: pricing.min_fee },
     active: Object.fromEntries(Object.entries(active).map(([c, u]) => [c, u.plates])),
     trips: Object.fromEntries(Object.entries(active).map(([c, u]) => [c, u.trips])),
+    monthTrips,
     payments: n(payments.data, ["amount", "setup_fee"]) as never,
     agents: n(agents.data, ["signing_pct", "setup_pct", "commission_pct", "commission_months"]) as never,
     commissions: n(commissions.data, ["amount"]) as never,

@@ -9,7 +9,7 @@ import {
 } from "@/app/owner/actions";
 import {
   AGENT_DEFAULTS, KIND_LABEL, refSlug, type Agent, type Commission, type Payout,
-  ACTIVE_DAYS, PAY_METHODS, PRICE_MODELS, dayLabel, feeFor, feeWorking, listFee, periodEnd, planLabel, priceLabel, priceOf, statusFor, today, addDays, type PriceModel,
+  ACTIVE_DAYS, PAY_METHODS, PRICE_MODELS, monthStart, perTripFee, dayLabel, feeFor, feeWorking, listFee, periodEnd, planLabel, priceLabel, priceOf, statusFor, today, addDays, type PriceModel,
   type BillingPayment, type BillingSettings,
 } from "@/lib/billing";
 import { downloadAgentStatement, downloadSubscriptionReceipt } from "./billingPdf";
@@ -27,9 +27,9 @@ export interface OwnerData {
   me: string; hasCompany: boolean; error: string;
   companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[]; leads: Lead[]; siteUrl: string;
   settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null } & BillingSettings;
-  active: Record<string, string[]>; trips?: Record<string, number>; payments: BillingPayment[]; agents: Agent[]; commissions: Commission[]; payouts: Payout[];
+  active: Record<string, string[]>; trips?: Record<string, number>; monthTrips?: Record<string, Record<string, number>>; payments: BillingPayment[]; agents: Agent[]; commissions: Commission[]; payouts: Payout[];
 }
-type Bill = { plan: string; price: string; model: PriceModel; trips: number; trucks: number; plates: string[]; working: string; fee: number; due: string | null; suspend_on: string | null; pays: BillingPayment[] };
+type Bill = { plan: string; price: string; model: PriceModel; trips: number; byMonth: Record<string, number>; tripsWhen?: string; trucks: number; plates: string[]; working: string; fee: number; due: string | null; suspend_on: string | null; pays: BillingPayment[] };
 type Row = Company & { acc: Account; st: Stat; admins: Staff[]; people: Staff[]; bill: Bill };
 type Run = (fn: () => Promise<{ ok?: string; error?: string }>, after?: () => void) => void;
 
@@ -130,9 +130,12 @@ function MonthBars({ months, values }: { months: string[]; values: number[] }) {
 }
 
 /** "12 trips × 10,000", "flat", "3 trucks" — the plan in a few words for lists. */
+/** Total line for several months of per-trip billing. */
+const l2 = (n: number) => (n > 1 ? " (total above)" : "");
+
 function planShort(b: Bill) {
   if (b.model === "flat") return "flat fee";
-  if (b.model === "per_trip") return `${b.trips} trip${b.trips === 1 ? "" : "s"} · per trip`;
+  if (b.model === "per_trip") return `${b.trips} trip${b.trips === 1 ? "" : "s"} this month · per trip`;
   if (b.model === "per_truck") return `${b.trucks} truck${b.trucks === 1 ? "" : "s"} · own price`;
   return b.plan;
 }
@@ -156,18 +159,25 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
     if (!r.error) { after?.(); router.refresh(); }
   });
 
+  const thisMonthKey = monthKey(0);
   const rows: Row[] = useMemo(() => data.companies.map((c) => {
     const people = data.staff.filter((s) => s.company_id === c.id);
     const acc: Account = data.accounts.find((a) => a.company_id === c.id) || { company_id: c.id, status: "active", notes: "", status_changed_at: c.created_at, trial_ends: null, paid_until: null, custom_fee: null, auto_status: true, agent_id: null, agent_since: null };
     const st = data.stats.find((s) => s.company_id === c.id) || { company_id: c.id, staff: people.length, active_staff: 0, vehicles: 0, trips_month: 0, ship_month: 0, billed_month: 0, paid_month: 0, ship_total: 0, last_activity: c.created_at };
     const { due, suspend_on } = statusFor(acc, data.settings);
     const plates = data.active[c.id] || [];
+    // Per-trip clients are billed by calendar month (this month so far); others on the last 30 days.
+    const byMonth = data.monthTrips?.[c.id] || {};
+    const perTrip = priceOf(acc).model === "per_trip";
+    const use = perTrip
+      ? { trucks: plates.length, trips: byMonth[thisMonthKey] || 0, tripsWhen: `${mName(thisMonthKey)} so far` }
+      : { trucks: plates.length, trips: data.trips?.[c.id] || 0 };
     return {
       ...c, acc, st,
       admins: people.filter((p) => p.role === "admin"),
       people,
-      bill: { plan: planLabel(plates.length), price: priceLabel(acc, data.settings), model: priceOf(acc).model, trips: data.trips?.[c.id] || 0, trucks: plates.length, plates,
-        working: feeWorking(data.settings, { trucks: plates.length, trips: data.trips?.[c.id] || 0 }, acc), fee: feeFor(acc, data.settings, { trucks: plates.length, trips: data.trips?.[c.id] || 0 }), due, suspend_on: acc.auto_status ? suspend_on : null, pays: data.payments.filter((p) => p.company_id === c.id) },
+      bill: { plan: planLabel(plates.length), price: priceLabel(acc, data.settings), model: priceOf(acc).model, trips: use.trips, byMonth, tripsWhen: use.tripsWhen, trucks: plates.length, plates,
+        working: feeWorking(data.settings, use, acc), fee: feeFor(acc, data.settings, use), due, suspend_on: acc.auto_status ? suspend_on : null, pays: data.payments.filter((p) => p.company_id === c.id) },
     };
   }), [data]);
   const count = (s: Status) => rows.filter((r) => r.acc.status === s).length;
@@ -764,23 +774,35 @@ const num = (v: string) => (v.trim() === "" ? NaN : Number(v.replace(/,/g, "")))
 function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; settings: BillingSettings; busy: boolean; run: Run }) {
   const a = r.acc;
   // A new payment starts the day after the current paid-until date, or today if there is none / it lapsed long ago.
-  const start = a.paid_until && a.paid_until >= addDays(today(), -settings.grace_days - 31) ? addDays(a.paid_until, 1) : today();
-  const [pay, setPay] = useState({ months: "1", amount: String(r.bill.fee || ""), setup: "", from: start, method: PAY_METHODS[0], reference: "", paid_on: today() });
+  const perTrip = r.bill.model === "per_trip";
+  const price0 = priceOf(a);
+  const start0 = a.paid_until && a.paid_until >= addDays(today(), -settings.grace_days - 31) ? addDays(a.paid_until, 1) : today();
+  // Per-trip clients pay by calendar month, so their payments start on the 1st.
+  const start = perTrip ? monthStart(start0) : start0;
+  /** Suggested amount: per-trip = each covered month's trips × price; others = monthly fee × months. */
+  const suggest = (from: string, m: number, setup: number) =>
+    (perTrip ? perTripFee(r.bill.byMonth, from || start, m, price0.rate, price0.min).total : (r.bill.fee || 0) * m) + (setup || 0);
+  const [pay, setPay] = useState({ months: "1", amount: String(suggest(start, 1, 0) || ""), setup: "", from: start, method: PAY_METHODS[0], reference: "", paid_on: today() });
   const [edit, setEdit] = useState(false);
   const cur = priceOf(a);
   const [f, setF] = useState({ model: cur.model, rate: cur.model === "list" ? "" : String(cur.rate || ""), min: cur.min ? String(cur.min) : "", trial_ends: a.trial_ends || "", paid_until: a.paid_until || "" });
   // What the fee would be with the pricing being edited, using this client's last 30 days.
   const draft = { custom_fee: null, price_model: f.model, price_rate: num(f.rate) || 0, price_min: num(f.min) || 0 };
-  const use = { trucks: r.bill.trucks, trips: r.bill.trips };
+  const mk = monthKey(0);
+  const use = f.model === "per_trip"
+    ? { trucks: r.bill.trucks, trips: r.bill.byMonth[mk] || 0, tripsWhen: `${mName(mk)} so far` }
+    : { trucks: r.bill.trucks, trips: r.bill.model === "per_trip" ? 0 : r.bill.trips };
   const [undo, setUndo] = useState<string | number | null>(null);
   const months = Math.max(1, Math.round(num(pay.months) || 1));
   // When the price changes (new pricing saved), refresh the suggested amount.
-  useEffect(() => { setPay((p) => ({ ...p, amount: String((r.bill.fee || 0) * Math.max(1, Math.round(num(p.months) || 1)) + (num(p.setup) || 0) || "") })); }, [r.bill.fee]);
-  const setMonths = (m: string) => setPay((p) => ({ ...p, months: m, amount: String((r.bill.fee || 0) * Math.max(1, Math.round(num(m) || 1)) || "") }));
+  useEffect(() => { setPay((p) => ({ ...p, amount: String(suggest(p.from, Math.max(1, Math.round(num(p.months) || 1)), num(p.setup)) || "") })); }, [r.bill.fee, r.bill.model]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setMonths = (m: string) => setPay((p) => ({ ...p, months: m, amount: String(suggest(p.from, Math.max(1, Math.round(num(m) || 1)), num(p.setup)) || "") }));
+  const tripLines = perTrip ? perTripFee(r.bill.byMonth, pay.from || start, months, price0.rate, price0.min).lines : [];
   return (
     <div className="card"><h3>Subscription</h3>
       <dl className="kv">
-        <dt>Last {ACTIVE_DAYS} days</dt><dd>{r.bill.trips} trip{r.bill.trips === 1 ? "" : "s"} · {r.bill.trucks} truck{r.bill.trucks === 1 ? "" : "s"}{r.bill.plates.length ? <span className="sub">: {r.bill.plates.join(", ")}</span> : null}</dd>
+        <dt>Active trucks</dt><dd>{r.bill.trucks} <span className="sub">in the last {ACTIVE_DAYS} days{r.bill.plates.length ? `: ${r.bill.plates.join(", ")}` : ""}</span></dd>
+        <dt>Trips</dt><dd>{mName(monthKey(0))}: <b>{r.bill.byMonth[monthKey(0)] || 0}</b> so far <span className="sub">· {mName(monthKey(-1))}: {r.bill.byMonth[monthKey(-1)] || 0}</span></dd>
         <dt>Pricing</dt><dd>{r.bill.price}</dd>
         <dt>Monthly fee</dt><dd className="num"><b>TZS {tzs(r.bill.fee)}</b> <span className="sub">· {r.bill.working}{r.bill.model !== "list" ? ` (price list would be ${tzs(listFee(settings, r.bill.trucks))})` : ""}</span></dd>
         {a.trial_ends && <><dt>Trial ends</dt><dd>{dayLabel(a.trial_ends)}</dd></>}
@@ -802,13 +824,15 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
           <label className="f">Months<select value={pay.months} onChange={(e) => setMonths(e.target.value)} aria-label="Months paid">
             {[1, 2, 3, 6, 12].map((m) => <option key={m} value={m}>{m} month{m === 1 ? "" : "s"}</option>)}</select></label>
           <label className="f">Amount received (TZS)<input inputMode="numeric" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} aria-label="Amount received" /></label>
-          <label className="f">Covers from<input type="date" value={pay.from} onChange={(e) => setPay({ ...pay, from: e.target.value })} aria-label="Covers from" /></label>
+          <label className="f">Covers from{perTrip && <small>1st of the month</small>}<input type="date" value={pay.from} onChange={(e) => { const from = e.target.value; setPay((p) => ({ ...p, from, amount: perTrip ? String(suggest(from, months, num(p.setup)) || "") : p.amount })); }} aria-label="Covers from" /></label>
           <label className="f">Date paid<input type="date" value={pay.paid_on} onChange={(e) => setPay({ ...pay, paid_on: e.target.value })} /></label>
           <label className="f">Paid by<select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>{PAY_METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>
-          <label className="f">Of which setup fee <small>optional</small><input inputMode="numeric" value={pay.setup} onChange={(e) => { const s = e.target.value; setPay((p) => ({ ...p, setup: s, amount: String((r.bill.fee || 0) * months + (num(s) || 0)) })); }} placeholder="0" aria-label="Setup fee included" /></label>
+          <label className="f">Of which setup fee <small>optional</small><input inputMode="numeric" value={pay.setup} onChange={(e) => { const s = e.target.value; setPay((p) => ({ ...p, setup: s, amount: String(suggest(p.from, months, num(s))) })); }} placeholder="0" aria-label="Setup fee included" /></label>
           <label className="f">Reference <small>optional</small><input value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} placeholder="e.g. M-Pesa code" aria-label="Payment reference" /></label>
         </div>
-        <p className="note" style={{ margin: "8px 0 0" }}>Covers {dayLabel(pay.from)} to <b>{pay.from ? dayLabel(periodEnd(pay.from, months)) : "—"}</b>. Fee × months = TZS {tzs((r.bill.fee || 0) * months)}{num(pay.setup) > 0 ? ` + setup ${tzs(num(pay.setup))}` : ""}; change the amount for a discount.</p>
+        <p className="note" style={{ margin: "8px 0 0" }}>Covers {dayLabel(pay.from)} to <b>{pay.from ? dayLabel(periodEnd(pay.from, months)) : "—"}</b>. {perTrip
+          ? <>{tripLines.map((l) => `${mName(l.key)}: ${l.trips} trip${l.trips === 1 ? "" : "s"} × ${tzs(price0.rate)}${l.fee > l.trips * price0.rate ? ` (minimum ${tzs(l.fee)})` : ` = ${tzs(l.fee)}`}`).join(" · ")}{l2(tripLines.length)}{perTrip && pay.from && pay.from.slice(8) !== "01" ? " · Tip: start on the 1st so each month's trips are counted in full." : ""}</>
+          : <>Fee × months = TZS {tzs((r.bill.fee || 0) * months)}</>}{num(pay.setup) > 0 ? ` + setup ${tzs(num(pay.setup))}` : ""}; change the amount for a discount.</p>
         <div className="actions"><button className="btn primary sm" type="submit" disabled={busy}>Record payment</button></div>
       </form>
 
@@ -849,7 +873,7 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
               <label key={m} className={f.model === m ? "on" : ""}>
                 <input type="radio" name="price_model" checked={f.model === m} onChange={() => setF({ ...f, model: m })} />
                 <b>{m === "list" ? "Price list" : m === "per_trip" ? "Per trip" : m === "per_truck" ? "Per truck" : "Flat monthly"}</b>
-                <span className="sub">{m === "list" ? `${tzs(settings.truck_price)} per truck, min ${tzs(settings.min_fee)}` : m === "per_trip" ? "each trip loaded" : m === "per_truck" ? "each active truck" : "same every month"}</span>
+                <span className="sub">{m === "list" ? `${tzs(settings.truck_price)} per truck, min ${tzs(settings.min_fee)}` : m === "per_trip" ? "trips in each calendar month" : m === "per_truck" ? "each active truck" : "same every month"}</span>
               </label>))}
           </div>
           <div className="fields" style={{ marginTop: 10 }}>
@@ -858,7 +882,7 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
             {(f.model === "per_trip" || f.model === "per_truck") && <label className="f">Minimum a month <small>optional</small>
               <input inputMode="numeric" value={f.min} onChange={(e) => setF({ ...f, min: e.target.value })} placeholder="0" /></label>}
           </div>
-          <p className="note" style={{ margin: "6px 0 10px" }}>With the last {ACTIVE_DAYS} days ({use.trips} trip{use.trips === 1 ? "" : "s"}, {use.trucks} truck{use.trucks === 1 ? "" : "s"}): <b>TZS {tzs(feeFor(draft, settings, use))} a month</b> · {feeWorking(settings, use, draft)}. Applies to the next payment you record.</p>
+          <p className="note" style={{ margin: "6px 0 10px" }}>{f.model === "per_trip" ? <>Counted by calendar month (1st to last day). {mName(mk)} so far: {use.trips} trip{use.trips === 1 ? "" : "s"}: </> : <>With the last {ACTIVE_DAYS} days ({use.trucks} truck{use.trucks === 1 ? "" : "s"}): </>}<b>TZS {tzs(feeFor(draft, settings, use))} a month</b> · {feeWorking(settings, use, draft)}. Applies to the next payment you record.</p>
           <div className="fields">
             <label className="f">Trial ends<input type="date" value={f.trial_ends} onChange={(e) => setF({ ...f, trial_ends: e.target.value })} /></label>
             <label className="f">Paid until <small>correct by hand</small><input type="date" value={f.paid_until} onChange={(e) => setF({ ...f, paid_until: e.target.value })} /></label>

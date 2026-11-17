@@ -21,13 +21,15 @@ function SubscriptionCard({ sub }: { sub: Subscription }) {
       </div>
       <dl className="kv" style={{ marginTop: 12 }}>
         {company.account_no && <><dt>Account number</dt><dd><b className="mono">{company.account_no}</b> <span className="sub">· quote it when you pay</span></dd></>}
-        <dt>Last {ACTIVE_DAYS} days</dt><dd>{sub.trips ?? 0} trip{sub.trips === 1 ? "" : "s"} · {sub.trucks} truck{sub.trucks === 1 ? "" : "s"}{sub.plates.length > 0 && <span className="sub mono"> · {sub.plates.join(", ")}</span>}</dd>
+        {sub.model === "per_trip"
+          ? <><dt>Trips this month</dt><dd>{sub.trips ?? 0} <span className="sub">so far, counted from the 1st</span></dd></>
+          : <><dt>Active trucks</dt><dd>{sub.trucks} <span className="sub">in the last {ACTIVE_DAYS} days</span>{sub.plates.length > 0 && <span className="sub mono"> · {sub.plates.join(", ")}</span>}</dd></>}
         <dt>Your price</dt><dd>{sub.price || "Standard price list"}</dd>
         <dt>Monthly fee</dt><dd className="num">TZS {tzs(sub.fee)} <span className="sub">· {sub.working || (sub.custom ? "agreed price" : "")}</span></dd>
         <dt>How to pay</dt><dd>{sub.instructions || "Contact Serengeti Labs."}</dd>
       </dl>
       <p className="note">{sub.model === "flat" ? <>You pay the same agreed fee every month, however many trucks and trips you run.</>
-        : sub.model === "per_trip" ? <>You pay for each trip loaded in Shehena in the last {ACTIVE_DAYS} days. The fee is worked out when you pay.</>
+        : sub.model === "per_trip" ? <>You pay for each trip loaded in Shehena during the calendar month, from the 1st to the last day. Each month&apos;s fee is that month&apos;s trips × your price.</>
         : sub.model === "per_truck" ? <>You pay for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days, at your agreed price. Idle trucks aren&apos;t charged. The fee is worked out when you pay.</>
         : <>You pay TZS {tzs(sub.truck_price)} a month for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days{sub.min_fee > 0 ? <>, with a minimum of TZS {tzs(sub.min_fee)}</> : null}. Trucks that sit idle aren&apos;t charged; hired trucks count while they carry your goods. The fee is worked out when you pay.</>}</p>
       {sub.payments.length > 0 && (

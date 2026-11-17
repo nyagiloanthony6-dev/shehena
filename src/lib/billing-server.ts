@@ -2,7 +2,7 @@ import { allRows } from "./all-rows";
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
-  ACTIVE_DAYS, BILLING_DEFAULTS, daysBetween, feeFor, feeWorking, normPlate, planLabel, priceLabel, priceOf, statusFor, today,
+  ACTIVE_DAYS, BILLING_DEFAULTS, daysBetween, feeFor, feeWorking, monthLabel, monthOf, normPlate, planLabel, priceLabel, priceOf, statusFor, today,
   type BillingAccount, type BillingSettings, type ClientPrice, type Subscription,
 } from "./billing";
 
@@ -40,6 +40,20 @@ export async function usage(companyId?: string): Promise<Record<string, { plates
   return Object.fromEntries(Object.keys(trips).map((c) => [c, { plates: [...(plates[c]?.values() || [])].sort(), trips: trips[c] }]));
 }
 
+/** Trips per company per calendar month (Tanzania time), for the last `months` months. */
+export async function tripsByMonth(companyId?: string, months = 13): Promise<Record<string, Record<string, number>>> {
+  const now = new Date(Date.now() + 3 * 3600e3);
+  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1) - 3 * 3600e3).toISOString();
+  const { data } = await allRows<{ company_id: string; created_at: string }>((a, b) => {
+    let q = supabaseAdmin().from("trips").select("company_id, created_at, id").gte("created_at", since);
+    if (companyId) q = q.eq("company_id", companyId);
+    return q.order("id").range(a, b);
+  });
+  const out: Record<string, Record<string, number>> = {};
+  for (const t of data) { const m = monthOf(t.created_at); (out[t.company_id] ||= {})[m] = (out[t.company_id][m] || 0) + 1; }
+  return out;
+}
+
 /**
  * Bring stored statuses in line with paid-until / trial dates. Runs daily (cron), when the owner
  * console opens, and when a client's staff open the app. Changes are written to the owner log.
@@ -71,20 +85,25 @@ export async function refreshStatuses(companyId?: string) {
 export async function subscriptionFor(companyId: string): Promise<Subscription | null> {
   try {
     const admin = supabaseAdmin();
-    const [{ data: acc }, use, s, { data: pays }] = await Promise.all([
+    const [{ data: acc }, use, s, { data: pays }, byMonth] = await Promise.all([
       // select * so this works before and after migration 0023 (per-client pricing).
       admin.from("company_accounts").select("*").eq("company_id", companyId).maybeSingle(),
       usage(companyId), billingSettings(),
       admin.from("billing_payments").select("*").eq("company_id", companyId).order("period_to", { ascending: false }).limit(24),
+      tripsByMonth(companyId, 2),
     ]);
     if (!acc) return null;
     const a = acc as BillingAccount & ClientPrice;
     const plates = use[companyId]?.plates || [];
-    const trucks = plates.length, trips = use[companyId]?.trips || 0;
+    // Per-trip clients pay for the calendar month's trips; others use the last ACTIVE_DAYS days.
+    const perTrip = priceOf(acc as ClientPrice).model === "per_trip";
+    const thisMonth = monthOf(new Date().toISOString());
+    const trucks = plates.length, trips = perTrip ? (byMonth[companyId]?.[thisMonth] || 0) : (use[companyId]?.trips || 0);
+    const tripsWhen = perTrip ? `${monthLabel(thisMonth).split(" ")[0]} so far` : undefined;
     const { due, suspend_on } = statusFor(a, s);
     return {
       status: a.status, trucks, trips, plates, plan: planLabel(trucks), fee: feeFor(a, s, { trucks, trips }), custom: priceOf(a).model !== "list",
-      working: feeWorking(s, { trucks, trips }, a), price: priceLabel(a, s), model: priceOf(a).model,
+      working: feeWorking(s, { trucks, trips, tripsWhen }, a), price: priceLabel(a, s), model: priceOf(a).model,
       truck_price: s.truck_price, min_fee: s.min_fee,
       trial_ends: a.trial_ends, paid_until: a.paid_until, due, suspend_on: a.auto_status ? suspend_on : null,
       days_left: due ? daysBetween(today(), due) : null,
