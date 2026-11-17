@@ -191,6 +191,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
             <div className="brandrow" style={{ minWidth: 0 }}><Mark /><div style={{ minWidth: 0 }}><div className="mco">{st.company.name}</div><div className="sub">{st.company.branch}</div></div></div>
             <div className="mtop-r">
               <span className="role">{ROLES[st.me.role]}{st.me.role === "agent" && st.me.station ? ` · ${regShort(st.me.station)}` : ""}</span>
+              {isOwner && <a className="mtop-owner" href="/owner" title="Owner console">Owner</a>}
               {st.can("settings") && <button className="iconbtn" onClick={() => go("set")} title="Settings" aria-label="Settings"><Icon name="set" /></button>}
               <form action={signOut}><button className="iconbtn" type="submit" title="Sign out" aria-label="Sign out"><Icon name="logout" /></button></form>
             </div>
