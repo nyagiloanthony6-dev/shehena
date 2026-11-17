@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { RegionOptions } from "../RegionOptions";
 import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
-import { ACTIVE_DAYS, dayLabel, feeWorking, planLabel, type Subscription } from "@/lib/billing";
+import { ACTIVE_DAYS, dayLabel, planLabel, type Subscription } from "@/lib/billing";
 import { downloadSubscriptionReceipt } from "../billingPdf";
 
 const SUB_LABEL = { trial: "Free trial", active: "Active", overdue: "Overdue", suspended: "Suspended" } as const;
@@ -21,11 +21,15 @@ function SubscriptionCard({ sub }: { sub: Subscription }) {
       </div>
       <dl className="kv" style={{ marginTop: 12 }}>
         {company.account_no && <><dt>Account number</dt><dd><b className="mono">{company.account_no}</b> <span className="sub">· quote it when you pay</span></dd></>}
-        <dt>Active trucks</dt><dd>{sub.trucks}{sub.plates.length > 0 && <span className="sub mono"> · {sub.plates.join(", ")}</span>}</dd>
-        <dt>Monthly fee</dt><dd className="num">TZS {tzs(sub.fee)} <span className="sub">· {sub.custom ? "agreed price" : feeWorking(sub, sub.trucks)}</span></dd>
+        <dt>Last {ACTIVE_DAYS} days</dt><dd>{sub.trips ?? 0} trip{sub.trips === 1 ? "" : "s"} · {sub.trucks} truck{sub.trucks === 1 ? "" : "s"}{sub.plates.length > 0 && <span className="sub mono"> · {sub.plates.join(", ")}</span>}</dd>
+        <dt>Your price</dt><dd>{sub.price || "Standard price list"}</dd>
+        <dt>Monthly fee</dt><dd className="num">TZS {tzs(sub.fee)} <span className="sub">· {sub.working || (sub.custom ? "agreed price" : "")}</span></dd>
         <dt>How to pay</dt><dd>{sub.instructions || "Contact Serengeti Labs."}</dd>
       </dl>
-      <p className="note">You pay TZS {tzs(sub.truck_price)} a month for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days{sub.min_fee > 0 ? <>, with a minimum of TZS {tzs(sub.min_fee)}</> : null}. Trucks that sit idle aren&apos;t charged; hired trucks count while they carry your goods. The fee is worked out when you pay.</p>
+      <p className="note">{sub.model === "flat" ? <>You pay the same agreed fee every month, however many trucks and trips you run.</>
+        : sub.model === "per_trip" ? <>You pay for each trip loaded in Shehena in the last {ACTIVE_DAYS} days. The fee is worked out when you pay.</>
+        : sub.model === "per_truck" ? <>You pay for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days, at your agreed price. Idle trucks aren&apos;t charged. The fee is worked out when you pay.</>
+        : <>You pay TZS {tzs(sub.truck_price)} a month for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days{sub.min_fee > 0 ? <>, with a minimum of TZS {tzs(sub.min_fee)}</> : null}. Trucks that sit idle aren&apos;t charged; hired trucks count while they carry your goods. The fee is worked out when you pay.</>}</p>
       {sub.payments.length > 0 && (
         <div className="ledger" style={{ marginTop: 10 }}><table className="small" style={{ minWidth: 0 }}>
           <thead><tr><th>Paid</th><th>Period</th><th className="r">TZS</th><th /></tr></thead>

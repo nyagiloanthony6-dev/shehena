@@ -660,3 +660,10 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 @media (prefers-reduced-motion:reduce){.oc-side{transition:none}}
 .oc-co{min-width:250px}
 .oc-co .tag-rental{margin-left:2px}
+.pricepick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.pricepick label{display:flex;flex-direction:column;gap:2px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--surface)}
+.pricepick label.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
+.pricepick input{position:absolute;opacity:0;pointer-events:none}
+.pricepick label:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.pricepick b{font-size:13.5px}.pricepick .sub{font-size:12px}
+@media (max-width:700px){.pricepick{grid-template-columns:repeat(2,minmax(0,1fr))}}

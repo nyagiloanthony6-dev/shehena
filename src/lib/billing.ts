@@ -5,7 +5,7 @@ export type AccountStatus = "trial" | "active" | "overdue" | "suspended";
 export interface BillingPayment {
   id: number | string; company_id: string; amount: number; months: number;
   period_from: string; period_to: string; method: string; reference: string; paid_on: string; recorded_by: string; created_at: string;
-  setup_fee?: number; trucks?: number | null;
+  setup_fee?: number; trucks?: number | null; trips?: number | null;
 }
 export interface BillingSettings { trial_days: number; grace_days: number; auto_suspend: boolean; billing_instructions: string; truck_price: number; min_fee: number }
 export type Pricing = Pick<BillingSettings, "truck_price" | "min_fee">;
@@ -15,9 +15,11 @@ export interface BillingAccount {
 }
 /** What a client company sees about its own subscription. */
 export interface Subscription {
-  status: AccountStatus; trucks: number; plates: string[]; plan: string; fee: number; custom: boolean; truck_price: number; min_fee: number;
+  status: AccountStatus; trucks: number; trips: number; plates: string[]; plan: string; fee: number; custom: boolean; truck_price: number; min_fee: number;
+  /** how the fee was worked out, and the client's pricing in words */
+  working: string; price: string; model: PriceModel;
   trial_ends: string | null; paid_until: string | null; due: string | null; suspend_on: string | null; days_left: number | null;
-  instructions: string; payments: Pick<BillingPayment, "id" | "amount" | "setup_fee" | "trucks" | "months" | "period_from" | "period_to" | "method" | "reference" | "paid_on">[];
+  instructions: string; payments: Pick<BillingPayment, "id" | "amount" | "setup_fee" | "trucks" | "trips" | "months" | "period_from" | "period_to" | "method" | "reference" | "paid_on">[];
 }
 
 export const BILLING_DEFAULTS: BillingSettings = { trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000 };
@@ -49,14 +51,54 @@ export const normPlate = (p: string) => (p || "").toUpperCase().replace(/[^A-Z0-
 export const planLabel = (trucks: number) => trucks ? `${trucks} active truck${trucks === 1 ? "" : "s"}` : "no truck trips yet";
 /** Price list fee: trucks × price per truck, but never below the minimum monthly fee. */
 export const listFee = (p: Pricing, trucks: number) => Math.max(Number(p.min_fee) || 0, trucks * (Number(p.truck_price) || 0));
-export const feeFor = (acc: Pick<BillingAccount, "custom_fee">, p: Pricing, trucks: number) =>
-  acc.custom_fee != null ? Number(acc.custom_fee) : listFee(p, trucks);
+
+// ---- a price for each client (migration 0023)
+export type PriceModel = "list" | "per_truck" | "per_trip" | "flat";
+export const PRICE_MODELS: Record<PriceModel, string> = {
+  list: "Standard price list", per_truck: "Own price per active truck", per_trip: "Price per trip", flat: "Flat monthly fee",
+};
+export type ClientPrice = Pick<BillingAccount, "custom_fee"> & { price_model?: PriceModel | null; price_rate?: number | null; price_min?: number | null };
+/** Last ACTIVE_DAYS days of use: distinct trucks and number of trips. */
+export type Usage = { trucks: number; trips: number };
+/** The pricing a client is on. Before migration 0023, a custom fee means a flat fee. */
+export function priceOf(acc: ClientPrice): { model: PriceModel; rate: number; min: number } {
+  const model = (acc.price_model || (acc.custom_fee != null ? "flat" : "list")) as PriceModel;
+  const rate = Number(acc.price_rate ?? (model === "flat" ? acc.custom_fee : 0)) || 0;
+  return { model, rate, min: Number(acc.price_min) || 0 };
+}
+/** Monthly fee for a client, from their pricing and last month's use. */
+export function feeFor(acc: ClientPrice, p: Pricing, use: Usage | number): number {
+  const u = typeof use === "number" ? { trucks: use, trips: 0 } : use;
+  const { model, rate, min } = priceOf(acc);
+  if (model === "flat") return rate;
+  if (model === "per_truck") return Math.max(min, u.trucks * rate);
+  if (model === "per_trip") return Math.max(min, u.trips * rate);
+  return listFee(p, u.trucks);
+}
+const n0 = (x: number) => Math.round(x).toLocaleString("en-US");
 /** How the fee was worked out, in words. */
-export function feeWorking(p: Pricing, trucks: number) {
-  const n = (x: number) => Math.round(x).toLocaleString("en-US");
-  const per = trucks * Number(p.truck_price);
-  if (per >= Number(p.min_fee)) return `${trucks} truck${trucks === 1 ? "" : "s"} × TZS ${n(p.truck_price)}`;
-  return `minimum fee${trucks ? ` (${trucks} × ${n(p.truck_price)} = ${n(per)})` : ""}`;
+export function feeWorking(p: Pricing, use: Usage | number, acc: ClientPrice = { custom_fee: null }) {
+  const u = typeof use === "number" ? { trucks: use, trips: 0 } : use;
+  const { model, rate, min } = priceOf(acc);
+  if (model === "flat") return "flat monthly fee";
+  if (model === "per_truck" || model === "per_trip") {
+    const [k, word] = model === "per_truck" ? [u.trucks, "truck"] : [u.trips, "trip"];
+    const per = k * rate;
+    if (per >= min) return `${k} ${word}${k === 1 ? "" : "s"} × TZS ${n0(rate)}`;
+    return `minimum fee (${k} ${word}${k === 1 ? "" : "s"} × ${n0(rate)} = ${n0(per)})`;
+  }
+  const per = u.trucks * Number(p.truck_price);
+  if (per >= Number(p.min_fee)) return `${u.trucks} truck${u.trucks === 1 ? "" : "s"} × TZS ${n0(p.truck_price)}`;
+  return `minimum fee${u.trucks ? ` (${u.trucks} × ${n0(p.truck_price)} = ${n0(per)})` : ""}`;
+}
+/** Short label of the client's pricing, e.g. "TZS 10,000 per trip". */
+export function priceLabel(acc: ClientPrice, p: Pricing) {
+  const { model, rate, min } = priceOf(acc);
+  const m = min ? `, min ${n0(min)}` : "";
+  if (model === "flat") return `TZS ${n0(rate)} a month, flat`;
+  if (model === "per_truck") return `TZS ${n0(rate)} per truck${m}`;
+  if (model === "per_trip") return `TZS ${n0(rate)} per trip${m}`;
+  return `Price list: ${n0(p.truck_price)} per truck, min ${n0(p.min_fee)}`;
 }
 
 /**

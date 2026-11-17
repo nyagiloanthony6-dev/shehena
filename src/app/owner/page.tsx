@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isOwnerEmail } from "@/lib/owner";
-import { activeTrucks, billingSettings, refreshStatuses } from "@/lib/billing-server";
+import { billingSettings, refreshStatuses, usage } from "@/lib/billing-server";
 import { BILLING_DEFAULTS } from "@/lib/billing";
 import { allRows } from "@/lib/all-rows";
 import AuthShell from "@/components/AuthShell";
@@ -39,7 +39,7 @@ export default async function OwnerPage() {
     admin.from("owner_audit").select("*").order("at", { ascending: false }).limit(60),
     admin.from("profiles").select("id").eq("id", user.id).maybeSingle(),
     admin.from("leads").select("*").order("created_at", { ascending: false }).limit(300),
-    activeTrucks(),
+    usage(),
     billingSettings(),
     allRows((a, b) => admin.from("billing_payments").select("*").order("paid_on", { ascending: false }).order("id").range(a, b)),
     admin.from("sales_agents").select("*").order("name"),
@@ -55,7 +55,8 @@ export default async function OwnerPage() {
     stats: stats.data || [],
     staff: staff.data || [],
     settings: { signup_open: true, announcement: "", announcement_updated_at: null, ...BILLING_DEFAULTS, ...(settings.data || {}), truck_price: pricing.truck_price, min_fee: pricing.min_fee },
-    active,
+    active: Object.fromEntries(Object.entries(active).map(([c, u]) => [c, u.plates])),
+    trips: Object.fromEntries(Object.entries(active).map(([c, u]) => [c, u.trips])),
     payments: n(payments.data, ["amount", "setup_fee"]) as never,
     agents: n(agents.data, ["signing_pct", "setup_pct", "commission_pct", "commission_months"]) as never,
     commissions: n(commissions.data, ["amount"]) as never,

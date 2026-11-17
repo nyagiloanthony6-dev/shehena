@@ -3,8 +3,8 @@ import { allRows } from "@/lib/all-rows";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { currentOwner, type AccountStatus } from "@/lib/owner";
-import { activeTrucks, billingSettings, refreshStatuses } from "@/lib/billing-server";
-import { AGENT_DEFAULTS, addDays, dayLabel, commissionLines, periodEnd, refSlug, today, type CommissionKind } from "@/lib/billing";
+import { billingSettings, refreshStatuses, usage } from "@/lib/billing-server";
+import { AGENT_DEFAULTS, PRICE_MODELS, addDays, dayLabel, commissionLines, periodEnd, refSlug, today, type CommissionKind, type PriceModel } from "@/lib/billing";
 
 type Result = { ok?: string; error?: string };
 const STATUSES: AccountStatus[] = ["trial", "active", "overdue", "suspended"];
@@ -148,15 +148,32 @@ export async function setAutoStatus(companyId: string): Promise<Result> {
 
 const isDay = (s: string | null | undefined) => !s || /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-export async function setAccountBilling(companyId: string, input: { custom_fee: number | null; trial_ends: string | null; paid_until: string | null }): Promise<Result> {
+export async function setAccountBilling(companyId: string, input: {
+  custom_fee?: number | null; price_model?: PriceModel; price_rate?: number | null; price_min?: number | null;
+  trial_ends: string | null; paid_until: string | null;
+}): Promise<Result> {
   try {
     const by = await owner();
-    if (input.custom_fee != null && !(input.custom_fee >= 0)) return { error: "The custom fee must be 0 or more." };
     if (!isDay(input.trial_ends) || !isDay(input.paid_until)) return { error: "Enter dates as day / month / year." };
+    const model = input.price_model;
+    if (model && !(model in PRICE_MODELS)) return { error: "Choose how this client pays." };
+    const rate = input.price_rate == null ? null : Number(input.price_rate), min = input.price_min == null ? null : Number(input.price_min);
+    if (model && model !== "list" && !(rate != null && rate >= 0)) return { error: model === "flat" ? "Enter the monthly fee." : "Enter the price." };
+    if (min != null && !(min >= 0)) return { error: "The minimum must be 0 or more." };
+    if (input.custom_fee != null && !(input.custom_fee >= 0)) return { error: "The custom fee must be 0 or more." };
     const admin = supabaseAdmin();
-    const { data: before } = await admin.from("company_accounts").select("custom_fee, trial_ends, paid_until").eq("company_id", companyId).maybeSingle();
-    const next = { custom_fee: input.custom_fee, trial_ends: input.trial_ends || null, paid_until: input.paid_until || null };
-    const { error } = await admin.from("company_accounts").update(next).eq("company_id", companyId);
+    const { data: before } = await admin.from("company_accounts").select("*").eq("company_id", companyId).maybeSingle();
+    const dates = { trial_ends: input.trial_ends || null, paid_until: input.paid_until || null };
+    // custom_fee mirrors a flat fee so older screens and reports keep working.
+    const price = model
+      ? { price_model: model, price_rate: model === "list" ? null : rate, price_min: model === "per_truck" || model === "per_trip" ? (min || null) : null, custom_fee: model === "flat" ? rate : null }
+      : input.custom_fee !== undefined ? { custom_fee: input.custom_fee } : {};
+    const next = { ...price, ...dates };
+    let { error } = await admin.from("company_accounts").update(next).eq("company_id", companyId);
+    if (error && /price_/.test(error.message)) {
+      if (model === "per_truck" || model === "per_trip") return { error: "Per-trip and per-truck prices need migration 0023_client_pricing.sql. Run it in Supabase first." };
+      ({ error } = await admin.from("company_accounts").update({ custom_fee: model === "flat" ? rate : null, ...dates }).eq("company_id", companyId));
+    }
     if (error) return { error: "Could not save the billing details." };
     await audit(by, "billing.account", companyId, { before, after: next });
     const ch = await refreshStatuses(companyId);
@@ -181,13 +198,15 @@ export async function recordPayment(input: {
     const { data: acc } = await admin.from("company_accounts").select("paid_until, agent_id, agent_since").eq("company_id", input.companyId).maybeSingle();
     const { data: earlier } = await admin.from("billing_payments").select("amount, setup_fee").eq("company_id", input.companyId);
     const paid_on = input.paid_on || today();
-    const trucks = ((await activeTrucks(input.companyId))[input.companyId] || []).length;
+    const use = (await usage(input.companyId))[input.companyId];
+    const trucks = use?.plates.length || 0, trips = use?.trips || 0;
     const row = {
       company_id: input.companyId, amount, setup_fee, months, period_from: input.from, period_to,
       method: input.method.trim().slice(0, 40), reference: input.reference.trim().slice(0, 80), paid_on, recorded_by: by,
     };
-    let { data: pay, error } = await admin.from("billing_payments").insert({ ...row, trucks }).select("id").single();
-    // Before migration 0013 there is no trucks column; save the payment without it.
+    let { data: pay, error } = await admin.from("billing_payments").insert({ ...row, trucks, trips }).select("id").single();
+    // Older databases may not have the trips (0023) or trucks (0013) columns yet.
+    if (error && /trips/i.test(error.message)) ({ data: pay, error } = await admin.from("billing_payments").insert({ ...row, trucks }).select("id").single());
     if (error && /trucks/i.test(error.message)) ({ data: pay, error } = await admin.from("billing_payments").insert(row).select("id").single());
     if (error || !pay) return { error: "Could not record the payment." };
     // The salesperson who brought this client earns on it, at their rates today.
