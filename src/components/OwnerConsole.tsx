@@ -280,7 +280,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
             <div className="oc-card">
               <div className="lbl">Clients&apos; activity</div>
               <div className="big">{sum("ship_month").toLocaleString("en-US")}<small>consignments</small></div>
-              <div className="sub">this month · TZS {short(sum("billed_month"))} billed by clients · {sum("active_staff")} active staff</div>
+              <div className="sub">this month · {rows.reduce((t, r) => t + (r.bill.byMonth[thisMonthKey] || 0), 0).toLocaleString("en-US")} trips · TZS {short(sum("billed_month"))} billed by clients · {sum("active_staff")} active staff</div>
             </div>
           </div>
           <div className="oc-row2">
@@ -302,11 +302,12 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
             <div className="oc-hd"><h2>Top clients this month</h2><button className="linkbtn" onClick={() => goPage("clients")}>See all {rows.length} clients →</button></div>
             {top.length ? (
               <div className="ledger" style={{ border: 0, marginTop: 6 }}><table className="oc-top">
-                <thead><tr><th>Company</th><th className="r">Active trucks</th><th>Consignments</th><th className="r">Billed by them</th><th className="r">Pays you</th><th>Status</th></tr></thead>
+                <thead><tr><th>Company</th><th className="r">Active trucks</th><th className="r">Trips</th><th>Consignments</th><th className="r">Billed by them</th><th className="r">Pays you</th><th>Status</th></tr></thead>
                 <tbody>{top.map((r) => (
                   <tr key={r.id} className="row" tabIndex={0} onClick={() => setOpenId(r.id)} onKeyDown={(e) => e.key === "Enter" && setOpenId(r.id)}>
                     <td><span className="oc-av" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span><b>{r.name}</b>{r.account_no && <span className="mono sub"> {r.account_no}</span>}</td>
                     <td className="r num">{r.bill.trucks}</td>
+                    <td className="r num">{r.bill.byMonth[thisMonthKey] || 0}</td>
                     <td className="num">{r.st.ship_month} <span className="oc-mbar"><span style={{ width: `${(r.st.ship_month / topMax) * 100}%` }} /></span></td>
                     <td className="r num">{tzs(r.st.billed_month)}</td>
                     <td className="r num">{tzs(r.bill.fee)}</td>
@@ -339,7 +340,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
                     <td>{r.admins[0] ? <>{r.admins[0].full_name}<div className="sub">{r.admins[0].email}</div></> : <span className="sub">No admin</span>}</td>
                     <td className="r num">{r.st.active_staff}<span className="sub">/{r.st.staff}</span></td>
                     <td className="r num">{r.st.vehicles} · <b>{r.bill.trucks}</b></td>
-                    <td className="r num">{r.st.ship_month} cons.<div className="sub">TZS {tzs(r.st.billed_month)}</div></td>
+                    <td className="r num" title={`${mName(monthKey(-1))}: ${r.bill.byMonth[monthKey(-1)] || 0} trips`}><b>{r.bill.byMonth[thisMonthKey] || 0}</b> trip{(r.bill.byMonth[thisMonthKey] || 0) === 1 ? "" : "s"}<div>{r.st.ship_month} cons.</div><div className="sub">TZS {tzs(r.st.billed_month)}</div></td>
                     <td><span style={d >= 14 && r.acc.status !== "suspended" ? { color: "var(--bad)", fontWeight: 600 } : undefined}>{ago(r.st.last_activity)}</span></td>
                     <td className="r num">{tzs(r.bill.fee)}<div className="sub">{planShort(r.bill)}</div></td>
                     <td><StatusPill s={r.acc.status} /><div className="sub">{dueText(r)}</div></td>
