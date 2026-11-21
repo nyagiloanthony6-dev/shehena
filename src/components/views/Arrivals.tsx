@@ -4,8 +4,9 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { ReleaseForm } from "../release";
 import { DeliveryPeople, GiveToRunner } from "./Runners";
-import { PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub, FoundPicker, usePaged, Pager } from "../parts";
-import { isOut, noPrice, nameOr, tripSearchIndex, truckMatches, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, itemsOf, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { Icon } from "../Icon";
+import { StatusPill, PayPill, SendButtons, TrucksByDate, sentLog, useArriveTrip, tripSub, FoundPicker, usePaged, Pager } from "../parts";
+import { isOut, noPrice, nameOr, tripSearchIndex, truckMatches, shipMatches, sumBalance, balanceOf, isPart, isAir, terms, METHODS, PAY_LABEL, REGIONS, canRecordFound, settled, goodsLabel, fmtDate, fmtDay, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
 
 const daysSince = (iso?: string | null) => Math.floor((Date.now() - new Date(iso || Date.now()).getTime()) / 864e5);
 
@@ -56,7 +57,7 @@ function WaitingRow({ s }: { s: Shipment }) {
         <span className="mono sub">{prettyPhone(s.r_phone)}</span>
         <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg · {regShort(s.dest)}{t ? ` · ${t.plate}` : ""}</div>
         <div className="sub" style={{ marginTop: 2, display: "flex", gap: "4px 10px", flexWrap: "wrap", alignItems: "center" }}>
-          {noPrice(s) ? <span className="pill pay-part">No charge yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}
+          {noPrice(s) ? <span className="pill no-price">No price yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}
           {isOut(s) && <span className="pill pay-part">With {s.runner_name}</span>}
           {s.pay === "unpaid" && <b style={{ color: "var(--bad)" }}>TZS {tzs(balanceOf(s))} {isPart(s) ? "balance" : "due"}</b>}
           <span>{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</span>
@@ -109,7 +110,10 @@ export default function Arrivals() {
     (show === "all" || (show === "unpaid" ? s.pay === "unpaid" : show === "paid" ? settled(s) : !sentLog(s, "arrived", "receiver").length)) &&
     (!dest || s.dest === dest) &&
     (!day || localDay(s.arrived_at) === day) &&
-    (!ql || [s.no, s.r_name, s.r_phone, s.s_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql) || truckMatches(tripIdx, s.trip_id, q)));
+    (!ql || shipMatches(s, q) || truckMatches(tripIdx, s.trip_id, q)));
+  // A customer asks at the counter: also show their goods that are still on the road or already collected.
+  const elsewhere = ql ? shipments.filter((s) => s.status !== "arrived" && s.status !== "received" && (shipMatches(s, q) || truckMatches(tripIdx, s.trip_id, q)))
+    .sort((a, b) => (a.status === "transit" ? 0 : 1) - (b.status === "transit" ? 0 : 1) || (b.received_at || "").localeCompare(a.received_at || "")) : [];
   const { rows: waitRows, pager: waitPager } = usePaged(waiting, [show, dest, day, ql].join("|"));
 
   return (
@@ -186,13 +190,23 @@ export default function Arrivals() {
           <input type="date" value={day} max={localDay(new Date().toISOString())} onChange={(e) => setDay(e.target.value)} aria-label="Arrived on date" style={{ width: "auto" }} />
           {day && <button className="btn sm" type="button" onClick={() => setDay("")} aria-label="Clear date">✕</button>}
         </label>
-        <div className="searchbox" style={{ flex: "1 1 200px" }}><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Waybill, customer, phone or truck plate" aria-label="Search waiting goods" style={{ paddingLeft: 11 }} /></div>
+        <div className="searchbox" style={{ flex: "1 1 260px" }}><Icon name="search" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, phone, item, waybill or truck plate" aria-label="Search waiting goods" /></div>
       </div>
       <div className="panel" style={{ marginTop: 12 }}>
         {waitRows.map((s) => <WaitingRow key={s.id} s={s} />)}
         <Pager pager={waitPager} />
         {!waitingAll.length && <p className="quiet">No goods waiting. When a truck is marked arrived, its consignments appear here.</p>}
-        {waitingAll.length > 0 && !waiting.length && <p className="quiet">Nothing matches this filter.</p>}
+        {waitingAll.length > 0 && !waiting.length && <p className="quiet">{ql ? <>Nothing waiting here matches &quot;{q.trim()}&quot;.</> : "Nothing matches this filter."}</p>}
+        {elsewhere.length > 0 && (
+          <div className="elsewhere">
+            <div className="sub"><b>Not waiting here, but found {elsewhere.length > 8 ? "8 of " : ""}{elsewhere.length}:</b></div>
+            {elsewhere.slice(0, 8).map((s) => (
+              <button key={s.id} className="elrow" onClick={() => ui.openShip(s.id)}>
+                <span><span className="mono">{s.no}</span> · <b>{nameOr(s.r_name)}</b> · {goodsLabel(s)}<span className="sub"> · {regShort(s.origin)} → {regShort(s.dest)}</span></span>
+                <StatusPill s={s.status} />
+              </button>))}
+          </div>
+        )}
       </div>
       {collectedToday.length > 0 && (
         <>

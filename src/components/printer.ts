@@ -11,7 +11,7 @@
 //   rawbt     – Android phones with the free RawBT app (works with classic Bluetooth printers too).
 //   pdf       – the PDF files, as before.
 // Direct modes send ESC/POS commands (the language almost every thermal printer understands).
-import { POWERED_BY, WEBSITE, isPart, paidOf, balanceOf, PAY_LABEL, cwOf, isAir, kgFmt, fmtDate, itemsOf, prettyPhone, regName, regShort, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
+import { officeLine, POWERED_BY, WEBSITE, isPart, paidOf, balanceOf, PAY_LABEL, cwOf, isAir, kgFmt, fmtDate, itemsOf, prettyPhone, regName, regShort, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 import { packages, stickerPrefs } from "./stickers";
 
 export type PrintMode = "system" | "bluetooth" | "usb" | "rawbt" | "pdf";
@@ -61,10 +61,10 @@ type Slip = { lines: Line[]; label: string };
 const payText = (s: Shipment, account?: string) =>
   s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : s.pay === "bill" ? "MONTHLY BILL" + (account ? ` (${account})` : "") : isPart(s) ? `PART PAID TZS ${tzs(paidOf(s))}, BALANCE TZS ${tzs(balanceOf(s))} due on collection` : "NOT PAID - due on collection";
 
-function head(company: Company, title: string, no: string): Line[] {
+function head(company: Company, title: string, no: string, office?: string | null): Line[] {
   return [
     { t: "text", text: (company.name || "Shehena").toUpperCase(), align: "center", bold: true, size: 2 },
-    { t: "text", text: [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" - "), align: "center" },
+    { t: "text", text: (office && officeLine(company, office)) || [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" - "), align: "center" },
     { t: "rule" },
     { t: "text", text: title, align: "center", bold: true },
     { t: "text", text: no, align: "center", bold: true, size: 2 },
@@ -73,11 +73,13 @@ function head(company: Company, title: string, no: string): Line[] {
 
 export function receiptSlip(s: Shipment, company: Company, account?: string): Slip {
   const air = isAir(company);
-  const L: Line[] = head(company, air ? "AIR CARGO RECEIPT - HAWB" : "CARGO RECEIPT", s.no);
+  const L: Line[] = head(company, air ? "AIR CARGO RECEIPT - HAWB" : "CARGO RECEIPT", s.no, s.origin);
+  const collect = officeLine(company, s.dest);
   L.push({ t: "pair", k: "Date", v: fmtDate(s.received_at) },
     { t: "pair", k: "Sender", v: `${s.s_name}, ${prettyPhone(s.s_phone)}` },
     { t: "pair", k: "Receiver", v: `${s.r_name}, ${prettyPhone(s.r_phone)}` },
-    { t: "pair", k: "Route", v: `${regName(s.origin)} to ${regName(s.dest)}` }, { t: "rule" },
+    { t: "pair", k: "Route", v: `${regName(s.origin)} to ${regName(s.dest)}` },
+    ...(collect ? [{ t: "pair", k: "Collect at", v: `${regName(s.dest)} office: ${collect}` } as Line] : []), { t: "rule" },
     { t: "item", name: "Item", pkgs: air ? "Pcs" : "Pkgs", amount: "TZS", bold: true });
   for (const l of itemsOf(s)) {
     L.push({ t: "item", name: l.name, pkgs: String(l.pkgs), amount: tzs(l.charge) });
@@ -126,7 +128,7 @@ export function stickerSlips(s: Shipment, company: Company): Slip[] {
 }
 
 export function deliverySlip(s: Shipment, company: Company, trip?: Trip): Slip {
-  const L: Line[] = head(company, "DELIVERY NOTE", s.dn_no || s.no);
+  const L: Line[] = head(company, "DELIVERY NOTE", s.dn_no || s.no, s.dest);
   L.push({ t: "pair", k: "Date", v: fmtDate(s.collected_at || new Date().toISOString()) },
     { t: "pair", k: "Waybill", v: s.no },
     { t: "pair", k: "Route", v: `${regName(s.origin)} to ${regName(s.dest)}` },

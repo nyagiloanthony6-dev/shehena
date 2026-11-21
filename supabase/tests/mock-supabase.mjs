@@ -97,7 +97,7 @@ const DEFAULTS = {
   claims: { station: null, shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },
   runners: { phone: "", station: null, active: true },
   claim_payments: { method: "", reference: "" },
-  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [], mode: "road", kg_rate: 0, vol_divisor: 6000, features: [], get account_no() { return "SH" + (10000 + (db.companies?.length || 0) + 1); } },
+  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [], office_info: {}, mode: "road", kg_rate: 0, vol_divisor: 6000, features: [], get account_no() { return "SH" + (10000 + (db.companies?.length || 0) + 1); } },
   profiles: { active: true, station: null },
 };
 

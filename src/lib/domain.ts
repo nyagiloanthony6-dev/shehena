@@ -19,6 +19,8 @@ export interface Company {
   found_goods_by?: "all" | "admin";
   /** region codes where the company has an office; head office = default_origin */
   offices?: string[];
+  /** address and phone of each branch office, by region code (e.g. DOD); the head office uses `branch` and `phone` */
+  office_info?: Record<string, OfficeInfo>;
   /** extra features switched on in Settings, e.g. "delivery" (delivery people) */
   features?: string[];
   /** unique Shehena account number (SH10001…) */
@@ -29,6 +31,18 @@ export interface Company {
   kg_rate?: number;
   /** air: volume weight = L × W × H (cm) ÷ this, per piece (6000 is the airline standard) */
   vol_divisor?: number;
+}
+export type OfficeInfo = { address?: string; phone?: string };
+/** Address and phone of an office. The head office falls back to the company's branch and phone. */
+export function officeInfo(c: Pick<Company, "office_info" | "default_origin" | "branch" | "phone">, code?: string | null): OfficeInfo {
+  const o = (code && c.office_info?.[code]) || {};
+  const head = code === (c.default_origin || "DAR");
+  return { address: o.address?.trim() || (head ? c.branch?.trim() : "") || "", phone: o.phone?.trim() || (head ? c.phone?.trim() : "") || "" };
+}
+/** "Majengo, near the bus stand · Tel 0754 000 000" for the office in `code`, or "" if nothing is set. */
+export function officeLine(c: Pick<Company, "office_info" | "default_origin" | "branch" | "phone">, code?: string | null) {
+  const o = officeInfo(c, code);
+  return [o.address, o.phone ? "Tel " + o.phone : ""].filter(Boolean).join(" · ");
 }
 export type CompanyMode = "road" | "air";
 export const isAir = (c?: Pick<Company, "mode"> | null) => c?.mode === "air";
@@ -400,18 +414,23 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
     : `Hello ${s.s_name}, waybill ${s.no} (${items}) you sent to ${s.r_name} has arrived in ${D}. ${co}${ph ? ", tel: " + ph : ""}`;
   const due = `TZS ${tzs(balanceOf(s))}${isPart(s) ? (sw ? ` (baki; umeshalipa TZS ${tzs(paidOf(s))})` : ` (balance; TZS ${tzs(paidOf(s))} already paid)`) : ""}`;
   const how = company.payment_instructions?.trim();
+  // Collection happens at the destination office: give its address and phone.
+  const dOff = officeInfo(company, s.dest);
+  const dph = dOff.phone || ph;
+  const whereSw = dOff.address ? `Ofisi yetu ${D}: ${dOff.address}. ` : "";
+  const whereEn = dOff.address ? `Our ${D} office: ${dOff.address}. ` : "";
   if (kind === "reminder") return sw
-    ? `Kumbusho: Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) upo ofisini ${D} tangu ${fmtDay(s.arrived_at)}. Kiasi cha kulipa ni ${due}.${how ? ` Lipa kupitia: ${how}.` : ""} Baada ya kulipa, fika na kitambulisho kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`
-    : `Reminder: Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have been waiting at our ${D} office since ${fmtDay(s.arrived_at)}. Amount due: ${due}.${how ? ` Pay via: ${how}.` : ""} After paying, come with ID to collect. ${co}${ph ? ", tel: " + ph : ""}`;
+    ? `Kumbusho: Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) upo ofisini ${D} tangu ${fmtDay(s.arrived_at)}. Kiasi cha kulipa ni ${due}.${how ? ` Lipa kupitia: ${how}.` : ""} Baada ya kulipa, fika na kitambulisho kuuchukua. ${whereSw}${co}${dph ? ", simu: " + dph : ""}`
+    : `Reminder: Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have been waiting at our ${D} office since ${fmtDay(s.arrived_at)}. Amount due: ${due}.${how ? ` Pay via: ${how}.` : ""} After paying, come with ID to collect. ${whereEn}${co}${dph ? ", tel: " + dph : ""}`;
   if (s.pay === "bill") return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Malipo yapo kwenye bili ya mwezi. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${co}${ph ? ", simu: " + ph : ""}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. The charge is on the monthly bill. Please come to our office with ID and this number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Malipo yapo kwenye bili ya mwezi. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${whereSw}${co}${dph ? ", simu: " + dph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. The charge is on the monthly bill. Please come to our office with ID and this number to collect. ${whereEn}${co}${dph ? ", tel: " + dph : ""}`;
   if (s.pay !== "paid") return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Kiasi cha kulipa ni ${due}.${how ? ` Tafadhali lipia kupitia: ${how}.` : " Tafadhali lipia ofisini."} Baada ya kulipa, fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. ${co}${ph ? ", simu: " + ph : ""}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. Amount due: ${due}.${how ? ` Please pay via: ${how}.` : " Please pay at our office."} Once paid, come to our office with ID and this waybill number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Kiasi cha kulipa ni ${due}.${how ? ` Tafadhali lipia kupitia: ${how}.` : " Tafadhali lipia ofisini."} Baada ya kulipa, fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. ${whereSw}${co}${dph ? ", simu: " + dph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. Amount due: ${due}.${how ? ` Please pay via: ${how}.` : " Please pay at our office."} Once paid, come to our office with ID and this waybill number to collect. ${whereEn}${co}${dph ? ", tel: " + dph : ""}`;
   return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Malipo yamekamilika. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${co}${ph ? ", simu: " + ph : ""}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. Payment is complete. Please come to our office with ID and this number to collect. ${co}${ph ? ", tel: " + ph : ""}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Malipo yamekamilika. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${whereSw}${co}${dph ? ", simu: " + dph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. Payment is complete. Please come to our office with ID and this number to collect. ${whereEn}${co}${dph ? ", tel: " + dph : ""}`;
 }
 
 export function niceStep(max: number) {

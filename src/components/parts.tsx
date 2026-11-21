@@ -7,6 +7,7 @@ import { canRecordFound, sumPaid, sumBalance, balanceOf, isPart, paidOf,
   PAY_LABEL, type Pay, cwOf, isAir, kgFmt, terms, fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
   type Company, type NoticeKind, type NoticeTo, type Shipment, type Trip,
   POWERED_BY, WEBSITE,
+  officeLine,
 } from "@/lib/domain";
 
 export const StatusPill = ({ s }: { s: string }) => { const { company } = useStore(); return <span className={`pill st-${s}`}>{stLabel(s, isAir(company))}</span>; };
@@ -112,7 +113,8 @@ export function Slip({ s, company, servedBy, account }: { s: Partial<Shipment>; 
   const pay = (s.pay || "unpaid") as Pay;
   const disc = Number(s.discount || 0);
   const gross = Number(s.gross_charge ?? (Number(s.charge || 0) + disc));
-  const head = [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ");
+  const head = officeLine(company, s.origin || company.default_origin) || [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ");
+  const collect = s.dest ? officeLine(company, s.dest) : "";
   const lines = itemsOf(s);
   const air = isAir(company);
   const cw = cwOf(s);
@@ -127,6 +129,7 @@ export function Slip({ s, company, servedBy, account }: { s: Partial<Shipment>; 
         <dt>Sender</dt><dd>{s.s_name || "—"}<br /><span className="mono sub">{prettyPhone(s.s_phone)}</span></dd>
         <dt>Receiver</dt><dd>{s.r_name || "—"}<br /><span className="mono sub">{prettyPhone(s.r_phone)}</span></dd>
         <dt>Route</dt><dd>{regName(s.origin || "")} → {regName(s.dest || "")}</dd>
+        {collect && <><dt>Collect at</dt><dd>{regName(s.dest || "")} office<br /><span className="sub">{collect}</span></dd></>}
       </dl>
       <hr />
       {air ? (
@@ -172,7 +175,7 @@ export async function downloadReceipt(s: Shipment, company: Company, account?: s
 /** The 80 mm receipt as a PDF document (first page), so stickers can be added after it. */
 export async function receiptDoc(s: Shipment, company: Company, account?: string) {
   const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ unit: "mm", format: [80, 186 + Math.max(0, itemsOf(s).length - 1) * 6] });
+  const doc = new jsPDF({ unit: "mm", format: [80, 186 + (officeLine(company, s.dest) ? 12 : 0) + Math.max(0, itemsOf(s).length - 1) * 6] });
   let y = 10;
   const L = 6, W = 68;
   const line = (t: string, sz = 9, b = false) => {
@@ -185,11 +188,12 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
   };
   const dash = () => { doc.setLineDashPattern([1, 1], 0); doc.line(L, y, L + W, y); y += 4; };
   line((company.name || "Shehena").toUpperCase(), 13, true);
-  line([company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ") || " ", 8); y += 2;
+  line(officeLine(company, s.origin) || [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ") || " ", 8); y += 2;
   const air = isAir(company);
   line(air ? "AIR CARGO RECEIPT - HAWB" : "CARGO RECEIPT", 8, true); line(s.no, 12, true); y += 1;
   pair("Date", fmtDate(s.received_at)); pair("Sender", [s.s_name, prettyPhone(s.s_phone)].filter(Boolean).join(", ") || "-");
-  pair("Receiver", [s.r_name, prettyPhone(s.r_phone)].filter(Boolean).join(", ")); pair("Route", `${regName(s.origin)} to ${regName(s.dest)}`); dash();
+  pair("Receiver", [s.r_name, prettyPhone(s.r_phone)].filter(Boolean).join(", ")); pair("Route", `${regName(s.origin)} to ${regName(s.dest)}`);
+  const collect = officeLine(company, s.dest); if (collect) pair("Collect at", `${regName(s.dest)} office: ${collect}`); dash();
   const lines = itemsOf(s);
   if (air) {
     doc.setFontSize(8); doc.setFont("helvetica", "bold");

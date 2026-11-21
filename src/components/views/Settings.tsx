@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import { useStore } from "../store";
 import { RegionOptions } from "../RegionOptions";
-import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle } from "@/lib/domain";
+import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle, type OfficeInfo } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
 import { ACTIVE_DAYS, dayLabel, planLabel, type Subscription } from "@/lib/billing";
 import { downloadSubscriptionReceipt } from "../billingPdf";
@@ -55,10 +55,15 @@ function OfficesForm() {
   const [head, setHead] = useState(company.default_origin || "DAR");
   const [list, setList] = useState<string[]>(() => officesOf(company).filter((x) => x !== (company.default_origin || "DAR")));
   const [pick, setPick] = useState("");
+  const [info, setInfo] = useState<Record<string, OfficeInfo>>(() => ({ ...(company.office_info || {}) }));
   if (!("offices" in company)) return null;
+  const hasInfo = "office_info" in company;
+  const setOff = (c: string, k: keyof OfficeInfo, v: string) => setInfo((m) => ({ ...m, [c]: { ...m[c], [k]: v } }));
+  const cleanInfo = () => Object.fromEntries([head, ...list].filter((c) => c !== head).map((c) => [c, { address: (info[c]?.address || "").trim(), phone: (info[c]?.phone || "").trim() }]).filter(([, o]) => (o as OfficeInfo).address || (o as OfficeInfo).phone));
   const name = (c: string) => REGIONS.find(([r]) => r === c)?.[1] || c;
   const staffAt = (c: string) => staff.filter((p) => p.role === "agent" && p.station === c && p.active).length;
-  const changed = head !== company.default_origin || [head, ...list].join() !== officesOf(company).join();
+  const changed = head !== company.default_origin || [head, ...list].join() !== officesOf(company).join()
+    || (hasInfo && JSON.stringify(cleanInfo()) !== JSON.stringify(Object.fromEntries(Object.entries(company.office_info || {}).filter(([c, o]) => c !== head && list.includes(c) && (o.address || o.phone)))));
   return (
     <fieldset><legend>Offices and routes</legend>
       <p className="sub" style={{ marginTop: 0 }}>Where you send goods from, and the towns you deliver to. These are your branches: branch staff are assigned to one, and they are listed first when receiving goods and loading trucks.</p>
@@ -79,8 +84,22 @@ function OfficesForm() {
         ))}
         {!list.length && <span className="sub">No destinations yet. Add the towns you deliver to.</span>}
       </div>
+      {list.length > 0 && (
+        <div className="offaddr">
+          <div style={{ marginTop: 14 }}><div className="lbl">Branch office addresses</div><div className="sub">Shown on receipts (&quot;Collect at&quot;), delivery notes and arrival messages.</div></div>
+          {!hasInfo && <p className="note">Run database update 0024 in Supabase to save branch addresses.</p>}
+          <div className="offaddr-row offaddr-head"><span>{name(head)} <small className="sub">head office</small></span><span className="sub">{[company.branch, company.phone].filter(Boolean).join(" · ") || "Set Branch and Phone under Company details"}</span></div>
+          {list.map((c) => (
+            <div className="offaddr-row" key={c}>
+              <span>{name(c)}</span>
+              <input value={info[c]?.address || ""} onChange={(e) => setOff(c, "address", e.target.value)} placeholder="Address, e.g. Majengo, near the bus stand" aria-label={`${name(c)} office address`} disabled={!hasInfo} />
+              <input value={info[c]?.phone || ""} onChange={(e) => setOff(c, "phone", e.target.value)} placeholder="Office phone" inputMode="tel" aria-label={`${name(c)} office phone`} disabled={!hasInfo} />
+            </div>
+          ))}
+        </div>
+      )}
       <div className="actions"><button className="btn primary" disabled={!changed} onClick={async () => {
-        if (await patchCompany({ default_origin: head, offices: [head, ...list] })) toast("Offices saved");
+        if (await patchCompany({ default_origin: head, offices: [head, ...list], ...(hasInfo ? { office_info: cleanInfo() } : {}) })) toast("Offices saved");
       }}>Save offices</button></div>
     </fieldset>
   );

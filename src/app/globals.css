@@ -670,3 +670,20 @@ div.f{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:500;
 .mtop-owner{display:inline-flex;align-items:center;height:30px;padding:0 10px;margin:0 4px;border-radius:99px;border:1px dashed rgba(240,178,90,.55);color:var(--tape);font-weight:600;font-size:12.5px;text-decoration:none;white-space:nowrap}
 .mtop-owner:active{background:rgba(255,255,255,.08)}
 @media (max-width:380px){.mtop:has(.mtop-owner) .role{display:none}}
+.movelist{display:flex;flex-direction:column;gap:2px;margin:6px 0 0;max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:4px 10px}
+.movelist .check{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.movelist .check:last-child{border-bottom:0}
+.movelist .check input{margin-top:3px}
+.elsewhere{border-top:1px solid var(--line);margin-top:8px;padding:10px 4px 2px;display:flex;flex-direction:column;gap:4px}
+.elrow{display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left;background:none;border:0;border-radius:8px;padding:8px 6px;color:inherit;font:inherit;cursor:pointer}
+.elrow:hover{background:var(--sunk)}
+.offaddr{display:flex;flex-direction:column;gap:8px}
+.offaddr-row{display:grid;grid-template-columns:130px minmax(0,2fr) minmax(0,1fr);gap:8px;align-items:center;font-size:14px;font-weight:600}
+.offaddr-head{font-weight:600}
+.offaddr-head .sub{grid-column:2/-1;font-weight:400}
+@media (max-width:640px){.offaddr-row{grid-template-columns:1fr}.offaddr-head .sub{grid-column:auto}}
+.pill.no-price{background:#EDE7F8;color:#5B3FA6}
+:root[data-theme="dark"] .pill.no-price{background:#2E2650;color:#C9B8F5}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .pill.no-price{background:#2E2650;color:#C9B8F5}}
+.np-alert{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%;margin-top:14px;padding:12px 14px;border:1px solid #CFC2EE;background:var(--surface);border-radius:12px;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.np-alert .link{margin-left:auto;color:var(--blue,#23409A);font-weight:600}

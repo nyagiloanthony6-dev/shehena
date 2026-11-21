@@ -4,7 +4,7 @@ import { qr } from "./stickers";
 import { useState } from "react";
 import { useStore } from "./store";
 import { printSlips } from "./printer";
-import { POWERED_BY, WEBSITE, hasFeature, paidOf, METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
+import { officeLine, POWERED_BY, WEBSITE, hasFeature, paidOf, METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 
 export const ID_TYPES = ["NIDA", "Driving licence", "Voter ID", "Passport", "Work ID", "Other"];
 
@@ -124,7 +124,7 @@ export async function downloadDeliveryNote(s: Shipment, company: Company, trip?:
   const pair = (k: string, v: string) => { doc.setFontSize(8.5); doc.setFont("helvetica", "normal"); doc.text(k, L, y); const w = doc.splitTextToSize(String(v || "-"), 42); doc.setFont("helvetica", "bold"); doc.text(w, L + 26, y); y += w.length * 3.8 + 1.2; };
   const dash = () => { doc.setLineDashPattern([1, 1], 0); doc.line(L, y, L + W, y); y += 4; };
   line((company.name || "Shehena").toUpperCase(), 13, true);
-  line([company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ") || " ", 8); y += 2;
+  line(officeLine(company, s.dest) || [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ") || " ", 8); y += 2;
   line("DELIVERY NOTE", 8, true); line(s.dn_no || "-", 12, true); y += 1;
   pair("Date", fmtDate(s.collected_at || new Date().toISOString()));
   pair("Waybill", s.no);

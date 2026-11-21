@@ -4,14 +4,14 @@ import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { StatusPill, TripCard } from "../parts";
 import { YearPanel } from "../charts";
-import { sumBalance, balanceOf, isPart, isAir, terms, goodsLabel, regShort, stLabel, tzs } from "@/lib/domain";
+import { noPrice, sumBalance, balanceOf, isPart, isAir, terms, goodsLabel, regShort, stLabel, tzs } from "@/lib/domain";
 
 export function Stats() {
   const { shipments, company } = useStore();
   const air = isAir(company);
   const today = new Date().toDateString();
   const c = (k: string) => shipments.filter((s) => s.status === k).length;
-  const unpaid = shipments.filter((s) => s.pay === "unpaid");
+  const unpaid = shipments.filter((s) => s.pay === "unpaid" && !noPrice(s));
   return (
     <div className="stats">
       <div className="stat"><div className="lbl">Received today</div><div className="v">{shipments.filter((s) => new Date(s.received_at).toDateString() === today).length}</div><div className="s">{shipments.length} on record</div></div>
@@ -30,7 +30,8 @@ export default function Overview() {
   const first = (me.full_name || "").split(" ")[0];
   const T = trips.filter((t) => t.status !== "arrived").sort((a, b) => (a.status > b.status ? -1 : 1) || b.created_at.localeCompare(a.created_at));
   const A = shipments.filter((s) => s.status === "arrived").sort((a, b) => (a.arrived_at || "").localeCompare(b.arrived_at || ""));
-  const U = shipments.filter((s) => s.pay === "unpaid").sort((a, b) => balanceOf(b) - balanceOf(a));
+  const NP = shipments.filter((s) => noPrice(s) && s.status !== "collected");
+  const U = shipments.filter((s) => s.pay === "unpaid" && !noPrice(s)).sort((a, b) => balanceOf(b) - balanceOf(a));
   const R = shipments.slice(0, 6);
   const newTrip = () => { ui.setTripFormOpen(true); ui.go("trips"); };
   const W = terms(company);
@@ -49,6 +50,13 @@ export default function Overview() {
       </div>
       {me.role === "ceo" && <div className="panel ypanel" style={{ marginTop: 18 }}><YearPanel /></div>}
       <div style={{ marginTop: 18 }}><Stats /></div>
+      {NP.length > 0 && (
+        <button className="np-alert" onClick={() => { ui.setListPay("noprice"); ui.go("list"); }}>
+          <span className="pill no-price">No price yet</span>
+          <span><b>{NP.length} consignment{NP.length === 1 ? "" : "s"}</b> saved without a charge. Add the price before {NP.length === 1 ? "it is" : "they are"} released.</span>
+          <span className="link">See {NP.length === 1 ? "it" : "them"} →</span>
+        </button>
+      )}
       <div className="hgrid">
         <div className="panel">
           <div className="ph"><h2>{W.Vehicles}</h2><button className="link" onClick={() => ui.go("trips")}>{W.bay} →</button></div>

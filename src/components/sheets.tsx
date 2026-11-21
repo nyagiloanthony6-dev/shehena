@@ -9,7 +9,7 @@ import { downloadManifest } from "./manifest";
 import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { GiveToRunner } from "./views/Runners";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
-import { shipMatches } from "@/lib/domain";
+import { shipMatches, plateKey } from "@/lib/domain";
 import { Icon } from "./Icon";
 import { PAY_LABEL, canRecordFound, settled, noPrice, canEditShip } from "@/lib/domain";
 import { METHODS, balanceOf, isPart, paidOf, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
@@ -108,6 +108,98 @@ export function ShipmentSheet({ id }: { id: string }) {
   );
 }
 
+/** On the road: take consignments off this truck and put them on another truck (breakdown, transfer). */
+function MoveToTruck({ trip: t }: { trip: Trip }) {
+  const { tripShips, trips, vehicles, insert, patch, me, toast, company } = useStore();
+  const ui = useUi();
+  const air = isAir(company);
+  const onTruck = tripShips(t).filter((s) => s.status === "transit");
+  const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState<string[]>([]);
+  const [to, setTo] = useState("");
+  const [nt, setNt] = useState({ plate: "", driver: "", driver_phone: "" });
+  const [reason, setReason] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const others = trips.filter((x) => x.id !== t.id && (x.status === "loading" || x.status === "departed"))
+    .sort((a, b) => (a.dest === t.dest ? 0 : 1) - (b.dest === t.dest ? 0 : 1) || (a.status === "departed" ? 0 : 1) - (b.status === "departed" ? 0 : 1));
+  if (air || !onTruck.length) return null;
+  const all = pick.length === onTruck.length;
+  const toggle = (id: string) => setPick((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
+
+  async function move() {
+    if (!pick.length) return setErr("Tick the consignments to move.");
+    let target = others.find((x) => x.id === to) || null;
+    const at = new Date().toISOString();
+    setBusy(true); setErr("");
+    if (to === "new") {
+      const plate = nt.plate.trim().toUpperCase().replace(/\s+/g, " ");
+      if (!plate) { setBusy(false); return setErr("Enter the plate number of the new truck."); }
+      if (plateKey(plate) === plateKey(t.plate)) { setBusy(false); return setErr("That is the same truck."); }
+      if (trips.some((x) => plateKey(x.plate) === plateKey(plate) && x.status !== "arrived")) { setBusy(false); return setErr(`${plate} already has an open trip. Pick it from the list instead.`); }
+      const saved = vehicles.find((v) => plateKey(v.plate) === plateKey(plate));
+      target = await insert<Trip>("trips", {
+        no: `TRIP-${at.slice(2, 10).replace(/-/g, "")}-${t.dest}-${Math.floor(Math.random() * 900) + 100}`,
+        plate, driver: nt.driver.trim() || saved?.driver || "", driver_phone: nt.driver_phone.trim() || saved?.driver_phone || "",
+        target: 0, target_set_by: null, origin: t.origin, dest: t.dest,
+        status: "departed", departed_at: at, departed_by: me.full_name, created_by: me.id, created_by_name: me.full_name,
+      });
+      if (!target) { setBusy(false); return; }
+    }
+    if (!target) { setBusy(false); return setErr("Choose the truck that takes the goods."); }
+    const status = target.status === "departed" ? "transit" : "loaded";
+    const why = reason.trim();
+    let ok = 0;
+    for (const s of onTruck.filter((x) => pick.includes(x.id))) {
+      const entry = { at, by: me.full_name, changes: { Truck: [t.plate, `${target.plate}${why ? ` (${why})` : ""}`] as [string, string] } };
+      if (await patch<Shipment>("shipments", s.id, { trip_id: target.id, status, ...(status === "loaded" ? { loaded_at: at, transit_at: null } : {}), edit_log: [...(s.edit_log || []), entry] })) ok++;
+    }
+    setBusy(false);
+    if (!ok) return;
+    toast(`${ok} consignment${ok === 1 ? "" : "s"} moved from ${t.plate} to ${target.plate}.`);
+    setPick([]); setOpen(false); setTo(""); setNt({ plate: "", driver: "", driver_phone: "" }); setReason("");
+    if (ok === onTruck.length) ui.openTrip(target.id);
+  }
+
+  return (
+    <div className="card"><h3>Move goods to another truck</h3>
+      {!open ? <>
+        <p className="sub" style={{ margin: "0 0 8px" }}>Truck broke down or goods change trucks on the way? Take consignments off {t.plate} and put them on another truck.</p>
+        <button className="btn" onClick={() => setOpen(true)}>Move goods…</button>
+      </> : <>
+        <label className="check" style={{ fontWeight: 600 }}><input type="checkbox" checked={all} onChange={() => setPick(all ? [] : onTruck.map((s) => s.id))} /> All {onTruck.length} consignments on {t.plate}</label>
+        <div className="movelist">{onTruck.map((s) => (
+          <label key={s.id} className="check"><input type="checkbox" checked={pick.includes(s.id)} onChange={() => toggle(s.id)} />
+            <span><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} pkg<div className="sub">{s.r_name} · {regShort(s.dest)}</div></span>
+          </label>))}
+        </div>
+        <label className="f" style={{ marginTop: 10 }}>Move to
+          <select value={to} onChange={(e) => setTo(e.target.value)}>
+            <option value="">Choose a truck…</option>
+            <option value="new">A new truck (enter its plate)</option>
+            {others.map((x) => <option key={x.id} value={x.id}>{x.plate} · {regShort(x.origin)} → {regShort(x.dest)} · {x.status === "departed" ? "on the road" : "loading"}</option>)}
+          </select>
+        </label>
+        {to === "new" && (
+          <div className="fields" style={{ marginTop: 10 }}>
+            <label className="f">Plate number<input value={nt.plate} onChange={(e) => setNt({ ...nt, plate: e.target.value })} placeholder="T 123 ABC" list="move-plates" /></label>
+            <datalist id="move-plates">{vehicles.map((v) => <option key={v.id} value={v.plate} />)}</datalist>
+            <label className="f">Driver<input value={nt.driver} onChange={(e) => setNt({ ...nt, driver: e.target.value })} /></label>
+            <label className="f">Driver phone<input value={nt.driver_phone} onChange={(e) => setNt({ ...nt, driver_phone: e.target.value })} inputMode="tel" /></label>
+          </div>
+        )}
+        <label className="f" style={{ marginTop: 10 }}>Reason <small>optional</small><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. breakdown at Morogoro" /></label>
+        <div className="err" role="alert">{err}</div>
+        <div className="actions">
+          <button className="btn primary" onClick={move} disabled={busy || !pick.length || !to}>{busy ? "Moving…" : `Move ${pick.length || ""} consignment${pick.length === 1 ? "" : "s"}`}</button>
+          <button className="btn" onClick={() => { setOpen(false); setErr(""); }}>Cancel</button>
+        </div>
+        <p className="note">Each consignment keeps a record of the move (shown under &quot;Changes after saving&quot;). Goods put on a truck that is still loading go back to &quot;Loaded&quot;.</p>
+      </>}
+    </div>
+  );
+}
+
 export function TripSheet({ id }: { id: string }) {
   const { tripById, tripShips, shipments, can, patch, patchMany, remove, me, toast, company } = useStore();
   const ui = useUi();
@@ -200,6 +292,7 @@ export function TripSheet({ id }: { id: string }) {
           <p className="note">All consignments on this {air ? "MAWB" : "vehicle"} move to &quot;{air ? "Landed" : "Arrived"}&quot; and arrival notices become ready.</p>
         </div>
       )}
+      {t.status === "departed" && can("dispatch") && <MoveToTruck trip={t} />}
       {t.status === "arrived" && <FoundOnTrip trip={t} />}
       {t.status === "arrived" && <BulkNotices trip={t} kind="arrived" />}
       {t.status !== "loading" && <BulkNotices trip={t} kind="departed" />}
@@ -228,7 +321,7 @@ export function TripSheet({ id }: { id: string }) {
               {waiting.map((s) => (
                 <div className="lrow" key={s.id}>
                   <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} {air ? `pcs · ${kgFmt(cwOf(s))} kg` : "pkg"} · TZS {tzs(s.charge)}
-                    <div className="sub">{s.s_name ? `${s.s_name} → ` : ""}{s.r_name} <span className="mono">{prettyPhone(s.r_phone)}</span> · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {PAY_LABEL[s.pay]}</div>
+                    <div className="sub">{s.s_name ? `${s.s_name} → ` : ""}{s.r_name} <span className="mono">{prettyPhone(s.r_phone)}</span> · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {noPrice(s) ? <span className="pill no-price">No price yet</span> : PAY_LABEL[s.pay]}</div>
                   </div>
                   <button className="btn sm primary" onClick={() => patch<Shipment>("shipments", s.id, { status: "loaded", trip_id: t.id, loaded_at: now() })}>{air ? "Add" : "Load"}</button>
                 </div>
@@ -250,7 +343,7 @@ export function TripSheet({ id }: { id: string }) {
                 <td>{goodsLabel(s)}</td>
                 <td className="r num">{s.pkgs}</td>
                 <td className="r num">{tzs(s.charge)}</td>
-                <td><PayPill pay={s.pay} part={isPart(s)} /></td>
+                <td>{noPrice(s) ? <span className="pill no-price">No price yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}</td>
               </tr>))}</tbody>
             <tfoot><tr><td colSpan={3}>Total</td><td className="r num">{n}</td><td className="r num">{tzs(list.reduce((a, s) => a + Number(s.charge || 0), 0))}</td><td /></tr></tfoot>
           </table></div>

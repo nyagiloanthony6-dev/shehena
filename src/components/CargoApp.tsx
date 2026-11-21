@@ -42,8 +42,8 @@ interface Ui {
   reportClaim: (shipmentId: string | null) => void;
   claimFor: string | null;
   close: () => void;
-  listPay: "" | "paid" | "unpaid" | "bill";
-  setListPay: (p: "" | "paid" | "unpaid" | "bill") => void;
+  listPay: "" | "paid" | "unpaid" | "bill" | "noprice";
+  setListPay: (p: "" | "paid" | "unpaid" | "bill" | "noprice") => void;
   tripFormOpen: boolean;
   setTripFormOpen: (b: boolean) => void;
   /** Trip whose found (unrecorded) goods are being keyed in on the Receive screen. */
@@ -91,7 +91,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
   const st = useStore();
   const [view, setView] = useState<View>("home");
   const [sheet, setSheet] = useState<{ type: "ship" | "trip" | "account" | "claim"; id: string } | null>(null);
-  const [listPay, setListPay] = useState<"" | "paid" | "unpaid" | "bill">("");
+  const [listPay, setListPay] = useState<"" | "paid" | "unpaid" | "bill" | "noprice">("");
   const [tripFormOpen, setTripFormOpen] = useState(false);
   const [foundTrip, setFoundTrip] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
