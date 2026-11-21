@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ROUTE_PATH } from "@/lib/brand";
+import { S_PATH, TAG_PATH, TAG_TURN } from "@/lib/brand";
 
 export const alt = "Shehena — cargo management for regional transporters";
 export const size = { width: 1200, height: 630 };
@@ -15,10 +15,11 @@ export default async function OgImage() {
       <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", background: "#14213F", color: "#EEF2FA", padding: 64 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <svg width="84" height="84" viewBox="0 0 100 100">
-            <rect width="100" height="100" rx="24" fill="#F2A23A" />
-            <path d={ROUTE_PATH} fill="none" stroke="#14213F" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="30" cy="72" r="6.5" fill="#F2A23A" stroke="#14213F" strokeWidth="3.5" />
-            <circle cx="70" cy="20" r="7" fill="#14213F" />
+            <g transform={TAG_TURN}>
+              <path d={TAG_PATH} fill="#F2A23A" />
+              <circle cx="66" cy="34" r="5" fill="#14213F" />
+              <path d={S_PATH} fill="#14213F" />
+            </g>
           </svg>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ fontSize: 56, fontWeight: 700, lineHeight: 1, fontFamily: grotesk ? "Space Grotesk" : undefined, letterSpacing: 3 }}>SHEHENA</div>
