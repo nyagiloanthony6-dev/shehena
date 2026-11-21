@@ -26,8 +26,49 @@ function downloadCsv(rows: CustomerRow[], company: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
+/** Add a customer by hand: name, phone and an optional note. Registered today. */
+function NewCustomer({ all, onDone }: { all: CustomerRow[]; onDone: (phone?: string) => void }) {
+  const { saveCustomer, toast } = useStore();
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [notes, setNotes] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ph = intlPhone(phone);
+  const dup = ph.length >= 12 ? all.find((r) => r.phone === ph) : undefined;
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return setErr("Enter the customer's name.");
+    if (!/^255[67]\d{8}$/.test(ph)) return setErr("Enter a valid phone number, e.g. 0712 345 678.");
+    if (dup?.id) return setErr(`${prettyPhone(ph)} is already saved as ${dup.name || "a customer"}.`);
+    setErr(""); setBusy(true);
+    const ok = await saveCustomer(ph, { name: name.trim(), notes: notes.trim() });
+    setBusy(false);
+    if (!ok) return;
+    toast(`Customer added: ${name.trim()}`);
+    onDone(ph);
+  }
+  return (
+    <form noValidate onSubmit={save} className="card cu-new">
+      <h3>New customer</h3>
+      <div className="fields">
+        <label className="f">Name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Asha Mohamed" autoFocus /></label>
+        <label className="f">Phone number<input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="0712 345 678" /></label>
+        <label className="f full">Notes <small>optional: shop name, location, usual goods</small><input value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
+      </div>
+      {dup && <p className="note">This number is already a customer: <a href="#" onClick={(x) => { x.preventDefault(); onDone(dup.phone); }}><b>{dup.name || prettyPhone(dup.phone)}</b></a>{dup.id ? "" : " (from consignments; saving keeps the name you type)"}.</p>}
+      <div className="err" role="alert">{err}</div>
+      <div className="actions">
+        <button className="btn primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Save customer"}</button>
+        <button className="btn" type="button" onClick={() => onDone()}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
 export default function Customers() {
-  const { shipments, customers, hasCustomers, company } = useStore();
+  const { shipments, customers, hasCustomers, company, can } = useStore();
+  const [adding, setAdding] = useState(false);
   const ui = useUi();
   const [q, setQ] = useState("");
   const [show, setShow] = useState<"all" | "month" | "senders" | "receivers" | "unpaid">("all");
@@ -59,8 +100,12 @@ export default function Customers() {
     <section>
       <div className="sectionhead">
         <div><h1>Customers</h1><div className="sub">Everyone who has sent or received goods. A customer is registered with their first consignment; new ones are added automatically.</div></div>
-        {all.length > 0 && <button className="btn" onClick={() => downloadCsv(list, company.name)}>Download (Excel)</button>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {all.length > 0 && <button className="btn" onClick={() => downloadCsv(list, company.name)}>Download (Excel)</button>}
+          {hasCustomers && can("receive") && !adding && <button className="btn primary" onClick={() => setAdding(true)}><Icon name="new" />New customer</button>}
+        </div>
       </div>
+      {adding && <NewCustomer all={all} onDone={(ph) => { setAdding(false); if (ph) ui.openCustomer(ph); }} />}
       {!hasCustomers && all.length > 0 && <p className="note">These customers come from your consignments. Run database update 0025 in Supabase to save them and keep notes.</p>}
       <div className="stats cu-stats">
         <div className="stat"><div className="lbl">Customers</div><div className="v">{all.length}</div><div className="s">{all.filter((r) => r.sent).length} senders · {all.filter((r) => r.received).length} receivers</div></div>

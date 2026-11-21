@@ -814,3 +814,4 @@ button.lrow.cu-ship:hover{background:var(--sunk)}
 .xp-mini span{font-size:11px;color:#AEB9D6;text-transform:uppercase;letter-spacing:.06em}
 .xp-mini b{font-size:18px;font-variant-numeric:tabular-nums}
 .xp-mini small{font-size:11.5px;color:#AEB9D6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cu-new{margin-top:12px}
