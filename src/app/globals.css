@@ -852,3 +852,30 @@ button.lrow.cu-ship:hover{background:var(--sunk)}
   .sb-acc{margin-left:0}
   .sb-months{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
+/* ---- Customers (v2) ---- */
+.cu-av{display:inline-grid;place-items:center;border-radius:50%;color:#fff;font-weight:700;flex:none;letter-spacing:.02em;line-height:1}
+.cu2-row{grid-template-columns:40px minmax(0,1fr) auto}
+.cu2-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.cu2-tags .cu-role{margin:0}
+.cu-role.n{background:var(--sunk);color:var(--muted)}
+.cu2-list{margin-top:12px}
+.cu2-f{grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)}
+.cu-new{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin-top:14px;display:flex;flex-direction:column;gap:12px;box-shadow:0 6px 24px rgba(20,33,63,.08)}
+.cu-new-h{display:flex;align-items:center;gap:14px}
+.cu-new-h h3{margin:0;font-size:18px}
+.cu-x{margin-left:auto;background:var(--sunk);border:0;border-radius:50%;width:32px;height:32px;cursor:pointer;color:var(--muted);font-size:14px}
+.cu-new-f{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cu-wide{grid-column:1/-1}
+.cu-opt{font-weight:400;color:var(--muted);font-size:11.5px}
+.cu-new-f input{height:46px;font-size:15px}
+.cu-ph{display:flex;align-items:center;border:1px solid var(--line);border-radius:7px;background:var(--surface);height:46px;overflow:hidden}
+.cu-ph:focus-within{outline:2px solid #23409A;outline-offset:-1px}
+.cu-ph i{font-style:normal;font-size:13px;font-weight:700;color:var(--muted);padding:0 10px;border-right:1px solid var(--line);height:100%;display:grid;place-items:center;background:var(--sunk)}
+.cu-ph input{border:0;height:100%;outline:none;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.cu-ok{color:#1D7A44;padding:0 12px;font-size:16px}
+.cu-dup{display:flex;align-items:center;gap:10px;text-align:left;background:#FFF6E6;border:1px solid #F2C36B;border-radius:12px;padding:10px 12px;font:inherit;color:#5A3B00;cursor:pointer}
+.cu-dup span{display:flex;flex-direction:column}
+.cu-dup .sub{color:#7A5A1A}
+.cu-new .err:empty{display:none}
+.cu-sh{display:flex;align-items:center;gap:14px;min-width:0}
+@media (max-width:640px){.cu-new-f{grid-template-columns:1fr}.cu2-f{grid-template-columns:1fr 1fr}.cu2-f .searchbox{grid-column:1/-1}}
