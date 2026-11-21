@@ -10,7 +10,7 @@ import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { GiveToRunner } from "./views/Runners";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
 import { shipMatches, plateKey, intlPhone, tripExpenses, sumExp } from "@/lib/domain";
-import { ExpenseForm, catBadge } from "./views/Expenses";
+import { ExpenseBatch, catBadge } from "./views/Expenses";
 import { Icon } from "./Icon";
 import { PAY_LABEL, canRecordFound, settled, noPrice, canEditShip } from "@/lib/domain";
 import { METHODS, balanceOf, isPart, paidOf, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
@@ -127,8 +127,8 @@ function TripExpenses({ trip: t }: { trip: Trip }) {
   const net = x.billed - rent - spent;
   return (
     <div className="card"><div className="ph" style={{ marginBottom: 4 }}><h3 style={{ margin: 0 }}>Trip expenses{L.length ? ` · TZS ${tzs(spent)}` : ""}</h3>
-      {can("receive") && !adding && <button className="btn sm" onClick={() => setAdding(true)}>+ Add expense</button>}</div>
-      {adding && <div style={{ margin: "8px 0 12px" }}><ExpenseForm trip={t} onDone={() => setAdding(false)} /></div>}
+      {can("receive") && !adding && <button className="btn sm" onClick={() => setAdding(true)}>+ Add expenses</button>}</div>
+      {adding && <div style={{ margin: "8px 0 12px" }}><ExpenseBatch trip={t} onDone={() => setAdding(false)} /></div>}
       {L.map((e) => (
         <button className="texp-row" key={e.id} onClick={() => ui.openExpense(e.id)}>
           <span style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}><span className="xp-badge xb-trip">{catBadge(e.category)}</span><span style={{ minWidth: 0 }}><b>{e.category}</b><div className="sub">{[e.paid_to, fmtDay(e.spent_on + "T12:00:00"), regShort(e.station)].filter(Boolean).join(" · ")}</div></span></span>

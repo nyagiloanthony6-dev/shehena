@@ -133,6 +133,117 @@ export function ExpenseForm({ trip, edit, onDone }: { trip?: Trip; edit?: Expens
   );
 }
 
+type Line = { key: number; category: string; other: boolean; amount: string; method: string; paid_to: string; description: string };
+let lineKey = 1;
+const blank = (method = "Cash"): Line => ({ key: lineKey++, category: "", other: false, amount: "", method, paid_to: "", description: "" });
+
+/** Record several expenses in one go: add lines, then save them all together. With `trip`, they are that trip's expenses. */
+export function ExpenseBatch({ trip, onDone }: { trip?: Trip; onDone?: () => void }) {
+  const { company, trips, me, insert, toast, expenses } = useStore();
+  const offices = officesOf(company);
+  const [kind, setKind] = useState<Expense["kind"]>(trip ? "trip" : "office");
+  const [tripId, setTripId] = useState(trip?.id || "");
+  const [station, setStation] = useState(me.station || trip?.origin || company.default_origin || offices[0]);
+  const [day, setDay] = useState(localDay(new Date()));
+  const [lines, setLines] = useState<Line[]>(() => [blank()]);
+  const [err, setErr] = useState("");
+  const [bad, setBad] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  const recent = useMemo(() => trips.filter((t) => t.status !== "arrived" || Date.now() - new Date(t.arrived_at || t.created_at).getTime() < 45 * 864e5)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 60), [trips]);
+  const cats = useMemo(() => {
+    const base = EXPENSE_CATS[kind];
+    const used = [...new Set(expenses.filter((e) => e.kind === kind).map((e) => e.category))].filter((c) => !base.includes(c)).sort();
+    return { base, used };
+  }, [expenses, kind]);
+  const amt = (l: Line) => Math.round(Number(l.amount || 0));
+  const filled = lines.filter((l) => l.category.trim() || amt(l) > 0);
+  const total = filled.reduce((a, l) => a + amt(l), 0);
+  const upd = (key: number, v: Partial<Line>) => setLines((L) => L.map((l) => (l.key === key ? { ...l, ...v } : l)));
+  const addLine = () => setLines((L) => [...L, blank(L[L.length - 1]?.method)]);
+  const focusLast = () => setTimeout(() => { const el = document.querySelectorAll<HTMLSelectElement>(".xb-line select[aria-label^='What for']"); el[el.length - 1]?.focus(); }, 30);
+
+  async function saveAll(e: React.FormEvent) {
+    e.preventDefault();
+    if (kind === "trip" && !tripId) return setErr("Choose the trip these expenses belong to.");
+    const wrong = filled.filter((l) => !l.category.trim() || !(amt(l) > 0)).map((l) => l.key);
+    setBad(wrong);
+    if (!filled.length) return setErr("Add at least one expense: what it was for and the amount.");
+    if (wrong.length) return setErr(`Line${wrong.length === 1 ? "" : "s"} ${wrong.map((k) => lines.findIndex((l) => l.key === k) + 1).join(", ")}: choose what for and enter the amount.`);
+    setErr(""); setBusy(true);
+    let ok = 0, sum = 0; const failed: number[] = [];
+    for (const l of filled) {
+      const row = { kind, trip_id: kind === "trip" ? tripId : null, station: me.station || station, category: l.category.trim(), amount: amt(l), method: l.method,
+        paid_to: l.paid_to.trim(), reference: "", spent_on: day, description: l.description.trim(), created_by: me.id, created_by_name: me.full_name, created_at: new Date().toISOString() };
+      if (await insert<Expense>("expenses", row)) { ok++; sum += amt(l); } else failed.push(l.key);
+    }
+    setBusy(false);
+    if (ok) toast(`${ok} expense${ok === 1 ? "" : "s"} recorded · TZS ${tzs(sum)}`);
+    if (failed.length) { setLines((L) => L.filter((l) => failed.includes(l.key))); setErr("Some lines were not saved. Check them and press Save again."); return; }
+    setLines([blank(lines[lines.length - 1]?.method)]); setBad([]);
+    onDone?.();
+  }
+
+  return (
+    <form noValidate onSubmit={saveAll} className="xf xb">
+      <div className="xb-top">
+        {!trip && (
+          <div className="xf-seg" role="radiogroup" aria-label="Expense type">
+            <button type="button" role="radio" aria-checked={kind === "office"} onClick={() => { setKind("office"); setLines((L) => L.map((l) => ({ ...l, category: "", other: false }))); }}>Office expenses</button>
+            <button type="button" role="radio" aria-checked={kind === "trip"} onClick={() => { setKind("trip"); setTripId((x) => x || recent[0]?.id || ""); setLines((L) => L.map((l) => ({ ...l, category: "", other: false }))); }}>Trip expenses</button>
+          </div>
+        )}
+        {kind === "trip" && !trip && (
+          <label className="xf-f xb-trip">Truck / trip<select value={tripId} onChange={(e) => setTripId(e.target.value)}>
+            <option value="">Choose the trip…</option>
+            {recent.map((t) => <option key={t.id} value={t.id}>{t.plate} · {regShort(t.origin)} → {regShort(t.dest)} · {t.status === "loading" ? "loading" : t.status === "departed" ? "on the road" : "arrived"}</option>)}
+          </select></label>
+        )}
+        <label className="xf-f">Date<input type="date" value={day} max={localDay(new Date())} onChange={(e) => e.target.value && setDay(e.target.value)} /></label>
+        <label className="xf-f">Office that paid
+          <select value={me.station || station} disabled={!!me.station} onChange={(e) => setStation(e.target.value)}>
+            {offices.map((c) => <option key={c} value={c}>{REGIONS.find(([r]) => r === c)?.[1] || c}</option>)}
+          </select></label>
+      </div>
+
+      <div className="xb-lines">
+        <div className="xb-head" aria-hidden="true"><span>#</span><span>What for</span><span>Amount (TZS)</span><span>Paid by</span><span>Paid to</span><span>Note</span><span /></div>
+        {lines.map((l, i) => (
+          <div key={l.key} className={`xb-line${bad.includes(l.key) ? " bad" : ""}`}>
+            <span className="xb-n">{i + 1}</span>
+            {l.other
+              ? <span className="xb-other"><input autoFocus value={l.category} onChange={(e) => upd(l.key, { category: e.target.value })} placeholder="Type what it was for" aria-label={`What for, line ${i + 1}`} /><button type="button" title="Back to the list" onClick={() => upd(l.key, { other: false, category: "" })}>↺</button></span>
+              : <select value={l.category} aria-label={`What for, line ${i + 1}`} onChange={(e) => e.target.value === OTHER ? upd(l.key, { other: true, category: "" }) : upd(l.key, { category: e.target.value })}>
+                  <option value="">Choose…</option>
+                  <optgroup label={kind === "trip" ? "Trip charges" : "Office costs"}>{cats.base.map((c) => <option key={c} value={c}>{c}</option>)}</optgroup>
+                  {cats.used.length > 0 && <optgroup label="Used before">{cats.used.map((c) => <option key={c} value={c}>{c}</option>)}</optgroup>}
+                  <option value={OTHER}>Other… (type it)</option>
+                </select>}
+            <input className="xb-amt" inputMode="numeric" value={l.amount ? tzs(l.amount) : ""} placeholder="0" aria-label={`Amount, line ${i + 1}`}
+              onChange={(e) => upd(l.key, { amount: e.target.value.replace(/[^\d]/g, "") })}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (i === lines.length - 1) { addLine(); focusLast(); } } }} />
+            <select value={l.method} onChange={(e) => upd(l.key, { method: e.target.value })} aria-label={`Paid by, line ${i + 1}`}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
+            <input value={l.paid_to} onChange={(e) => upd(l.key, { paid_to: e.target.value })} placeholder="Paid to (optional)" aria-label={`Paid to, line ${i + 1}`} />
+            <input value={l.description} onChange={(e) => upd(l.key, { description: e.target.value })} placeholder="Note (optional)" aria-label={`Note, line ${i + 1}`} />
+            <button type="button" className="xb-del" aria-label={`Remove line ${i + 1}`} disabled={lines.length === 1 && !l.category && !l.amount}
+              onClick={() => setLines((L) => (L.length === 1 ? [blank(l.method)] : L.filter((x) => x.key !== l.key)))}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="xb-add" onClick={() => { addLine(); focusLast(); }}>+ Add another expense</button>
+      </div>
+
+      <div className="err" role="alert">{err}</div>
+      <div className="xb-foot">
+        <div className="xb-total"><span>{filled.length} expense{filled.length === 1 ? "" : "s"}</span><b>TZS {tzs(total)}</b></div>
+        <div className="xf-actions">
+          {onDone && <button className="btn" type="button" onClick={onDone}>Cancel</button>}
+          <button className="btn primary" type="submit" disabled={busy || !filled.length}>{busy ? "Saving…" : filled.length > 1 ? `Save all ${filled.length}` : "Save expense"}</button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
 export default function Expenses() {
   const { expenses, hasExpenses, trips, company, can, me } = useStore();
   const ui = useUi();
@@ -194,8 +305,8 @@ export default function Expenses() {
 
       {recordable && hasExpenses && (
         <div className="xp-rec">
-          <button className="xp-rec-h" onClick={() => setOpen(!open)} aria-expanded={open}><span className="xp-plus">+</span><b>Record an expense</b><span className="sub">{open ? "Hide" : "Show"}</span></button>
-          {open && <ExpenseForm />}
+          <button className="xp-rec-h" onClick={() => setOpen(!open)} aria-expanded={open}><span className="xp-plus">+</span><b>Record expenses</b><span className="sub">{open ? "Hide" : "Show"}</span></button>
+          {open && <ExpenseBatch />}
         </div>
       )}
 
