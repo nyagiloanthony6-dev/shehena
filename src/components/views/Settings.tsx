@@ -1,51 +1,113 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useStore } from "../store";
 import { RegionOptions } from "../RegionOptions";
-import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, tzs, type Profile, type Role, type Vehicle, type OfficeInfo } from "@/lib/domain";
+import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, regShort, tzs, type Trip, type Profile, type Role, type Vehicle, type OfficeInfo } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
-import { ACTIVE_DAYS, dayLabel, planLabel, type Subscription } from "@/lib/billing";
+import { ACTIVE_DAYS, dayLabel, monthLabel, monthOf, planLabel, type Subscription } from "@/lib/billing";
 import { downloadSubscriptionReceipt } from "../billingPdf";
 
 const SUB_LABEL = { trial: "Free trial", active: "Active", overdue: "Overdue", suspended: "Suspended" } as const;
+const MODEL_LABEL = { per_trip: "Per trip", per_truck: "Per truck", flat: "Flat monthly fee", list: "Standard price list" } as const;
+
 function SubscriptionCard({ sub }: { sub: Subscription }) {
-  const { company } = useStore();
+  const { company, trips } = useStore();
+  const thisMonth = monthOf(new Date().toISOString());
+  const [month, setMonth] = useState(thisMonth);
+  const rate = sub.rate || 0, min = sub.min_charge || 0;
+  const plateK = (p: string) => p.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // Trips counted the way Shehena bills them: by the month the trip was started (Tanzania time).
+  const months = useMemo(() => Array.from({ length: 6 }, (_, i) => { const d = new Date(); d.setUTCDate(15); d.setUTCMonth(d.getUTCMonth() - i); return monthOf(d.toISOString()); }), []);
+  const byMonth = useMemo(() => {
+    const m: Record<string, { trips: Trip[]; trucks: Set<string> }> = {};
+    for (const t of trips) { const k = monthOf(t.created_at); const r = (m[k] ||= { trips: [], trucks: new Set() }); r.trips.push(t); r.trucks.add(plateK(t.plate)); }
+    return m;
+  }, [trips]);
+  const chargeFor = (n: number, trucks: number) =>
+    sub.model === "per_trip" ? Math.max(min, n * rate) : sub.model === "flat" ? rate : sub.model === "per_truck" ? Math.max(min, trucks * rate) : null;
+  const cur = byMonth[month] || { trips: [], trucks: new Set<string>() };
+  const L = [...cur.trips].sort((x, y) => x.created_at.localeCompare(y.created_at));
+  const nTrips = L.length, nTrucks = cur.trucks.size;
+  const monthCharge = chargeFor(nTrips, nTrucks);
+  const perTrip = sub.model === "per_trip";
+  const minApplies = perTrip && min > nTrips * rate;
+  const top = Math.max(1, ...months.map((k) => byMonth[k]?.trips.length || 0));
+  const dueLine = sub.status === "trial" && sub.due ? `Trial ends ${dayLabel(sub.due)}` : sub.paid_until ? `Paid until ${dayLabel(sub.paid_until)}` : "No payment recorded yet";
+  const rateLine = perTrip ? `TZS ${tzs(rate)} per trip` : sub.model === "per_truck" ? `TZS ${tzs(rate)} per active truck` : sub.model === "flat" ? `TZS ${tzs(rate)} a month` : sub.price || "Standard price list";
+
   return (
-    <fieldset><legend>Shehena subscription</legend>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span className={`pill acc-${sub.status}`}>{SUB_LABEL[sub.status]}</span>
-        <span className="sub">
-          {sub.status === "trial" && sub.due ? `Trial ends ${dayLabel(sub.due)}` : sub.paid_until ? `Paid until ${dayLabel(sub.paid_until)}` : "No payment recorded yet"}
-          {sub.status === "overdue" && sub.suspend_on ? ` · access pauses on ${dayLabel(sub.suspend_on)}` : ""}
-        </span>
+    <div className="sb">
+      <div className="sb-hero">
+        <div className="sb-top">
+          <span className={`pill acc-${sub.status}`}>{SUB_LABEL[sub.status]}</span>
+          <span className="sb-due">{dueLine}{sub.status === "overdue" && sub.suspend_on ? ` · access pauses on ${dayLabel(sub.suspend_on)}` : ""}</span>
+          {company.account_no && <span className="sb-acc">Account <b className="mono">{company.account_no}</b></span>}
+        </div>
+        <div className="sb-lbl">{perTrip ? `Shehena charge · ${monthLabel(thisMonth)} so far` : "Shehena monthly fee"}</div>
+        <div className="sb-big"><small>TZS</small>{tzs(sub.fee)}</div>
+        <div className="sb-work">{sub.working || MODEL_LABEL[sub.model]}</div>
+        <div className="sb-tiles">
+          <div><span>Trips</span><b>{byMonth[thisMonth]?.trips.length ?? sub.trips ?? 0}</b><small>this month</small></div>
+          <div><span>Trucks</span><b>{byMonth[thisMonth]?.trucks.size ?? sub.trucks}</b><small>used this month</small></div>
+          <div><span>Your price</span><b className="sb-rate">{rateLine}</b><small>{MODEL_LABEL[sub.model]}{min > 0 && sub.model !== "flat" ? ` · min TZS ${tzs(min)}` : ""}</small></div>
+        </div>
       </div>
-      <dl className="kv" style={{ marginTop: 12 }}>
-        {company.account_no && <><dt>Account number</dt><dd><b className="mono">{company.account_no}</b> <span className="sub">· quote it when you pay</span></dd></>}
-        {sub.model === "per_trip"
-          ? <><dt>Trips this month</dt><dd>{sub.trips ?? 0} <span className="sub">so far, counted from the 1st</span></dd></>
-          : <><dt>Active trucks</dt><dd>{sub.trucks} <span className="sub">in the last {ACTIVE_DAYS} days</span>{sub.plates.length > 0 && <span className="sub mono"> · {sub.plates.join(", ")}</span>}</dd></>}
-        <dt>Your price</dt><dd>{sub.price || "Standard price list"}</dd>
-        <dt>Monthly fee</dt><dd className="num">TZS {tzs(sub.fee)} <span className="sub">· {sub.working || (sub.custom ? "agreed price" : "")}</span></dd>
-        <dt>How to pay</dt><dd>{sub.instructions || "Contact Serengeti Labs."}</dd>
-      </dl>
-      <p className="note">{sub.model === "flat" ? <>You pay the same agreed fee every month, however many trucks and trips you run.</>
-        : sub.model === "per_trip" ? <>You pay for each trip loaded in Shehena during the calendar month, from the 1st to the last day. Each month&apos;s fee is that month&apos;s trips × your price.</>
-        : sub.model === "per_truck" ? <>You pay for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days, at your agreed price. Idle trucks aren&apos;t charged. The fee is worked out when you pay.</>
-        : <>You pay TZS {tzs(sub.truck_price)} a month for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days{sub.min_fee > 0 ? <>, with a minimum of TZS {tzs(sub.min_fee)}</> : null}. Trucks that sit idle aren&apos;t charged; hired trucks count while they carry your goods. The fee is worked out when you pay.</>}</p>
-      {sub.payments.length > 0 && (
-        <div className="ledger" style={{ marginTop: 10 }}><table className="small" style={{ minWidth: 0 }}>
-          <thead><tr><th>Paid</th><th>Period</th><th className="r">TZS</th><th /></tr></thead>
-          <tbody>{sub.payments.map((p) => (
-            <tr key={p.id}>
-              <td>{dayLabel(p.paid_on)}<div className="sub">{[p.method, p.reference].filter(Boolean).join(" · ")}</div></td>
-              <td>{dayLabel(p.period_from)} – {dayLabel(p.period_to)}<div className="sub">{p.months} month{p.months === 1 ? "" : "s"}</div></td>
-              <td className="r num">{tzs(p.amount)}</td>
-              <td className="r"><button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, company.name, p.trucks != null ? planLabel(p.trucks) : undefined, company.account_no)}>Receipt</button></td>
+
+      <div className="sb-card">
+        <div className="sb-h">
+          <div><h3>Charge by trip</h3><div className="sub">{perTrip ? "Every trip started in the month is charged at your price." : sub.model === "flat" ? "Your flat fee covers all trips; the list shows what it covered." : "Your fee is by active trucks; the list shows the trips they made."}</div></div>
+          <select value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Month" style={{ width: "auto" }}>{months.map((k) => <option key={k} value={k}>{monthLabel(k)}{k === thisMonth ? " (now)" : ""}</option>)}</select>
+        </div>
+        <div className="ledger"><table className="small sb-tbl">
+          <thead><tr><th>#</th><th>Started</th><th>Truck</th><th>Route</th><th className="r">Charge (TZS)</th></tr></thead>
+          <tbody>{L.map((t, i) => (
+            <tr key={t.id}>
+              <td className="sub">{i + 1}</td>
+              <td>{fmtDay(t.created_at)}</td>
+              <td><span className="mono wb">{t.plate}</span><div className="sub">{t.no}</div></td>
+              <td>{regShort(t.origin)} → {regShort(t.dest)}</td>
+              <td className="r num">{perTrip ? tzs(rate) : <span className="sub">included</span>}</td>
             </tr>))}
+            {!L.length && <tr><td colSpan={5} className="sub">No trips started in {monthLabel(month)}.</td></tr>}
           </tbody>
+          <tfoot><tr><td colSpan={4}>{nTrips} trip{nTrips === 1 ? "" : "s"} · {nTrucks} truck{nTrucks === 1 ? "" : "s"}{minApplies ? ` · minimum TZS ${tzs(min)} applies` : ""}</td><td className="r num">{monthCharge != null ? tzs(monthCharge) : "—"}</td></tr></tfoot>
         </table></div>
-      )}
-    </fieldset>
+      </div>
+
+      <div className="sb-card">
+        <h3>Last 6 months</h3>
+        <div className="sb-months">{months.slice().reverse().map((k) => { const r = byMonth[k]; const n = r?.trips.length || 0, tr = r?.trucks.size || 0; const c = chargeFor(n, tr); return (
+          <button key={k} className="sb-m" aria-pressed={month === k} onClick={() => setMonth(k)}>
+            <span className="sb-mbar"><i style={{ height: `${Math.max(4, (n / top) * 100)}%` }} /></span>
+            <b>{monthLabel(k).split(" ")[0].slice(0, 3)}</b>
+            <span className="sub">{n} trips · {tr} trucks</span>
+            {c != null && <span className="num sb-mc">{tzs(c)}</span>}
+          </button>); })}
+        </div>
+      </div>
+
+      <div className="sb-card">
+        <h3>How to pay</h3>
+        <p style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{sub.instructions || "Contact Serengeti Labs."}</p>
+        <p className="note">{sub.model === "flat" ? <>You pay the same agreed fee every month, however many trucks and trips you run.</>
+          : perTrip ? <>You pay for each trip started in Shehena during the calendar month, from the 1st to the last day: that month&apos;s trips × TZS {tzs(rate)}{min > 0 ? <>, at least TZS {tzs(min)}</> : null}.</>
+          : sub.model === "per_truck" ? <>You pay for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days, at your agreed price. Idle trucks aren&apos;t charged.</>
+          : <>You pay TZS {tzs(sub.truck_price)} a month for each truck that made a trip in Shehena in the last {ACTIVE_DAYS} days{sub.min_fee > 0 ? <>, with a minimum of TZS {tzs(sub.min_fee)}</> : null}. Idle trucks aren&apos;t charged.</>}</p>
+        {sub.payments.length > 0 && (
+          <div className="ledger" style={{ marginTop: 10 }}><table className="small" style={{ minWidth: 0 }}>
+            <thead><tr><th>Paid</th><th>Period</th><th className="r">TZS</th><th /></tr></thead>
+            <tbody>{sub.payments.map((p) => (
+              <tr key={p.id}>
+                <td>{dayLabel(p.paid_on)}<div className="sub">{[p.method, p.reference].filter(Boolean).join(" · ")}</div></td>
+                <td>{dayLabel(p.period_from)} – {dayLabel(p.period_to)}<div className="sub">{p.months} month{p.months === 1 ? "" : "s"}{p.trips != null ? ` · ${p.trips} trips` : ""}</div></td>
+                <td className="r num">{tzs(p.amount)}</td>
+                <td className="r"><button className="btn sm" onClick={() => downloadSubscriptionReceipt(p, company.name, p.trucks != null ? planLabel(p.trucks) : undefined, company.account_no)}>Receipt</button></td>
+              </tr>))}
+            </tbody>
+          </table></div>
+        )}
+      </div>
+    </div>
   );
 }
 

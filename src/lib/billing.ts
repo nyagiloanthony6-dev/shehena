@@ -18,6 +18,8 @@ export interface Subscription {
   status: AccountStatus; trucks: number; trips: number; plates: string[]; plan: string; fee: number; custom: boolean; truck_price: number; min_fee: number;
   /** how the fee was worked out, and the client's pricing in words */
   working: string; price: string; model: PriceModel;
+  /** the client's rate for their pricing model (per trip / per truck / flat fee) and minimum per month */
+  rate?: number; min_charge?: number;
   trial_ends: string | null; paid_until: string | null; due: string | null; suspend_on: string | null; days_left: number | null;
   instructions: string; payments: Pick<BillingPayment, "id" | "amount" | "setup_fee" | "trucks" | "trips" | "months" | "period_from" | "period_to" | "method" | "reference" | "paid_on">[];
 }

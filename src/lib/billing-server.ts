@@ -105,6 +105,7 @@ export async function subscriptionFor(companyId: string): Promise<Subscription |
       status: a.status, trucks, trips, plates, plan: planLabel(trucks), fee: feeFor(a, s, { trucks, trips }), custom: priceOf(a).model !== "list",
       working: feeWorking(s, { trucks, trips, tripsWhen }, a), price: priceLabel(a, s), model: priceOf(a).model,
       truck_price: s.truck_price, min_fee: s.min_fee,
+      rate: priceOf(a).rate, min_charge: priceOf(a).min,
       trial_ends: a.trial_ends, paid_until: a.paid_until, due, suspend_on: a.auto_status ? suspend_on : null,
       days_left: due ? daysBetween(today(), due) : null,
       instructions: s.billing_instructions,
