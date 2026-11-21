@@ -61,10 +61,14 @@ type Slip = { lines: Line[]; label: string };
 const payText = (s: Shipment, account?: string) =>
   s.pay === "paid" ? "PAID" + (s.method ? ` (${s.method})` : "") : s.pay === "bill" ? "MONTHLY BILL" + (account ? ` (${account})` : "") : isPart(s) ? `PART PAID TZS ${tzs(paidOf(s))}, BALANCE TZS ${tzs(balanceOf(s))} due on collection` : "NOT PAID - due on collection";
 
-function head(company: Company, title: string, no: string, office?: string | null): Line[] {
+function head(company: Company, title: string, no: string, office?: string | null, dest?: string | null): Line[] {
+  const here = (office && officeLine(company, office)) || [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" - ");
+  const there = dest && dest !== office ? officeLine(company, dest) : "";
   return [
     { t: "text", text: (company.name || "Shehena").toUpperCase(), align: "center", bold: true, size: 2 },
-    { t: "text", text: (office && officeLine(company, office)) || [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" - "), align: "center" },
+    // Receipt: the receiving office, then the office where the goods are collected.
+    { t: "text", text: there && office ? `${regShort(office)}: ${here}` : here, align: "center" },
+    ...(there ? [{ t: "text", text: `${regShort(dest!)}: ${there}`, align: "center" } as Line] : []),
     { t: "rule" },
     { t: "text", text: title, align: "center", bold: true },
     { t: "text", text: no, align: "center", bold: true, size: 2 },
@@ -73,13 +77,11 @@ function head(company: Company, title: string, no: string, office?: string | nul
 
 export function receiptSlip(s: Shipment, company: Company, account?: string): Slip {
   const air = isAir(company);
-  const L: Line[] = head(company, air ? "AIR CARGO RECEIPT - HAWB" : "CARGO RECEIPT", s.no, s.origin);
-  const collect = officeLine(company, s.dest);
+  const L: Line[] = head(company, air ? "AIR CARGO RECEIPT - HAWB" : "CARGO RECEIPT", s.no, s.origin, s.dest);
   L.push({ t: "pair", k: "Date", v: fmtDate(s.received_at) },
     { t: "pair", k: "Sender", v: `${s.s_name}, ${prettyPhone(s.s_phone)}` },
     { t: "pair", k: "Receiver", v: `${s.r_name}, ${prettyPhone(s.r_phone)}` },
-    { t: "pair", k: "Route", v: `${regName(s.origin)} to ${regName(s.dest)}` },
-    ...(collect ? [{ t: "pair", k: "Collect at", v: `${regName(s.dest)} office: ${collect}` } as Line] : []), { t: "rule" },
+    { t: "pair", k: "Route", v: `${regName(s.origin)} to ${regName(s.dest)}` }, { t: "rule" },
     { t: "item", name: "Item", pkgs: air ? "Pcs" : "Pkgs", amount: "TZS", bold: true });
   for (const l of itemsOf(s)) {
     L.push({ t: "item", name: l.name, pkgs: String(l.pkgs), amount: tzs(l.charge) });

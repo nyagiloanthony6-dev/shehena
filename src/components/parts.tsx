@@ -121,7 +121,8 @@ export function Slip({ s, company, servedBy, account }: { s: Partial<Shipment>; 
   return (
     <div className="slip">
       <div className="co">{company.name || "Your company"}</div>
-      {head && <div className="sub">{head}</div>}
+      {head && <div className="sub">{collect && s.origin ? `${regShort(s.origin)}: ` : ""}{head}</div>}
+      {collect && <div className="sub">{regShort(s.dest || "")}: {collect}</div>}
       <div className="lbl" style={{ marginTop: 12 }}>{air ? "Air cargo receipt · HAWB no." : "Cargo receipt · Waybill no."}</div>
       <div className="no">{s.no || "—"}</div>
       <dl>
@@ -129,7 +130,6 @@ export function Slip({ s, company, servedBy, account }: { s: Partial<Shipment>; 
         <dt>Sender</dt><dd>{s.s_name || "—"}<br /><span className="mono sub">{prettyPhone(s.s_phone)}</span></dd>
         <dt>Receiver</dt><dd>{s.r_name || "—"}<br /><span className="mono sub">{prettyPhone(s.r_phone)}</span></dd>
         <dt>Route</dt><dd>{regName(s.origin || "")} → {regName(s.dest || "")}</dd>
-        {collect && <><dt>Collect at</dt><dd>{regName(s.dest || "")} office<br /><span className="sub">{collect}</span></dd></>}
       </dl>
       <hr />
       {air ? (
@@ -188,12 +188,16 @@ export async function receiptDoc(s: Shipment, company: Company, account?: string
   };
   const dash = () => { doc.setLineDashPattern([1, 1], 0); doc.line(L, y, L + W, y); y += 4; };
   line((company.name || "Shehena").toUpperCase(), 13, true);
-  line(officeLine(company, s.origin) || [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ") || " ", 8); y += 2;
+  const here = officeLine(company, s.origin) || [company.branch, company.phone ? "Tel " + company.phone : ""].filter(Boolean).join(" · ");
+  const there = s.dest !== s.origin ? officeLine(company, s.dest) : "";
+  line((there && here ? `${regShort(s.origin)}: ` : "") + (here || " "), 8);
+  if (there) line(`${regShort(s.dest)}: ${there}`, 8);
+  y += 2;
   const air = isAir(company);
   line(air ? "AIR CARGO RECEIPT - HAWB" : "CARGO RECEIPT", 8, true); line(s.no, 12, true); y += 1;
   pair("Date", fmtDate(s.received_at)); pair("Sender", [s.s_name, prettyPhone(s.s_phone)].filter(Boolean).join(", ") || "-");
   pair("Receiver", [s.r_name, prettyPhone(s.r_phone)].filter(Boolean).join(", ")); pair("Route", `${regName(s.origin)} to ${regName(s.dest)}`);
-  const collect = officeLine(company, s.dest); if (collect) pair("Collect at", `${regName(s.dest)} office: ${collect}`); dash();
+  dash();
   const lines = itemsOf(s);
   if (air) {
     doc.setFontSize(8); doc.setFont("helvetica", "bold");
