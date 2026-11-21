@@ -6,7 +6,7 @@ import { RegionOptions } from "../RegionOptions";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { FoundPicker, Slip } from "../parts";
-import { METHODS, REGIONS, INTL, canRecordFound, chargeableKg, isAir, kgFmt, terms, volumeKg, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment, type EditEntry, officesOf, isPart } from "@/lib/domain";
+import { METHODS, REGIONS, INTL, canRecordFound, chargeableKg, isAir, kgFmt, terms, volumeKg, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment, type EditEntry, officesOf, isPart, customerRows, prettyPhone, fmtDay } from "@/lib/domain";
 
 type Line = { name: string; pkgs: string; kg: string; unit: string; charge: string; l: string; w: string; h: string; rate: string };
 const blankLine = (rate = ""): Line => ({ name: "", pkgs: "1", kg: "", unit: "", charge: "", l: "", w: "", h: "", rate });
@@ -61,7 +61,7 @@ const blank = (origin: string, dest?: string) => ({
 });
 
 export default function Receive() {
-  const { company, shipments, trips, me, insert, patch, toast, accounts, hasExtras, can, hasPart, logPayment } = useStore();
+  const { company, shipments, trips, me, insert, patch, toast, accounts, hasExtras, can, hasPart, logPayment, customers } = useStore();
   // Branch staff always receive at their own office; it can't be changed.
   const station = me.role === "agent" ? me.station || null : null;
   const home = station || company.default_origin || "DAR";
@@ -101,8 +101,22 @@ export default function Receive() {
     const asReceiver = shipments.filter((s) => intlPhone(s.r_phone) === p);
     const last = [...asSender.map((s) => ({ at: s.received_at, name: s.s_name })), ...asReceiver.map((s) => ({ at: s.received_at, name: s.r_name }))]
       .sort((a, b) => b.at.localeCompare(a.at))[0];
-    if (!last) return null;
-    return { name: last.name, n: (as === "s" ? asSender : asReceiver).length };
+    const cu = customers.find((c) => c.phone === p);
+    if (!last && !cu) return null;
+    const firstAt = [...asSender, ...asReceiver].reduce((m, s) => (s.received_at < m ? s.received_at : m), cu?.created_at || last?.at || "");
+    return { name: cu?.name?.trim() || last?.name || "", n: asSender.length + asReceiver.length, since: firstAt };
+  };
+  /** Pick a saved customer by name: "Asha Mohamed · 0712 345 678" fills both name and phone. */
+  const picks = useMemo(() => {
+    const m = new Map<string, { name: string; phone: string }>();
+    for (const c of customerRows(shipments, customers).filter((x) => x.name).sort((a, b) => (b.last || b.registered).localeCompare(a.last || a.registered)).slice(0, 800))
+      m.set(`${c.name} · ${prettyPhone(c.phone)}`, { name: c.name, phone: prettyPhone(c.phone) });
+    return m;
+  }, [shipments, customers]);
+  const onName = (k: "s_name" | "r_name", v: string) => {
+    const hit = picks.get(v);
+    if (hit) setF((x) => ({ ...x, [k]: hit.name, [k === "s_name" ? "s_phone" : "r_phone"]: hit.phone }));
+    else set(k, v);
   };
   const sKnown = useMemo(() => known(f.s_phone, "s"), [f.s_phone, shipments]); // eslint-disable-line react-hooks/exhaustive-deps
   const rKnown = useMemo(() => known(f.r_phone, "r"), [f.r_phone, shipments]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -259,16 +273,19 @@ export default function Receive() {
           <fieldset><legend>{found ? "Sender (if known)" : "Sender (brought the goods)"}</legend>
             <div className="fields">
               <label className="f">Phone number<input value={f.s_phone} onChange={(e) => onPhone("s_phone", e.target.value)} inputMode="tel" placeholder="0712 345 678" /></label>
-              <label className="f">Customer name <small>optional</small><input value={f.s_name} onChange={(e) => set("s_name", e.target.value)} autoComplete="off" /></label>
+              <label className="f">Customer name <small>optional</small><input value={f.s_name} onChange={(e) => onName("s_name", e.target.value)} autoComplete="off" list="cu-picks" placeholder="Type to find a saved customer" /></label>
             </div>
-            {sKnown && <div className="hint">✓ Known customer: {sKnown.name}{sKnown.n ? ` · ${sKnown.n} previous consignment${sKnown.n === 1 ? "" : "s"}` : ""}</div>}
+            <datalist id="cu-picks">{[...picks.keys()].map((k) => <option key={k} value={k} />)}</datalist>
+            {sKnown && <div className="hint">✓ Customer{sKnown.name ? `: ${sKnown.name}` : ""}{sKnown.since ? ` · registered ${fmtDay(sKnown.since)}` : ""}{sKnown.n ? ` · ${sKnown.n} previous consignment${sKnown.n === 1 ? "" : "s"}` : ""}</div>}
+            {!sKnown && intlPhone(f.s_phone).length >= 12 && !editing && <div className="hint new">New customer: registered when you save</div>}
           </fieldset>
           <fieldset><legend>Receiver at destination</legend>
             <div className="fields">
               <label className="f">Phone number<input value={f.r_phone} onChange={(e) => onPhone("r_phone", e.target.value)} inputMode="tel" placeholder="0754 000 111" /></label>
-              <label className="f">Receiver name <small>optional</small><input value={f.r_name} onChange={(e) => set("r_name", e.target.value)} autoComplete="off" /></label>
+              <label className="f">Receiver name <small>optional</small><input value={f.r_name} onChange={(e) => onName("r_name", e.target.value)} autoComplete="off" list="cu-picks" placeholder="Type to find a saved customer" /></label>
             </div>
-            {rKnown && <div className="hint">✓ Known customer: {rKnown.name}{rKnown.n ? ` · ${rKnown.n} previous consignment${rKnown.n === 1 ? "" : "s"}` : ""}</div>}
+            {rKnown && <div className="hint">✓ Customer{rKnown.name ? `: ${rKnown.name}` : ""}{rKnown.since ? ` · registered ${fmtDay(rKnown.since)}` : ""}{rKnown.n ? ` · ${rKnown.n} previous consignment${rKnown.n === 1 ? "" : "s"}` : ""}</div>}
+            {!rKnown && intlPhone(f.r_phone).length >= 12 && !editing && <div className="hint new">New customer: registered when you save</div>}
           </fieldset>
           {found ? (
             <fieldset><legend>How were they found?</legend>

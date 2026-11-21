@@ -450,3 +450,71 @@ export function shipMatches(s: Partial<Shipment>, q: string) {
   const qd = ql.replace(/\D/g, "").replace(/^(255|0)/, "");
   return qd.length >= 4 && (intlPhone(s.s_phone).includes(qd) || intlPhone(s.r_phone).includes(qd));
 }
+
+/** A saved customer (migration 0025). One per phone number; `created_at` is the registration date. */
+export interface Customer {
+  id: string;
+  company_id: string;
+  /** 255XXXXXXXXX */
+  phone: string;
+  name: string;
+  notes: string;
+  created_at: string;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
+/** A customer with their activity, worked out from the consignments. */
+export interface CustomerRow {
+  id: string | null;
+  phone: string;
+  name: string;
+  notes: string;
+  registered: string;
+  sent: number;
+  received: number;
+  last: string;
+  /** charges on consignments they sent or received (each consignment once) */
+  value: number;
+  /** balance still to pay on their consignments that are not paid */
+  unpaid: number;
+  names: string[];
+}
+/**
+ * Every customer: the saved list plus anyone on a consignment who isn't saved yet
+ * (before migration 0025, or a consignment saved a moment ago). Newest registration first.
+ */
+export function customerRows(shipments: Shipment[], customers: Customer[]): CustomerRow[] {
+  const m = new Map<string, CustomerRow>();
+  const get = (phone: string, at: string) => {
+    let r = m.get(phone);
+    if (!r) { r = { id: null, phone, name: "", notes: "", registered: at, sent: 0, received: 0, last: at, value: 0, unpaid: 0, names: [] }; m.set(phone, r); }
+    return r;
+  };
+  // Oldest first so the latest name wins.
+  const list = [...shipments].sort((a, b) => a.received_at.localeCompare(b.received_at));
+  for (const s of list) {
+    const sp = intlPhone(s.s_phone), rp = intlPhone(s.r_phone);
+    const money = (r: CustomerRow) => { r.value += Number(s.charge || 0); if (s.pay === "unpaid") r.unpaid += balanceOf(s); };
+    for (const [ph, nm, role] of [[sp, s.s_name, "s"], [rp, s.r_name, "r"]] as const) {
+      if (ph.length < 9) continue;
+      const r = get(ph, s.received_at);
+      if (s.received_at < r.registered) r.registered = s.received_at;
+      if (s.received_at > r.last) r.last = s.received_at;
+      if (role === "s") r.sent++; else r.received++;
+      const n = (nm || "").trim();
+      if (n) { r.name = n; if (!r.names.includes(n)) r.names.push(n); }
+      if (role === "s" || sp !== rp) money(r);
+    }
+  }
+  for (const c of customers) {
+    const r = get(c.phone, c.created_at);
+    r.id = c.id; r.notes = c.notes || "";
+    if (c.name?.trim()) r.name = c.name.trim();
+    if (c.created_at < r.registered || !r.sent && !r.received) r.registered = c.created_at;
+    if (!r.sent && !r.received) r.last = "";
+  }
+  return [...m.values()].sort((a, b) => b.registered.localeCompare(a.registered));
+}
+/** The consignments a customer sent or received, newest first. */
+export const customerShips = (shipments: Shipment[], phone: string) =>
+  shipments.filter((s) => intlPhone(s.s_phone) === phone || intlPhone(s.r_phone) === phone).sort((a, b) => b.received_at.localeCompare(a.received_at));

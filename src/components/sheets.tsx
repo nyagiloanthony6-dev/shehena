@@ -9,7 +9,7 @@ import { downloadManifest } from "./manifest";
 import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { GiveToRunner } from "./views/Runners";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
-import { shipMatches, plateKey } from "@/lib/domain";
+import { shipMatches, plateKey, intlPhone } from "@/lib/domain";
 import { Icon } from "./Icon";
 import { PAY_LABEL, canRecordFound, settled, noPrice, canEditShip } from "@/lib/domain";
 import { METHODS, balanceOf, isPart, paidOf, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
@@ -49,6 +49,11 @@ export function ShipmentSheet({ id }: { id: string }) {
       )}
 
       {s.found_on_arrival && <FoundCard s={s} />}
+
+      <div className="cu-links">
+        {intlPhone(s.s_phone).length >= 9 && <button className="cu-link" onClick={() => ui.openCustomer(intlPhone(s.s_phone))}><span className="cu-role s">Sender</span> {s.s_name || prettyPhone(s.s_phone)} <span aria-hidden="true">→</span></button>}
+        {intlPhone(s.r_phone).length >= 9 && <button className="cu-link" onClick={() => ui.openCustomer(intlPhone(s.r_phone))}><span className="cu-role r">Receiver</span> {s.r_name || prettyPhone(s.r_phone)} <span aria-hidden="true">→</span></button>}
+      </div>
 
       <div className="card"><h3>Delivery status</h3>
         <div className="steps">{SL.map(([k, l], i) => <div key={k} className={i <= idx ? "done" : ""}>{l}<small>{times[k] ? fmtDay(times[k]) : " "}</small></div>)}</div>

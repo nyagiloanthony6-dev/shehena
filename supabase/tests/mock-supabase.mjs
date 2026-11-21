@@ -3,7 +3,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 
-const db = { companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000 }],
+const db = { customers: [], companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000 }],
   billing_bands: [[0, 1, 80000], [2, 3, 150000], [4, 6, 250000], [7, 10, 350000], [11, null, 450000]].map(([min_trucks, max_trucks, monthly_fee], i) => ({ id: i + 1, min_trucks, max_trucks, monthly_fee })),
   billing_payments: [], sales_agents: [], commissions: [], agent_payouts: [],
   bill_accounts: [], bill_payments: [], claims: [], claim_payments: [], shipment_payments: [], runners: [] };
@@ -96,6 +96,7 @@ const DEFAULTS = {
   bill_payments: { method: "", reference: "", note: "" },
   claims: { station: null, shipment_id: null, waybill: "", customer_phone: "", description: "", goods_value: 0, compensation: 0, closed: false },
   runners: { phone: "", station: null, active: true },
+  customers: { name: "", notes: "" },
   claim_payments: { method: "", reference: "" },
   companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [], office_info: {}, mode: "road", kg_rate: 0, vol_divisor: 6000, features: [], get account_no() { return "SH" + (10000 + (db.companies?.length || 0) + 1); } },
   profiles: { active: true, station: null },
@@ -178,7 +179,7 @@ http.createServer(async (req, res) => {
         return wantRows || single ? out(out2) : send(res, 201);
       }
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin", "agent"], bill_payments: ["admin", "agent"], claims: ["admin", "agent"], claim_payments: ["admin", "agent"], shipment_payments: ["admin", "cashier", "agent"], runners: ["admin", "cashier", "agent"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "agent"], vehicles: ["admin"], bill_accounts: ["admin", "agent"], bill_payments: ["admin", "agent"], claims: ["admin", "agent"], claim_payments: ["admin", "agent"], shipment_payments: ["admin", "cashier", "agent"], runners: ["admin", "cashier", "agent"], customers: ["admin", "cashier", "agent"] }[table] || [];
         if (role === "agent" && (table === "bill_accounts" || table === "claims" || table === "runners")) list.forEach((r) => { r.station = c.profile.station; });
         if (!allowed.includes(role) || list.some((r) => r.company_id !== c.profile.company_id)) return send(res, 403, { message: "new row violates row-level security policy" });
         if (role === "agent" && list.some((r) => (table === "shipments" && r.origin !== c.profile.station && !(r.found_on_arrival && r.dest === c.profile.station)) || (table === "trips" && r.origin !== c.profile.station)))
@@ -202,7 +203,7 @@ http.createServer(async (req, res) => {
     if (req.method === "PATCH") {
       const b = await readBody(req);
       if (!c.service) {
-        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "ceo", "agent"], vehicles: ["admin", "ceo"], companies: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin"], claims: ["admin"], claim_payments: ["admin"], runners: ["admin", "cashier", "agent"] }[table] || [];
+        const allowed = { shipments: ["admin", "cashier", "agent"], trips: ["admin", "cashier", "ceo", "agent"], vehicles: ["admin", "ceo"], companies: ["admin"], bill_accounts: ["admin"], bill_payments: ["admin"], claims: ["admin"], claim_payments: ["admin"], runners: ["admin", "cashier", "agent"], customers: ["admin", "cashier", "agent"] }[table] || [];
         if (SERVICE_ONLY.includes(table) || table === "platform_settings") return send(res, 403, { message: "permission denied" });
         if (!allowed.includes(role)) return out([]);
         if (table === "shipments" && role === "cashier" && b.pay === "bill") return send(res, 400, { message: "Monthly bills are handled at the destination office or by the Admin" });

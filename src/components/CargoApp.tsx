@@ -6,6 +6,7 @@ import { ShipmentSheet, TripSheet } from "./sheets";
 import Overview from "./views/Overview";
 import Consignments from "./views/Consignments";
 import Receive from "./views/Receive";
+import Customers, { CustomerSheet } from "./views/Customers";
 import Loading from "./views/Loading";
 import Arrivals from "./views/Arrivals";
 import Reports from "./views/Reports";
@@ -17,10 +18,11 @@ import { signOut } from "@/app/login/actions";
 import { isAir, initials, officesOf, regShort, ROLES, SYSTEM, tzs, type Company, type Perm, type Profile } from "@/lib/domain";
 import { dayLabel, type Subscription } from "@/lib/billing";
 
-export type View = "home" | "list" | "new" | "trips" | "arrivals" | "people" | "bills" | "claims" | "reports" | "set";
+export type View = "home" | "list" | "customers" | "new" | "trips" | "arrivals" | "people" | "bills" | "claims" | "reports" | "set";
 const TABS: [View, string, Perm | null, string][] = [
   ["home", "Overview", null, "Home"],
   ["list", "Consignments", null, "Cargo"],
+  ["customers", "Customers", null, "Customers"],
   ["new", "Receive goods", "receive", "Receive"],
   ["trips", "Loading bay", null, "Loading"],
   ["arrivals", "Arrivals", null, "Arrivals"],
@@ -38,6 +40,8 @@ interface Ui {
   openTrip: (id: string) => void;
   openAccount: (id: string) => void;
   openClaim: (id: string) => void;
+  /** Customer card, by phone number. */
+  openCustomer: (phone: string) => void;
   /** Start a claim for a consignment (lost / damaged / broken goods). */
   reportClaim: (shipmentId: string | null) => void;
   claimFor: string | null;
@@ -90,7 +94,7 @@ function SubscriptionNotice({ sub, onDetails }: { sub: Subscription; onDetails?:
 function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; announcement: string; status: string; sub: Subscription | null }) {
   const st = useStore();
   const [view, setView] = useState<View>("home");
-  const [sheet, setSheet] = useState<{ type: "ship" | "trip" | "account" | "claim"; id: string } | null>(null);
+  const [sheet, setSheet] = useState<{ type: "ship" | "trip" | "account" | "claim" | "customer"; id: string } | null>(null);
   const [listPay, setListPay] = useState<"" | "paid" | "unpaid" | "bill" | "noprice">("");
   const [tripFormOpen, setTripFormOpen] = useState(false);
   const [foundTrip, setFoundTrip] = useState<string | null>(null);
@@ -145,6 +149,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
     openTrip: (id) => setSheet({ type: "trip", id }),
     openAccount: (id) => setSheet({ type: "account", id }),
     openClaim: (id) => setSheet({ type: "claim", id }),
+    openCustomer: (phone) => setSheet({ type: "customer", id: phone }),
     reportClaim: (id) => { setClaimFor(id); if (id) go("claims"); },
     claimFor,
     close: () => setSheet(null),
@@ -220,6 +225,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
               <>
                 {view === "home" && <Overview />}
                 {view === "list" && <Consignments />}
+                {view === "customers" && <Customers />}
                 {view === "new" && <Receive key={editId || "new"} />}
                 {view === "trips" && <Loading />}
                 {view === "arrivals" && <Arrivals />}
@@ -253,7 +259,7 @@ function Shell({ isOwner, announcement, status, sub }: { isOwner: boolean; annou
           <div className="scrim" onClick={() => setSheet(null)} />
           <aside className="sheet" aria-label="Details">
             {sheet.type === "ship" ? <ShipmentSheet id={sheet.id} /> : sheet.type === "trip" ? <TripSheet id={sheet.id} />
-              : sheet.type === "account" ? <AccountSheet id={sheet.id} /> : <ClaimSheet id={sheet.id} />}
+              : sheet.type === "account" ? <AccountSheet id={sheet.id} /> : sheet.type === "customer" ? <CustomerSheet phone={sheet.id} /> : <ClaimSheet id={sheet.id} />}
           </aside>
         </>
       )}
