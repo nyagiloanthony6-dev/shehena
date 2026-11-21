@@ -52,7 +52,7 @@ export default function Overview() {
       <div style={{ marginTop: 18 }}><Stats /></div>
       {NP.length > 0 && (
         <button className="np-alert" onClick={() => { ui.setListPay("noprice"); ui.go("list"); }}>
-          <span className="pill no-price">No price yet</span>
+          <span className="pill no-price">No amount</span>
           <span><b>{NP.length} consignment{NP.length === 1 ? "" : "s"}</b> saved without a charge. Add the price before {NP.length === 1 ? "it is" : "they are"} released.</span>
           <span className="link">See {NP.length === 1 ? "it" : "them"} →</span>
         </button>

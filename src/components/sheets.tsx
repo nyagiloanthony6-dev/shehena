@@ -360,7 +360,7 @@ export function TripSheet({ id }: { id: string }) {
               {waiting.map((s) => (
                 <div className="lrow" key={s.id}>
                   <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} {air ? `pcs · ${kgFmt(cwOf(s))} kg` : "pkg"} · TZS {tzs(s.charge)}
-                    <div className="sub">{s.s_name ? `${s.s_name} → ` : ""}{s.r_name} <span className="mono">{prettyPhone(s.r_phone)}</span> · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {noPrice(s) ? <span className="pill no-price">No price yet</span> : PAY_LABEL[s.pay]}</div>
+                    <div className="sub">{s.s_name ? `${s.s_name} → ` : ""}{s.r_name} <span className="mono">{prettyPhone(s.r_phone)}</span> · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {noPrice(s) ? <span className="pill no-price">No amount</span> : PAY_LABEL[s.pay]}</div>
                   </div>
                   <button className="btn sm primary" onClick={() => patch<Shipment>("shipments", s.id, { status: "loaded", trip_id: t.id, loaded_at: now() })}>{air ? "Add" : "Load"}</button>
                 </div>
@@ -382,7 +382,7 @@ export function TripSheet({ id }: { id: string }) {
                 <td>{goodsLabel(s)}</td>
                 <td className="r num">{s.pkgs}</td>
                 <td className="r num">{tzs(s.charge)}</td>
-                <td>{noPrice(s) ? <span className="pill no-price">No price yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}</td>
+                <td>{noPrice(s) ? <span className="pill no-price">No amount</span> : <PayPill pay={s.pay} part={isPart(s)} />}</td>
               </tr>))}</tbody>
             <tfoot><tr><td colSpan={3}>Total</td><td className="r num">{n}</td><td className="r num">{tzs(list.reduce((a, s) => a + Number(s.charge || 0), 0))}</td><td /></tr></tfoot>
           </table></div>

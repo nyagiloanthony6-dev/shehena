@@ -242,7 +242,7 @@ export function CustomerSheet({ phone }: { phone: string }) {
               <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} pkg
                 <div className="sub"><span className={`cu-role ${asSender ? "s" : "r"}`}>{asSender ? "Sent" : "Received"}</span> {asSender ? `to ${s.r_name || "—"}` : `from ${s.s_name || "—"}`} · {regShort(s.origin)} → {regShort(s.dest)} · {fmtDate(s.received_at)}</div>
               </div>
-              <div className="r" style={{ textAlign: "right" }}><StatusPill s={s.status} /><div style={{ marginTop: 4 }}>{noPrice(s) ? <span className="pill no-price">No price yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}</div></div>
+              <div className="r" style={{ textAlign: "right" }}><StatusPill s={s.status} /><div style={{ marginTop: 4 }}>{noPrice(s) ? <span className="pill no-price">No amount</span> : <PayPill pay={s.pay} part={isPart(s)} />}</div></div>
             </button>
           );
         })}

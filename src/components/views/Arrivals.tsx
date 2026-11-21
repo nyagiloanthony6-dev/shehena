@@ -57,7 +57,7 @@ function WaitingRow({ s }: { s: Shipment }) {
         <span className="mono sub">{prettyPhone(s.r_phone)}</span>
         <div className="sub"><span className="mono">{s.no}</span> · {goodsLabel(s)} · {s.pkgs} pkg · {regShort(s.dest)}{t ? ` · ${t.plate}` : ""}</div>
         <div className="sub" style={{ marginTop: 2, display: "flex", gap: "4px 10px", flexWrap: "wrap", alignItems: "center" }}>
-          {noPrice(s) ? <span className="pill no-price">No price yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}
+          {noPrice(s) ? <span className="pill no-price">No amount</span> : <PayPill pay={s.pay} part={isPart(s)} />}
           {isOut(s) && <span className="pill pay-part">With {s.runner_name}</span>}
           {s.pay === "unpaid" && <b style={{ color: "var(--bad)" }}>TZS {tzs(balanceOf(s))} {isPart(s) ? "balance" : "due"}</b>}
           <span>{d < 1 ? "Arrived today" : d === 1 ? "Waiting 1 day" : `Waiting ${d} days`}</span>

@@ -27,7 +27,7 @@ export default function Consignments() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const pay = ui.listPay;
-  const noPriceN = useMemo(() => shipments.filter((s) => noPrice(s) && s.status !== "collected").length, [shipments]);
+  const noPriceN = useMemo(() => shipments.filter((s) => noPrice(s)).length, [shipments]);
 
   const list = useMemo(() => {
     const ql = q.trim().toLowerCase();
@@ -68,7 +68,7 @@ export default function Consignments() {
       </div>
       <div className="filters" style={{ marginTop: 8 }}>
         <div className="chips">{([["", "All statuses"], ...statusList(isAir(company))] as [string, string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={status === k} onClick={() => setStatus(k)}>{l}</button>)}</div>
-        <div className="chips">{([["", "Any payment"], ["unpaid", "Not paid"], ["paid", "Paid"], ["bill", "Monthly bill"], ["noprice", `No price yet${noPriceN ? ` · ${noPriceN}` : ""}`]] as ["" | "paid" | "unpaid" | "bill" | "noprice", string][]).filter(([k]) => k !== "noprice" || noPriceN || pay === "noprice").map(([k, l]) => <button key={k} className="chip" aria-pressed={pay === k} onClick={() => ui.setListPay(k)}>{l}</button>)}</div>
+        <div className="chips">{([["", "Any payment"], ["unpaid", "Not paid"], ["paid", "Paid"], ["bill", "Monthly bill"], ["noprice", `No amount · ${noPriceN}`]] as ["" | "paid" | "unpaid" | "bill" | "noprice", string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={pay === k} onClick={() => ui.setListPay(k)}>{l}</button>)}</div>
       </div>
       {list.length > 0 && (
         <div className="sub" style={{ marginTop: 12 }}>
@@ -86,7 +86,7 @@ export default function Consignments() {
                 <td><b style={{ fontWeight: 600 }}>{goodsLabel(s)}</b><div className="sub">{s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}{s.kg ? ` · ${s.kg} kg` : ""}</div></td>
                 <td>{nameOr(s.s_name)}<div className="sub">to {nameOr(s.r_name)}</div></td>
                 <td className="route">{regShort(s.origin)}<i>→</i>{regShort(s.dest)}</td>
-                <td className="r"><span className="num amt">{tzs(s.charge)}</span><div style={{ marginTop: 3 }}>{noPrice(s) ? <span className="pill no-price">No price yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}</div></td>
+                <td className="r"><span className="num amt">{tzs(s.charge)}</span><div style={{ marginTop: 3 }}>{noPrice(s) ? <span className="pill no-price">No amount</span> : <PayPill pay={s.pay} part={isPart(s)} />}</div></td>
                 <td><StatusPill s={s.status} />{t && <div className="sub mono" style={{ marginTop: 3 }}>{t.plate}</div>}</td>
               </tr>
             );
@@ -98,7 +98,7 @@ export default function Consignments() {
           <div className="ctop"><span className="mono wb sub">{s.no}{s.found_on_arrival && <span className="tag-found">Found</span>}</span><StatusPill s={s.status} /></div>
           <div><b>{goodsLabel(s)}</b> · {s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}</div>
           <div className="sub">{nameOr(s.s_name)} → {nameOr(s.r_name)} · {regShort(s.dest)}</div>
-          <div className="cbot"><b>TZS {tzs(s.charge)}</b>{noPrice(s) ? <span className="pill no-price">No price yet</span> : <PayPill pay={s.pay} part={isPart(s)} />}</div>
+          <div className="cbot"><b>TZS {tzs(s.charge)}</b>{noPrice(s) ? <span className="pill no-price">No amount</span> : <PayPill pay={s.pay} part={isPart(s)} />}</div>
         </button>
       ))}</div>
       <Pager pager={pager} />
