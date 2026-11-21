@@ -25,9 +25,15 @@ function csv(rows: Expense[], tripPlate: (id: string | null) => string, company:
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
+const OTHER = "__other";
+const CAT_ICON: [RegExp, string][] = [[/\btra\b|tax/i, "TR"], [/mizani|weigh/i, "MZ"], [/fuel|diesel|mafuta/i, "FU"], [/driver|turnboy|allow/i, "DR"], [/toll|park/i, "TL"], [/police|fine/i, "PO"], [/load/i, "LD"], [/repair|tyre|spare/i, "RP"],
+  [/wage|salar|mshahara/i, "WG"], [/day work|vibarua/i, "VB"], [/secur|guard|mlinzi/i, "SC"], [/city|jiji|council/i, "JJ"], [/rent|kodi/i, "RN"], [/electric|water|maji|umeme/i, "EW"], [/airtime|internet|bundle/i, "AT"], [/station|print/i, "ST"], [/transport|bodaboda/i, "TP"], [/tea|food|chai/i, "TF"], [/petty/i, "PC"]];
+/** Two-letter badge for a category. */
+export const catBadge = (c: string) => (CAT_ICON.find(([r]) => r.test(c))?.[1] || c.replace(/[^A-Za-z ]/g, "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "EX").slice(0, 2);
+
 /** Record (or correct) an expense. With `trip`, it is that trip's expense. */
 export function ExpenseForm({ trip, edit, onDone }: { trip?: Trip; edit?: Expense; onDone?: () => void }) {
-  const { company, trips, me, insert, patch, toast } = useStore();
+  const { company, trips, me, insert, patch, toast, expenses } = useStore();
   const offices = officesOf(company);
   const station0 = me.station || trip?.origin || company.default_origin || offices[0];
   const [f, setF] = useState(() => ({
@@ -42,18 +48,27 @@ export function ExpenseForm({ trip, edit, onDone }: { trip?: Trip; edit?: Expens
     spent_on: edit?.spent_on || localDay(new Date()),
     description: edit?.description || "",
   }));
+  const [other, setOther] = useState(false);
+  const [more, setMore] = useState(!!edit);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   const recent = useMemo(() => trips.filter((t) => t.status !== "arrived" || Date.now() - new Date(t.arrived_at || t.created_at).getTime() < 45 * 864e5)
     .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 60), [trips]);
-  const cats = EXPENSE_CATS[f.kind];
+  // Suggested categories plus the ones this company already uses.
+  const cats = useMemo(() => {
+    const base = EXPENSE_CATS[f.kind];
+    const used = [...new Set(expenses.filter((e) => e.kind === f.kind).map((e) => e.category))].filter((c) => !base.includes(c)).sort();
+    return { base, used };
+  }, [expenses, f.kind]);
+  const known = cats.base.includes(f.category) || cats.used.includes(f.category);
+  const showOther = other || (!!f.category && !known);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const amount = Math.round(Number(f.amount));
+    const amount = Math.round(Number(String(f.amount).replace(/[^\d.]/g, "")));
     if (f.kind === "trip" && !f.trip_id) return setErr("Choose the trip.");
-    if (!f.category.trim()) return setErr("Choose or type what the money was for.");
+    if (!f.category.trim()) return setErr("Choose what the money was for.");
     if (!(amount > 0)) return setErr("Enter the amount.");
     setErr(""); setBusy(true);
     const row = { kind: f.kind, trip_id: f.kind === "trip" ? f.trip_id : null, station: me.station || f.station, category: f.category.trim(), amount,
@@ -61,46 +76,58 @@ export function ExpenseForm({ trip, edit, onDone }: { trip?: Trip; edit?: Expens
     const ok = edit ? await patch<Expense>("expenses", edit.id, row) : !!(await insert<Expense>("expenses", { ...row, created_by: me.id, created_by_name: me.full_name, created_at: new Date().toISOString() }));
     setBusy(false);
     if (!ok) return;
-    toast(edit ? "Expense updated" : `Expense recorded · TZS ${tzs(amount)} ${f.category.trim()}`);
-    if (!edit) setF((x) => ({ ...x, category: "", amount: "", paid_to: "", reference: "", description: "" }));
+    toast(edit ? "Expense updated" : `Expense recorded · TZS ${tzs(amount)} · ${f.category.trim()}`);
+    if (!edit) { setF((x) => ({ ...x, category: "", amount: "", paid_to: "", reference: "", description: "" })); setOther(false); }
     onDone?.();
   }
 
   return (
-    <form noValidate onSubmit={save} className="expform">
+    <form noValidate onSubmit={save} className="xf">
       {!trip && !edit && (
-        <div className="seg" role="radiogroup" aria-label="Expense type">
-          <button type="button" aria-pressed={f.kind === "office"} onClick={() => setF((x) => ({ ...x, kind: "office", category: "" }))}>Office expense</button>
-          <button type="button" aria-pressed={f.kind === "trip"} onClick={() => setF((x) => ({ ...x, kind: "trip", category: "", trip_id: x.trip_id || recent[0]?.id || "" }))}>Trip expense</button>
+        <div className="xf-seg" role="radiogroup" aria-label="Expense type">
+          <button type="button" role="radio" aria-checked={f.kind === "office"} onClick={() => { setF((x) => ({ ...x, kind: "office", category: "" })); setOther(false); }}>Office expense</button>
+          <button type="button" role="radio" aria-checked={f.kind === "trip"} onClick={() => { setF((x) => ({ ...x, kind: "trip", category: "", trip_id: x.trip_id || recent[0]?.id || "" })); setOther(false); }}>Trip expense</button>
         </div>
       )}
-      <div className="fields">
-        {f.kind === "trip" && !trip && (
-          <label className="f full">Trip<select value={f.trip_id} onChange={(e) => set("trip_id", e.target.value)}>
-            <option value="">Choose the truck / trip…</option>
-            {recent.map((t) => <option key={t.id} value={t.id}>{t.plate} · {regShort(t.origin)} → {regShort(t.dest)} · {t.status === "loading" ? "loading" : t.status === "departed" ? "on the road" : "arrived"} · {t.no}</option>)}
-          </select></label>
-        )}
-        <div className="f full"><span>What for</span>
-          <div className="chips catchips">{cats.map((c) => <button type="button" key={c} className="chip" aria-pressed={f.category === c} onClick={() => set("category", c)}>{c}</button>)}</div>
-          <input value={f.category} onChange={(e) => set("category", e.target.value)} placeholder="Or type another" aria-label="Category" list={`cats-${f.kind}`} />
-          <datalist id={`cats-${f.kind}`}>{cats.map((c) => <option key={c} value={c} />)}</datalist>
-        </div>
-        <label className="f">Amount (TZS)<input type="number" inputMode="numeric" min={0} step={500} value={f.amount} onChange={(e) => set("amount", e.target.value)} placeholder="e.g. 20000" /></label>
-        <label className="f">Paid by<select value={f.method} onChange={(e) => set("method", e.target.value)}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>
-        <label className="f">Paid to <small>optional</small><input value={f.paid_to} onChange={(e) => set("paid_to", e.target.value)} placeholder="e.g. TRA, Mizani Kibaha, Hamisi" /></label>
-        <label className="f">Receipt / control no. <small>optional</small><input value={f.reference} onChange={(e) => set("reference", e.target.value)} /></label>
-        <label className="f">Date<input type="date" value={f.spent_on} max={localDay(new Date())} onChange={(e) => e.target.value && set("spent_on", e.target.value)} /></label>
-        <label className="f">Office that paid{me.station && <small>your office</small>}
-          <select value={me.station || f.station} disabled={!!me.station} onChange={(e) => set("station", e.target.value)}>
-            {offices.map((c) => <option key={c} value={c}>{REGIONS.find(([r]) => r === c)?.[1] || c}</option>)}
-          </select></label>
-        <label className="f full">Note <small>optional</small><input value={f.description} onChange={(e) => set("description", e.target.value)} placeholder="e.g. 3 vibarua for offloading" /></label>
+      {f.kind === "trip" && !trip && (
+        <label className="xf-f">Truck / trip<select value={f.trip_id} onChange={(e) => set("trip_id", e.target.value)}>
+          <option value="">Choose the trip…</option>
+          {recent.map((t) => <option key={t.id} value={t.id}>{t.plate} · {regShort(t.origin)} → {regShort(t.dest)} · {t.status === "loading" ? "loading" : t.status === "departed" ? "on the road" : "arrived"}</option>)}
+        </select></label>
+      )}
+      <div className="xf-main">
+        <label className="xf-f">What for
+          <select value={showOther ? OTHER : f.category} onChange={(e) => { if (e.target.value === OTHER) { setOther(true); set("category", ""); } else { setOther(false); set("category", e.target.value); } }} aria-label="Category">
+            <option value="">Choose…</option>
+            <optgroup label={f.kind === "trip" ? "Trip charges" : "Office costs"}>{cats.base.map((c) => <option key={c} value={c}>{c}</option>)}</optgroup>
+            {cats.used.length > 0 && <optgroup label="Used before">{cats.used.map((c) => <option key={c} value={c}>{c}</option>)}</optgroup>}
+            <option value={OTHER}>Other… (type it)</option>
+          </select>
+        </label>
+        <label className="xf-f xf-amt">Amount
+          <span className="xf-tzs"><i>TZS</i><input inputMode="numeric" value={f.amount ? tzs(String(f.amount).replace(/[^\d]/g, "")) : ""} onChange={(e) => set("amount", e.target.value.replace(/[^\d]/g, ""))} placeholder="0" aria-label="Amount in TZS" /></span>
+        </label>
+        <label className="xf-f">Paid by<select value={f.method} onChange={(e) => set("method", e.target.value)}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>
       </div>
+      {showOther && <label className="xf-f">Other: what was it for?<input autoFocus value={f.category} onChange={(e) => set("category", e.target.value)} placeholder="e.g. Generator service" /></label>}
+      {!more && <button type="button" className="xf-more" onClick={() => setMore(true)}>+ Paid to, receipt no., date, note</button>}
+      {more && (
+        <div className="xf-grid">
+          <label className="xf-f">Paid to<input value={f.paid_to} onChange={(e) => set("paid_to", e.target.value)} placeholder="e.g. TRA, Mizani Vigwaza, Hamisi" /></label>
+          <label className="xf-f">Receipt / control no.<input value={f.reference} onChange={(e) => set("reference", e.target.value)} /></label>
+          <label className="xf-f">Date<input type="date" value={f.spent_on} max={localDay(new Date())} onChange={(e) => e.target.value && set("spent_on", e.target.value)} /></label>
+          <label className="xf-f">Office that paid
+            <select value={me.station || f.station} disabled={!!me.station} onChange={(e) => set("station", e.target.value)}>
+              {offices.map((c) => <option key={c} value={c}>{REGIONS.find(([r]) => r === c)?.[1] || c}</option>)}
+            </select></label>
+          <label className="xf-f xf-wide">Note<input value={f.description} onChange={(e) => set("description", e.target.value)} placeholder="e.g. 3 vibarua for offloading" /></label>
+        </div>
+      )}
       <div className="err" role="alert">{err}</div>
-      <div className="actions" style={{ marginTop: 4 }}>
+      <div className="xf-actions">
         <button className="btn primary" type="submit" disabled={busy}>{busy ? "Saving…" : edit ? "Save changes" : "Record expense"}</button>
         {onDone && <button className="btn" type="button" onClick={onDone}>Cancel</button>}
+        {!more && <span className="sub">Office: {regShort(me.station || f.station)} · {dayLabel(f.spent_on)}</span>}
       </div>
     </form>
   );
@@ -109,7 +136,8 @@ export function ExpenseForm({ trip, edit, onDone }: { trip?: Trip; edit?: Expens
 export default function Expenses() {
   const { expenses, hasExpenses, trips, company, can, me } = useStore();
   const ui = useUi();
-  const [open, setOpen] = useState(false);
+  const recordable = can("receive");
+  const [open, setOpen] = useState(true);
   const [period, setPeriod] = useState<Period>("month");
   const today = localDay(new Date());
   const [from, setFrom] = useState(today.slice(0, 8) + "01");
@@ -140,82 +168,89 @@ export default function Expenses() {
       .sort((a, b) => b.spent_on.localeCompare(a.spent_on) || b.created_at.localeCompare(a.created_at));
   }, [inP, kind, office, cat, q]); // eslint-disable-line react-hooks/exhaustive-deps
   const { rows, pager } = usePaged(list, [period, from, to, kind, office, cat, q].join("|"));
-  const byCat = Object.entries(list.reduce<Record<string, number>>((a, e) => { a[e.category] = (a[e.category] || 0) + Number(e.amount); return a; }, {})).sort((a, b) => b[1] - a[1]);
-  const top = byCat[0]?.[1] || 1;
+  const byCat = Object.entries(list.reduce<Record<string, { v: number; k: Expense["kind"] }>>((a, e) => { a[e.category] = { v: (a[e.category]?.v || 0) + Number(e.amount), k: e.kind }; return a; }, {})).sort((a, b) => b[1].v - a[1].v);
+  const top = byCat[0]?.[1].v || 1;
   const total = sumExp(list);
-  const recordable = can("receive");
+  const tripSum = sumExp(list.filter((e) => e.kind === "trip"));
+  const officeSum = total - tripSum;
+  const days = rows.reduce<[string, Expense[]][]>((a, e) => { const l = a[a.length - 1]; if (l && l[0] === e.spent_on) l[1].push(e); else a.push([e.spent_on, [e]]); return a; }, []);
+  const dayTotal = (d: string) => sumExp(list.filter((e) => e.spent_on === d));
+  const PERIODS: [Period, string][] = [["today", "Today"], ["7", "7 days"], ["month", "This month"], ["last", "Last month"], ["all", "All time"], ["custom", "Dates…"]];
+  const periodName = period === "custom" ? `${dayLabel(range[0])} – ${dayLabel(range[1])}` : PERIODS.find(([k]) => k === period)?.[1];
 
   return (
-    <section>
+    <section className="xp">
       <div className="sectionhead">
-        <div><h1>Expenses</h1><div className="sub">Trip charges (TRA, Mizani, fuel…) and office costs (wages, day workers, security, city council, petty cash), recorded by the office that paid.</div></div>
-        {recordable && hasExpenses && <button className={`btn${open ? "" : " primary"}`} onClick={() => setOpen(!open)}>{open ? "Close" : <><Icon name="new" />Record expense</>}</button>}
+        <div><h1>Expenses</h1><div className="sub">Trip charges and office costs, recorded by the office that paid.</div></div>
+        <div className="xp-period">
+          <select value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label="Period">{PERIODS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+          {period === "custom" && <>
+            <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label="From date" />
+            <input type="date" value={to} min={from} max={today} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="To date" />
+          </>}
+        </div>
       </div>
       {!hasExpenses && <p className="note">Run database update 0026 in Supabase to start recording expenses.</p>}
-      {open && <fieldset style={{ marginTop: 12 }}><legend>Record an expense</legend><ExpenseForm /></fieldset>}
 
-      <div className="filters" style={{ marginTop: 14 }}>
-        <div className="chips">{([["today", "Today"], ["7", "7 days"], ["month", "This month"], ["last", "Last month"], ["all", "All time"], ["custom", "Dates…"]] as [Period, string][]).map(([k, l]) =>
-          <button key={k} className="chip" aria-pressed={period === k} onClick={() => setPeriod(k)}>{l}</button>)}</div>
-        {period === "custom" && <span className="datefilter">
-          <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label="From date" style={{ width: "auto" }} />
-          <span className="sub">to</span>
-          <input type="date" value={to} min={from} max={today} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="To date" style={{ width: "auto" }} /></span>}
-      </div>
-
-      <div className="stats">
-        <div className="stat"><div className="lbl">Total spent</div><div className="v">{tzs(total)}</div><div className="s">TZS · {list.length} expense{list.length === 1 ? "" : "s"}</div></div>
-        <div className="stat"><div className="lbl">Trip expenses</div><div className="v">{tzs(sumExp(list.filter((e) => e.kind === "trip")))}</div><div className="s">TZS on {new Set(list.filter((e) => e.trip_id).map((e) => e.trip_id)).size} trips</div></div>
-        <div className="stat"><div className="lbl">Office expenses</div><div className="v">{tzs(sumExp(list.filter((e) => e.kind === "office")))}</div><div className="s">TZS</div></div>
-        <div className="stat"><div className="lbl">Biggest</div><div className="v" style={{ fontSize: byCat[0] ? undefined : 18 }}>{byCat[0] ? tzs(byCat[0][1]) : "—"}</div><div className="s">{byCat[0] ? byCat[0][0] : "nothing yet"}</div></div>
-      </div>
-
-      <div className="filters" style={{ marginTop: 12 }}>
-        <div className="searchbox"><Icon name="search" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search category, note, paid to, truck" aria-label="Search expenses" /></div>
-        <div className="chips">{([["", "All"], ["trip", "Trip"], ["office", "Office"]] as ["" | Expense["kind"], string][]).map(([k, l]) =>
-          <button key={k} className="chip" aria-pressed={kind === k} onClick={() => { setKind(k); setCat(""); }}>{l}</button>)}</div>
-        {offices.length > 1 && !me.station && <select value={office} onChange={(e) => setOffice(e.target.value)} aria-label="Office" style={{ width: "auto" }}>
-          <option value="">All offices</option>{offices.map((c) => <option key={c} value={c}>{regShort(c)}</option>)}</select>}
-        {catsHere.length > 1 && <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Category" style={{ width: "auto" }}>
-          <option value="">All categories</option>{catsHere.map((c) => <option key={c} value={c}>{c}</option>)}</select>}
-      </div>
-
-      {byCat.length > 0 && (
-        <div className="panel" style={{ marginTop: 14 }}>
-          <div className="ph"><h2>By category</h2>{list.length > 0 && <button className="btn sm" onClick={() => csv(list, plate, company.name)}>Download (Excel)</button>}</div>
-          <div className="catbars">{byCat.map(([c, v]) => (
-            <button key={c} className="catbar" onClick={() => setCat(cat === c ? "" : c)} aria-pressed={cat === c}>
-              <span className="cb-l">{c}</span><span className="cb-bar"><i style={{ width: `${Math.max(3, (v / top) * 100)}%` }} /></span><span className="cb-v num">{tzs(v)}</span>
-            </button>))}
-          </div>
+      {recordable && hasExpenses && (
+        <div className="xp-rec">
+          <button className="xp-rec-h" onClick={() => setOpen(!open)} aria-expanded={open}><span className="xp-plus">+</span><b>Record an expense</b><span className="sub">{open ? "Hide" : "Show"}</span></button>
+          {open && <ExpenseForm />}
         </div>
       )}
 
-      {list.length > 0 && (
-        <div className="ledger main"><table>
-          <thead><tr><th>Date</th><th>What for</th><th>Office / trip</th><th>Paid to</th><th className="r">TZS</th><th>Recorded by</th></tr></thead>
-          <tbody>{rows.map((e) => { const t = tripOf(e.trip_id); return (
-            <tr className="row" key={e.id} tabIndex={0} onClick={() => ui.openExpense(e.id)} onKeyDown={(k) => k.key === "Enter" && ui.openExpense(e.id)}>
-              <td>{dayLabel(e.spent_on)}</td>
-              <td><b style={{ fontWeight: 600 }}>{e.category}</b><span className={`exk ${e.kind}`}>{e.kind === "trip" ? "Trip" : "Office"}</span>{e.description && <div className="sub">{e.description}</div>}</td>
-              <td>{regShort(e.station)}{t && <div className="sub mono">{t.plate}</div>}</td>
-              <td>{e.paid_to || <span className="sub">—</span>}<div className="sub">{e.method}{e.reference ? ` · ${e.reference}` : ""}</div></td>
-              <td className="r num" style={{ fontWeight: 600 }}>{tzs(e.amount)}</td>
-              <td className="sub">{e.created_by_name}</td>
-            </tr>); })}</tbody>
-          <tfoot><tr><td colSpan={4}>Total</td><td className="r num">{tzs(total)}</td><td /></tr></tfoot>
-        </table></div>
-      )}
-      <div className="cards">{rows.map((e) => { const t = tripOf(e.trip_id); return (
-        <button className="ccard" key={e.id} onClick={() => ui.openExpense(e.id)}>
-          <div className="ctop"><b>{e.category}</b><b className="num">TZS {tzs(e.amount)}</b></div>
-          <div className="sub">{dayLabel(e.spent_on)} · {regShort(e.station)}{t ? ` · ${t.plate}` : ""}<span className={`exk ${e.kind}`}>{e.kind === "trip" ? "Trip" : "Office"}</span></div>
-          {(e.description || e.paid_to) && <div className="sub">{[e.paid_to, e.description].filter(Boolean).join(" · ")}</div>}
-        </button>); })}</div>
+      <div className="xp-sum">
+        <div className="xp-hero">
+          <div className="lbl">Spent · {periodName}</div>
+          <div className="xp-big"><small>TZS</small>{tzs(total)}</div>
+          <div className="xp-split" aria-hidden="true"><i className="t" style={{ width: total ? `${(tripSum / total) * 100}%` : 0 }} /><i className="o" style={{ width: total ? `${(officeSum / total) * 100}%` : 0 }} /></div>
+          <div className="xp-legend">
+            <button aria-pressed={kind === "trip"} onClick={() => { setKind(kind === "trip" ? "" : "trip"); setCat(""); }}><i className="t" />Trips <b>{tzs(tripSum)}</b></button>
+            <button aria-pressed={kind === "office"} onClick={() => { setKind(kind === "office" ? "" : "office"); setCat(""); }}><i className="o" />Offices <b>{tzs(officeSum)}</b></button>
+          </div>
+          <div className="xp-meta">{list.length} expense{list.length === 1 ? "" : "s"}{list.length ? ` · average ${tzs(Math.round(total / list.length))}` : ""}</div>
+          <div className="xp-mini">
+            <div><span>Today</span><b>{tzs(sumExp(list.filter((e) => e.spent_on === today)))}</b></div>
+            <div><span>Biggest</span><b>{byCat[0] ? tzs(byCat[0][1].v) : "—"}</b><small>{byCat[0]?.[0] || ""}</small></div>
+            <div><span>Trips with costs</span><b>{new Set(list.filter((e) => e.trip_id).map((e) => e.trip_id)).size}</b></div>
+          </div>
+        </div>
+        <div className="xp-cats">
+          <div className="xp-cats-h"><b>By category</b>{list.length > 0 && <button className="btn sm" onClick={() => csv(list, plate, company.name)}>Download (Excel)</button>}</div>
+          {byCat.slice(0, 7).map(([c, x]) => (
+            <button key={c} className="xp-cat" aria-pressed={cat === c} onClick={() => setCat(cat === c ? "" : c)}>
+              <span className={`xp-badge xb-${x.k}`}>{catBadge(c)}</span>
+              <span className="xp-cat-n">{c}<span className="xp-bar"><i className={x.k} style={{ width: `${Math.max(3, (x.v / top) * 100)}%` }} /></span></span>
+              <b className="num">{tzs(x.v)}</b>
+            </button>))}
+          {!byCat.length && <p className="sub" style={{ margin: "10px 0 0" }}>No expenses in this period.</p>}
+        </div>
+      </div>
+
+      <div className="xp-filters">
+        <div className="searchbox"><Icon name="search" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search note, paid to, truck…" aria-label="Search expenses" /></div>
+        <select value={kind} onChange={(e) => { setKind(e.target.value as "" | Expense["kind"]); setCat(""); }} aria-label="Type"><option value="">Trips and offices</option><option value="trip">Trip expenses</option><option value="office">Office expenses</option></select>
+        <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Category"><option value="">All categories</option>{catsHere.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        {offices.length > 1 && !me.station && <select value={office} onChange={(e) => setOffice(e.target.value)} aria-label="Office"><option value="">All offices</option>{offices.map((c) => <option key={c} value={c}>{regShort(c)}</option>)}</select>}
+      </div>
+
+      <div className="xp-list">
+        {days.map(([d, L]) => (
+          <div key={d} className="xp-day">
+            <div className="xp-day-h"><b>{d === today ? "Today" : dayLabel(d)}</b><span className="num">TZS {tzs(dayTotal(d))}</span></div>
+            {L.map((e) => { const t = tripOf(e.trip_id); return (
+              <button key={e.id} className="xp-row" onClick={() => ui.openExpense(e.id)}>
+                <span className={`xp-badge xb-${e.kind}`}>{catBadge(e.category)}</span>
+                <span className="xp-row-m"><b>{e.category}</b>
+                  <span className="sub">{[t ? t.plate : "Office", regShort(e.station), e.paid_to, e.description].filter(Boolean).join(" · ")}</span></span>
+                <span className="xp-row-r"><b className="num">{tzs(e.amount)}</b><span className="sub">{e.method}</span></span>
+              </button>); })}
+          </div>
+        ))}
+      </div>
       <Pager pager={pager} />
-      {hasExpenses && !expenses.length && <div className="empty"><h3>No expenses yet</h3><p>Record trip charges like TRA and Mizani on each truck, and office costs like wages and security here.</p>
-        {recordable && <button className="btn primary" onClick={() => setOpen(true)}>Record the first expense</button>}</div>}
-      {expenses.length > 0 && !list.length && <div className="empty"><h3>Nothing in this period</h3><p>Choose another period or clear the filters.</p></div>}
+      {hasExpenses && !expenses.length && <div className="empty"><h3>No expenses yet</h3><p>Record trip charges like TRA and Mizani, and office costs like wages and security, with the form above.</p></div>}
+      {expenses.length > 0 && !list.length && <div className="empty"><h3>Nothing here</h3><p>Choose another period or clear the filters.</p></div>}
     </section>
   );
 }

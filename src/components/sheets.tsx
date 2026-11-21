@@ -10,7 +10,7 @@ import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { GiveToRunner } from "./views/Runners";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
 import { shipMatches, plateKey, intlPhone, tripExpenses, sumExp } from "@/lib/domain";
-import { ExpenseForm } from "./views/Expenses";
+import { ExpenseForm, catBadge } from "./views/Expenses";
 import { Icon } from "./Icon";
 import { PAY_LABEL, canRecordFound, settled, noPrice, canEditShip } from "@/lib/domain";
 import { METHODS, balanceOf, isPart, paidOf, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
@@ -131,7 +131,7 @@ function TripExpenses({ trip: t }: { trip: Trip }) {
       {adding && <div style={{ margin: "8px 0 12px" }}><ExpenseForm trip={t} onDone={() => setAdding(false)} /></div>}
       {L.map((e) => (
         <button className="texp-row" key={e.id} onClick={() => ui.openExpense(e.id)}>
-          <span><b>{e.category}</b><span className="sub">{e.paid_to ? ` · ${e.paid_to}` : ""} · {fmtDay(e.spent_on + "T12:00:00")} · {regShort(e.station)}</span></span>
+          <span style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}><span className="xp-badge xb-trip">{catBadge(e.category)}</span><span style={{ minWidth: 0 }}><b>{e.category}</b><div className="sub">{[e.paid_to, fmtDay(e.spent_on + "T12:00:00"), regShort(e.station)].filter(Boolean).join(" · ")}</div></span></span>
           <b className="num">{tzs(e.amount)}</b>
         </button>
       ))}
