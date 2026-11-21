@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { PayPill, StatusPill, usePaged, Pager } from "../parts";
-import { sumPaid, sumBalance, isPart, noPrice, nameOr, tripSearchIndex, truckMatches, isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, itemsOf, fmtDate, intlPhone, regShort, sumCharge, tzs } from "@/lib/domain";
+import { sumPaid, sumBalance, isPart, noPrice, nameOr, tripSearchIndex, truckMatches, shipMatches, isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, fmtDate, regShort, sumCharge, tzs } from "@/lib/domain";
 
 const localDay = (iso: string) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const inDays = (iso: string, from: string, to: string) => { const d = localDay(iso); return (!from || d >= from) && (!to || d <= to); };
@@ -30,13 +30,10 @@ export default function Consignments() {
 
   const list = useMemo(() => {
     const ql = q.trim().toLowerCase();
-    const qd = ql.replace(/\D/g, "").replace(/^0/, "");
     return shipments.filter((s) =>
       (!from && !to || inDays(s.received_at, from, to)) &&
       (!dest || s.dest === dest) && (!status || s.status === status) && (!pay || s.pay === pay) &&
-      (!ql || [s.no, s.s_name, s.r_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql) ||
-        (qd.length >= 4 && (intlPhone(s.s_phone).includes(qd) || intlPhone(s.r_phone).includes(qd))) ||
-        truckMatches(tripIdx, s.trip_id, q)));
+      (!ql || shipMatches(s, q) || truckMatches(tripIdx, s.trip_id, q)));
   }, [shipments, q, dest, status, pay, from, to, tripIdx]);
   const { rows, pager } = usePaged(list, [q, dest, status, pay, from, to].join("|"));
   const today = localDay(new Date().toISOString());

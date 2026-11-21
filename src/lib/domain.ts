@@ -420,3 +420,14 @@ export function niceStep(max: number) {
   const n = raw / p;
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
 }
+
+/** Does a consignment match a search by waybill (dashes/spaces ignored), sender or receiver name, phone (any 4+ digits, 0/255 prefix ignored) or goods? */
+export function shipMatches(s: Partial<Shipment>, q: string) {
+  const ql = q.trim().toLowerCase();
+  if (!ql) return true;
+  if ([s.no, s.s_name, s.r_name, s.item, ...itemsOf(s).map((l) => l.name)].join(" ").toLowerCase().includes(ql)) return true;
+  const k = plateKey(ql);
+  if (k.length >= 3 && plateKey(s.no).includes(k)) return true;
+  const qd = ql.replace(/\D/g, "").replace(/^(255|0)/, "");
+  return qd.length >= 4 && (intlPhone(s.s_phone).includes(qd) || intlPhone(s.r_phone).includes(qd));
+}

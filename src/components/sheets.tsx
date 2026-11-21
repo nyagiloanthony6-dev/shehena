@@ -9,6 +9,8 @@ import { downloadManifest } from "./manifest";
 import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { GiveToRunner } from "./views/Runners";
 import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
+import { shipMatches } from "@/lib/domain";
+import { Icon } from "./Icon";
 import { PAY_LABEL, canRecordFound, settled, noPrice, canEditShip } from "@/lib/domain";
 import { METHODS, balanceOf, isPart, paidOf, terms, cwOf, isAir, kgFmt, statusList, tripStatusList, goodsLabel, fmtDate, fmtDay, pkgsOf, prettyPhone, regShort, tzs, type Shipment, type Trip } from "@/lib/domain";
 
@@ -114,6 +116,7 @@ export function TripSheet({ id }: { id: string }) {
   const t = tripById(id);
   const [target, setTarget] = useState(String(t?.target || ""));
   const [rent, setRent] = useState(String(t?.rent_cost || ""));
+  const [lq, setLq] = useState("");
   if (!t) return <div className="sheet-h"><p className="sub">This trip no longer exists.</p><button className="btn sm" onClick={ui.close}>Close</button></div>;
   const list = tripShips(t);
   const air = isAir(company);
@@ -123,8 +126,9 @@ export function TripSheet({ id }: { id: string }) {
   const n = pkgsOf(list);
   const full = t.target > 0 && tripTotals(list).billed >= t.target;
   const now = () => new Date().toISOString();
-  const waiting = shipments.filter((s) => s.status === "received" && s.origin === t.origin)
+  const waitingAll = shipments.filter((s) => s.status === "received" && s.origin === t.origin)
     .sort((a, b) => (a.dest === t.dest ? 0 : 1) - (b.dest === t.dest ? 0 : 1) || a.received_at.localeCompare(b.received_at));
+  const waiting = lq.trim() ? waitingAll.filter((s) => shipMatches(s, lq)) : waitingAll;
 
   const depart = async () => {
     setConfirm("");
@@ -214,16 +218,22 @@ export function TripSheet({ id }: { id: string }) {
             {!list.length && <p className="sub">Nothing loaded yet. Add consignments from the list below.</p>}
           </div>
           {can("load") && (
-            <div className="card"><h3>Waiting at {regShort(t.origin)} · {waiting.length}</h3>
+            <div className="card"><h3>Waiting at {regShort(t.origin)} · {lq.trim() ? `${waiting.length} of ${waitingAll.length}` : waitingAll.length}</h3>
+              {waitingAll.length > 0 && (
+                <div className="actions load-search" style={{ marginTop: 0 }}>
+                  <div className="searchbox"><Icon name="search" /><input type="search" value={lq} onChange={(e) => setLq(e.target.value)} placeholder="Search name, phone or waybill" aria-label="Search consignments to load" /></div>
+                  {lq && <button className="btn sm" onClick={() => setLq("")}>Clear</button>}
+                </div>
+              )}
               {waiting.map((s) => (
                 <div className="lrow" key={s.id}>
                   <div><span className="mono">{s.no}</span> · <b>{goodsLabel(s)}</b> · {s.pkgs} {air ? `pcs · ${kgFmt(cwOf(s))} kg` : "pkg"} · TZS {tzs(s.charge)}
-                    <div className="sub">{s.r_name} · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {PAY_LABEL[s.pay]}</div>
+                    <div className="sub">{s.s_name ? `${s.s_name} → ` : ""}{s.r_name} <span className="mono">{prettyPhone(s.r_phone)}</span> · <b style={{ color: s.dest === t.dest ? "var(--good)" : "var(--muted)" }}>{regShort(s.dest)}</b> · {PAY_LABEL[s.pay]}</div>
                   </div>
                   <button className="btn sm primary" onClick={() => patch<Shipment>("shipments", s.id, { status: "loaded", trip_id: t.id, loaded_at: now() })}>{air ? "Add" : "Load"}</button>
                 </div>
               ))}
-              {!waiting.length && <p className="sub">No consignments waiting at this {air ? "warehouse" : "office"}.</p>}
+              {!waiting.length && <p className="sub">{lq.trim() && waitingAll.length ? <>Nothing waiting matches &quot;{lq.trim()}&quot;.</> : <>No consignments waiting at this {air ? "warehouse" : "office"}.</>}</p>}
             </div>
           )}
         </>
