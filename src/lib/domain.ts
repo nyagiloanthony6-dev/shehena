@@ -315,17 +315,17 @@ export const kgFmt = (n: number | null | undefined) => Number(n || 0).toLocaleSt
 export const cwOf = (s: Partial<Shipment>) => itemsOf(s).reduce((a, i) => a + Number(i.cw ?? i.kg ?? 0), 0);
 export const ROLES: Record<Role, string> = { admin: "Admin", cashier: "Cashier", ceo: "CEO", agent: "Branch staff" };
 
-export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims" | "money" | "openAccount" | "bill";
+export type Perm = "receive" | "pay" | "load" | "dispatch" | "notify" | "delete" | "settings" | "undo" | "reports" | "target" | "accounts" | "claims" | "money" | "openAccount" | "bill" | "expenses";
 const PERMS: Record<Role, Perm[]> = {
   // accounts = open/close monthly bill customers; claims = record claims and payments
   // money = see monthly bills and claims
-  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target", "accounts", "claims", "money", "openAccount", "bill"],
+  admin: ["receive", "pay", "load", "dispatch", "notify", "delete", "settings", "undo", "reports", "target", "accounts", "claims", "money", "openAccount", "bill", "expenses"],
   // head-office cashier: no monthly bills or claims (those are handled at the destination offices)
-  cashier: ["receive", "pay", "load", "dispatch", "notify"],
-  ceo: ["reports", "target", "money"],
+  cashier: ["receive", "pay", "load", "dispatch", "notify", "expenses"],
+  ceo: ["reports", "target", "money", "expenses"],
   // branch staff: their office's arrivals and the goods they receive; nothing else
   // (bills and claims for their own office: the database limits them to it)
-  agent: ["receive", "pay", "load", "dispatch", "notify", "claims", "money", "openAccount", "bill"],
+  agent: ["receive", "pay", "load", "dispatch", "notify", "claims", "money", "openAccount", "bill", "expenses"],
 };
 export const can = (role: Role | undefined, p: Perm) => !!role && PERMS[role].includes(p);
 /** Recording goods found on arrival: the Admin always; cashiers unless the Admin restricted it. */
@@ -518,3 +518,34 @@ export function customerRows(shipments: Shipment[], customers: Customer[]): Cust
 /** The consignments a customer sent or received, newest first. */
 export const customerShips = (shipments: Shipment[], phone: string) =>
   shipments.filter((s) => intlPhone(s.s_phone) === phone || intlPhone(s.r_phone) === phone).sort((a, b) => b.received_at.localeCompare(a.received_at));
+
+/** Money spent (migration 0026): on a trip (TRA, Mizani, ...) or by an office (wages, security, ...). */
+export interface Expense {
+  id: string;
+  company_id: string;
+  kind: "office" | "trip";
+  trip_id: string | null;
+  /** office (region code) that paid */
+  station: string;
+  category: string;
+  description: string;
+  amount: number;
+  method: string;
+  paid_to: string;
+  reference: string;
+  /** YYYY-MM-DD */
+  spent_on: string;
+  created_at: string;
+  created_by: string | null;
+  created_by_name: string;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
+/** Suggested categories; staff can also type their own. */
+export const EXPENSE_CATS: Record<Expense["kind"], string[]> = {
+  trip: ["TRA", "Mizani (weighbridge)", "Fuel", "Driver allowance", "Turnboy allowance", "Road toll / parking", "Police / fines", "Loading", "Offloading", "Repairs", "Other trip charge"],
+  office: ["Wages", "Day workers (vibarua)", "Security", "City council (Jiji)", "Rent", "Electricity / water", "Airtime / internet", "Stationery / printing", "Transport", "Tea / food", "Petty cash", "Other"],
+};
+export const sumExp = (L: Pick<Expense, "amount">[]) => L.reduce((a, e) => a + Number(e.amount || 0), 0);
+/** Expenses of a trip. */
+export const tripExpenses = (all: Expense[], tripId: string) => all.filter((e) => e.trip_id === tripId);

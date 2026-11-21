@@ -6,12 +6,12 @@ import { useUi } from "../CargoApp";
 import { RunnerReport } from "./Runners";
 import { PayPill, StatusPill, TripPill } from "../parts";
 import { DailyChart, YearPanel, chartDays } from "../charts";
-import { stLabel, sumPaid, sumBalance, balanceOf, CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip } from "@/lib/domain";
+import { stLabel, sumPaid, sumBalance, balanceOf, CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip, type Expense, sumExp, tripExpenses } from "@/lib/domain";
 
 type Period = "today" | "7" | "30" | "month" | "all" | "custom";
-type Tab = "overview" | "pay" | "trucks" | "claims" | "discounts" | "bills" | "deliveries" | "runners";
+type Tab = "overview" | "pay" | "expenses" | "trucks" | "claims" | "discounts" | "bills" | "deliveries" | "runners";
 const TABS: [Tab, string][] = [
-  ["overview", "Overview"], ["pay", "Paid & unpaid"], ["trucks", "Trucks & rentals"], ["claims", "Claims & refunds"],
+  ["overview", "Overview"], ["pay", "Paid & unpaid"], ["expenses", "Expenses & profit"], ["trucks", "Trucks & rentals"], ["claims", "Claims & refunds"],
   ["discounts", "Discounts"], ["bills", "Monthly bills"], ["deliveries", "Deliveries"], ["runners", "Delivery people"],
 ];
 // b = billed, pd = paid, u = unpaid at the counter, bl = on monthly bills
@@ -32,7 +32,8 @@ const XL = ({ onClick }: { onClick: () => void }) => <button className="btn sm" 
 
 export default function Reports() {
   const st = useStore();
-  const { shipments, trips, tripShips, tripById, claims, claimPayments, accounts, billPayments, vehicles, hasExtras, delivery } = st;
+  const { shipments, trips, tripShips, tripById, claims, claimPayments, accounts, billPayments, vehicles, hasExtras, delivery, expenses, hasExpenses } = st;
+  const tExp = (id: string) => sumExp(tripExpenses(expenses, id));
   const ui = useUi();
   const [period, setPeriod] = useState<Period>("30");
   const [from, setFrom] = useState(() => localDay(new Date(Date.now() - 30 * 864e5)));
@@ -75,10 +76,58 @@ export default function Reports() {
           </>}
         </div>
       </div>
-      <nav className="tabs" role="tablist" style={{ marginBottom: 16 }}>{TABS.filter(([k]) => (hasExtras || !["claims", "bills"].includes(k)) && (k !== "runners" || delivery)).map(([k, l]) =>
+      <nav className="tabs" role="tablist" style={{ marginBottom: 16 }}>{TABS.filter(([k]) => (hasExtras || !["claims", "bills"].includes(k)) && (k !== "runners" || delivery) && (k !== "expenses" || hasExpenses)).map(([k, l]) =>
         <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}</nav>
 
       {tab === "overview" && <Overview S={S} range={range} />}
+
+      {tab === "expenses" && (() => {
+        const E = expenses.filter((e) => e.spent_on >= range[0] && e.spent_on <= range[1]);
+        const spent = sumExp(E), tripSpent = sumExp(E.filter((e) => e.kind === "trip")), officeSpent = spent - tripSpent;
+        const rentP = dispatched.reduce((a, t) => a + Number(t.rent_cost || 0), 0);
+        const net = paidAmt - rentP - spent;
+        const group = (key: (e: Expense) => string) => Object.entries(E.reduce<Record<string, { n: number; v: number }>>((a, e) => { const k = key(e); (a[k] = a[k] || { n: 0, v: 0 }).n++; a[k].v += Number(e.amount); return a; }, {})).sort((a, b) => b[1].v - a[1].v);
+        const byCat = group((e) => `${e.kind === "trip" ? "Trip" : "Office"} · ${e.category}`);
+        const byOffice = group((e) => regShort(e.station));
+        const byTrip = Object.entries(E.filter((e) => e.trip_id).reduce<Record<string, number>>((a, e) => { a[e.trip_id!] = (a[e.trip_id!] || 0) + Number(e.amount); return a; }, {}))
+          .map(([id, v]) => ({ t: tripById(id), v })).filter((x) => x.t).sort((a, b) => b.v - a.v);
+        return (
+          <>
+            <div className="stats">
+              <div className="stat"><div className="lbl">Collected</div><div className="v">{tzs(paidAmt)}</div><div className="s">TZS paid on goods received in the period</div></div>
+              <div className="stat"><div className="lbl">Truck rent</div><div className="v">{tzs(rentP)}</div><div className="s">TZS · trips dispatched in the period</div></div>
+              <div className="stat"><div className="lbl">Expenses</div><div className="v">{tzs(spent)}</div><div className="s">TZS · {tzs(tripSpent)} trips · {tzs(officeSpent)} offices</div></div>
+              <div className={`stat${net < 0 ? " warn" : ""}`}><div className="lbl">Left after costs</div><div className="v" style={{ color: net < 0 ? "var(--bad)" : "var(--good)" }}>{tzs(net)}</div><div className="s">TZS = collected − rent − expenses</div></div>
+            </div>
+            <div className="rgrid">
+              <div className="panel"><div className="ph"><div><h2>By category</h2><div className="sub">Expenses dated in the period</div></div>
+                <XL onClick={() => downloadCsv(`Shehena-expenses-${label}`, ["Date", "Type", "Office", "Trip", "Truck", "Category", "Description", "Paid to", "Method", "Reference", "TZS", "Recorded by"],
+                  E.map((e) => { const t = tripById(e.trip_id); return [e.spent_on, e.kind === "trip" ? "Trip" : "Office", regShort(e.station), t?.no || "", t?.plate || "", e.category, e.description, e.paid_to, e.method, e.reference, e.amount, e.created_by_name]; }))} /></div>
+                <div className="ledger"><table className="small"><thead><tr><th>Category</th><th className="r">Count</th><th className="r">TZS</th></tr></thead>
+                  <tbody>{byCat.map(([k, x]) => <tr key={k}><td>{k}</td><td className="r num">{x.n}</td><td className="r num">{tzs(x.v)}</td></tr>)}
+                    {!E.length && <tr><td colSpan={3} className="sub">No expenses in this period.</td></tr>}</tbody>
+                  {E.length > 0 && <tfoot><tr><td>Total</td><td className="r num">{E.length}</td><td className="r num">{tzs(spent)}</td></tr></tfoot>}</table></div>
+              </div>
+              <div className="panel"><h2>By office</h2><div className="sub">The office that paid</div>
+                <div className="ledger"><table className="small"><thead><tr><th>Office</th><th className="r">Count</th><th className="r">TZS</th></tr></thead>
+                  <tbody>{byOffice.map(([k, x]) => <tr key={k}><td>{k}</td><td className="r num">{x.n}</td><td className="r num">{tzs(x.v)}</td></tr>)}
+                    {!E.length && <tr><td colSpan={3} className="sub">No expenses in this period.</td></tr>}</tbody></table></div>
+              </div>
+            </div>
+            {byTrip.length > 0 && (
+              <div className="panel" style={{ marginTop: 16 }}><h2>Trips with expenses</h2><div className="sub">Collections, rent and expenses per trip. Tap a trip to open it.</div>
+                <div className="ledger"><table className="small"><thead><tr><th>Trip</th><th className="r">Billed</th><th className="r">Rent</th><th className="r">Expenses</th><th className="r">Left</th></tr></thead>
+                  <tbody>{byTrip.map(({ t }) => { const x = agg(tripShips(t!)); const ex = tExp(t!.id); const left = x.b - Number(t!.rent_cost || 0) - ex; return (
+                    <tr key={t!.id} className="row" onClick={() => ui.openTrip(t!.id)}>
+                      <td><span className="mono wb">{t!.plate}</span><div className="sub">{t!.no} · to {regShort(t!.dest)}</div></td>
+                      <td className="r num">{tzs(x.b)}</td><td className="r num">{t!.rent_cost ? tzs(t!.rent_cost) : "—"}</td><td className="r num">{tzs(ex)}</td>
+                      <td className="r num" style={{ fontWeight: 600, color: left < 0 ? "var(--bad)" : undefined }}>{tzs(left)}</td>
+                    </tr>); })}</tbody></table></div>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {tab === "pay" && (() => {
         const V = payView === "paid" ? paid : payView === "unpaid" ? U : payView === "bill" ? B : S;
@@ -143,7 +192,7 @@ export default function Reports() {
       {tab === "trucks" && (() => {
         const byTruck = Object.values(T.reduce<Record<string, Trip[]>>((a, t) => { (a[t.plate] = a[t.plate] || []).push(t); return a; }, {}))
           .map((ts) => { const L = ts.flatMap(tripShips); const v = vehicles.find((x) => x.plate === ts[0].plate); const rent = ts.reduce((a, t) => a + Number(t.rent_cost || 0), 0);
-            return { plate: ts[0].plate, driver: ts[0].driver, own: (v?.ownership || ts[0].ownership || "own") === "own", owner: v?.owner_name || ts[0].owner_name || "", monthRent: v?.ownership === "rental" && v.rent_basis === "month" ? Number(v.rent_amount || 0) : 0, ts, L, x: agg(L), rent, tg: ts.reduce((a, t) => a + Number(t.target || 0), 0) }; })
+            return { ex: ts.reduce((a, t) => a + tExp(t.id), 0), plate: ts[0].plate, driver: ts[0].driver, own: (v?.ownership || ts[0].ownership || "own") === "own", owner: v?.owner_name || ts[0].owner_name || "", monthRent: v?.ownership === "rental" && v.rent_basis === "month" ? Number(v.rent_amount || 0) : 0, ts, L, x: agg(L), rent, tg: ts.reduce((a, t) => a + Number(t.target || 0), 0) }; })
           .sort((a, b) => b.x.b - a.x.b);
         const T2 = T.filter((t) => !truck || t.plate === truck);
         const rentAll = byTruck.reduce((a, r) => a + r.rent, 0);
@@ -157,20 +206,21 @@ export default function Reports() {
               <div className="stat"><div className="lbl">Rent (per-trip)</div><div className="v">{tzs(rentAll)}</div><div className="s">TZS{monthly.length ? ` + ${tzs(monthly.reduce((a, r) => a + r.monthRent, 0))}/month` : ""}</div></div>
             </div>
             <div className="panel"><div className="ph"><div><h2>Collections by truck</h2><div className="sub">Trips started in the period. Tap a row to see its trips.</div></div>
-              <XL onClick={() => downloadCsv(`Shehena-trucks-${label}`, ["Truck", "Own/Rental", "Owner", "Driver", "Trips", "Packages", "Billed", "Paid", "Unpaid", "On bills", "Rent (per trip)", "Rent per month", "After rent", "Target"],
-                byTruck.map((r) => [r.plate, r.own ? "Own" : "Rental", r.owner, r.driver, r.ts.length, pkgsOf(r.L), r.x.b, r.x.pd, r.x.u, r.x.bl, r.rent, r.monthRent || "", r.x.b - r.rent, r.tg]))} /></div>
+              <XL onClick={() => downloadCsv(`Shehena-trucks-${label}`, ["Truck", "Own/Rental", "Owner", "Driver", "Trips", "Packages", "Billed", "Paid", "Unpaid", "On bills", "Rent (per trip)", "Rent per month", "Trip expenses", "Left after rent & expenses", "Target"],
+                byTruck.map((r) => [r.plate, r.own ? "Own" : "Rental", r.owner, r.driver, r.ts.length, pkgsOf(r.L), r.x.b, r.x.pd, r.x.u, r.x.bl, r.rent, r.monthRent || "", r.ex, r.x.b - r.rent - r.ex, r.tg]))} /></div>
               <div className="ledger"><table className="small">
-                <thead><tr><th>Truck</th><th className="r">Trips</th><th className="r">Pkgs</th><th className="r">Billed</th><th className="r">Paid</th><th className="r">Unpaid</th><th className="r">Rent</th><th className="r">After rent</th><th className="r">vs target</th></tr></thead>
+                <thead><tr><th>Truck</th><th className="r">Trips</th><th className="r">Pkgs</th><th className="r">Billed</th><th className="r">Paid</th><th className="r">Unpaid</th><th className="r">Rent</th>{hasExpenses && <th className="r">Expenses</th>}<th className="r">{hasExpenses ? "Left" : "After rent"}</th><th className="r">vs target</th></tr></thead>
                 <tbody>{byTruck.map((r) => (
                   <tr key={r.plate} className="row" onClick={() => setTruck(r.plate)}>
                     <td><span className="mono wb" style={{ fontWeight: 600 }}>{r.plate}</span>{!r.own && <span className="tag-rental">Rental</span>}<div className="sub">{r.driver}{!r.own && r.owner ? ` · owner ${r.owner}` : ""}</div></td>
                     <td className="r num">{r.ts.length}</td><td className="r num">{pkgsOf(r.L)}</td><td className="r num">{tzs(r.x.b)}</td>
                     <td className="r num" style={{ color: "var(--good)" }}>{tzs(r.x.pd)}</td><td className="r num" style={r.x.u ? { color: "var(--bad)" } : undefined}>{tzs(r.x.u)}</td>
                     <td className="r num">{r.own ? "—" : <>{tzs(r.rent)}{r.monthRent ? <div className="sub">{tzs(r.monthRent)}/month</div> : null}</>}</td>
-                    <td className="r num" style={{ fontWeight: 600 }}>{tzs(r.x.b - r.rent)}</td>
+                    {hasExpenses && <td className="r num">{r.ex ? tzs(r.ex) : "—"}</td>}
+                    <td className="r num" style={{ fontWeight: 600, color: r.x.b - r.rent - r.ex < 0 ? "var(--bad)" : undefined }}>{tzs(r.x.b - r.rent - r.ex)}</td>
                     <td className="r num">{r.tg ? Math.round((r.x.b / r.tg) * 100) + "%" : "—"}</td>
                   </tr>))}
-                  {!byTruck.length && <tr><td colSpan={9} className="sub">No trips in this period.</td></tr>}</tbody>
+                  {!byTruck.length && <tr><td colSpan={10} className="sub">No trips in this period.</td></tr>}</tbody>
               </table></div>
             </div>
             <div className="panel" style={{ marginTop: 16 }}>
@@ -178,21 +228,22 @@ export default function Reports() {
                 <div><h2>Collections by trip</h2><div className="sub">{truck ? `Trips by ${truck}` : "Every trip started in the period"}</div></div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {truck && <div className="chips"><button className="chip" aria-pressed onClick={() => setTruck("")}>{truck} ✕</button></div>}
-                  <XL onClick={() => downloadCsv(`Shehena-trips-${label}`, ["Trip", "Truck", "Own/Rental", "From", "To", "Status", "Loaded", "Departed", "Arrived", "Consignments", "Packages", "Billed", "Paid", "Unpaid", "On bills", "Rent", "After rent", "Target"],
-                    T2.map((t) => { const L = tripShips(t), x = agg(L); return [t.no, t.plate, t.ownership === "rental" ? "Rental" : "Own", regShort(t.origin), regShort(t.dest), t.status, fmtDate(t.created_at), fmtDate(t.departed_at), fmtDate(t.arrived_at), L.length, pkgsOf(L), x.b, x.pd, x.u, x.bl, Number(t.rent_cost || 0), x.b - Number(t.rent_cost || 0), t.target]; }))} />
+                  <XL onClick={() => downloadCsv(`Shehena-trips-${label}`, ["Trip", "Truck", "Own/Rental", "From", "To", "Status", "Loaded", "Departed", "Arrived", "Consignments", "Packages", "Billed", "Paid", "Unpaid", "On bills", "Rent", "Trip expenses", "Left after rent & expenses", "Target"],
+                    T2.map((t) => { const L = tripShips(t), x = agg(L), ex = tExp(t.id); return [t.no, t.plate, t.ownership === "rental" ? "Rental" : "Own", regShort(t.origin), regShort(t.dest), t.status, fmtDate(t.created_at), fmtDate(t.departed_at), fmtDate(t.arrived_at), L.length, pkgsOf(L), x.b, x.pd, x.u, x.bl, Number(t.rent_cost || 0), ex, x.b - Number(t.rent_cost || 0) - ex, t.target]; }))} />
                 </div>
               </div>
               <div className="ledger"><table className="small">
-                <thead><tr><th>Trip</th><th>Truck · to</th><th>Status</th><th className="r">Pkgs</th><th className="r">Billed</th><th className="r">Paid</th><th className="r">Unpaid</th><th className="r">Rent</th></tr></thead>
-                <tbody>{T2.map((t) => { const L = tripShips(t), x = agg(L); return (
+                <thead><tr><th>Trip</th><th>Truck · to</th><th>Status</th><th className="r">Pkgs</th><th className="r">Billed</th><th className="r">Paid</th><th className="r">Unpaid</th><th className="r">Rent</th>{hasExpenses && <th className="r">Expenses</th>}</tr></thead>
+                <tbody>{T2.map((t) => { const L = tripShips(t), x = agg(L), ex = tExp(t.id); return (
                   <tr key={t.id} className="row" onClick={() => ui.openTrip(t.id)}>
                     <td className="mono wb">{t.no}<div className="sub">{fmtDay(t.departed_at || t.created_at)}</div></td>
                     <td><span className="mono wb">{t.plate}</span>{t.ownership === "rental" && <span className="tag-rental">Rental</span>}<div className="sub">to {regShort(t.dest)}</div></td>
                     <td><TripPill s={t.status} /></td><td className="r num">{pkgsOf(L)}</td><td className="r num">{tzs(x.b)}</td>
                     <td className="r num" style={{ color: "var(--good)" }}>{tzs(x.pd)}</td><td className="r num" style={x.u ? { color: "var(--bad)" } : undefined}>{tzs(x.u)}</td>
                     <td className="r num">{t.ownership === "rental" ? tzs(t.rent_cost || 0) : "—"}</td>
+                    {hasExpenses && <td className="r num">{ex ? tzs(ex) : "—"}</td>}
                   </tr>); })}
-                  {!T2.length && <tr><td colSpan={8} className="sub">No trips in this period.</td></tr>}</tbody>
+                  {!T2.length && <tr><td colSpan={9} className="sub">No trips in this period.</td></tr>}</tbody>
               </table></div>
             </div>
           </>

@@ -3,10 +3,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 type Change = RealtimePostgresChangesPayload<Record<string, unknown>>;
-import { can as canRole, type BillAccount, type BillPayment, type Claim, type ClaimPayment, type ShipPayment, type Runner, hasFeature, intlPhone, type Customer, type Company, type Perm, type Profile, type Shipment, type Trip, type Vehicle } from "@/lib/domain";
+import { can as canRole, type BillAccount, type BillPayment, type Claim, type ClaimPayment, type ShipPayment, type Runner, hasFeature, intlPhone, type Customer, type Expense, type Company, type Perm, type Profile, type Shipment, type Trip, type Vehicle } from "@/lib/domain";
 
 type Row = { id: string };
-type Table = "shipments" | "trips" | "vehicles" | "bill_accounts" | "bill_payments" | "claims" | "claim_payments" | "shipment_payments" | "runners" | "customers";
+type Table = "shipments" | "trips" | "vehicles" | "bill_accounts" | "bill_payments" | "claims" | "claim_payments" | "shipment_payments" | "runners" | "customers" | "expenses";
 /** Tables added by migration 0008; if it hasn't been run yet they just stay empty. */
 const EXTRA: Table[] = ["bill_accounts", "bill_payments", "claims", "claim_payments"];
 
@@ -34,6 +34,10 @@ interface Store {
   hasCustomers: boolean;
   /** Save a customer's name / notes (creates the customer if the phone is new). */
   saveCustomer: (phone: string, values: { name?: string; notes?: string }) => Promise<boolean>;
+  /** money spent on trips and by offices (migration 0026) */
+  expenses: Expense[];
+  /** false until migration 0026 (expenses) has been run */
+  hasExpenses: boolean;
   /** delivery people switched on for this company (and the database is ready) */
   delivery: boolean;
   /** Take a payment (part or full) for a consignment; completes it when the balance reaches 0. */
@@ -70,7 +74,7 @@ const byNewest = (k: string) => (a: Record<string, unknown>, b: Record<string, u
   String(b[k] || "").localeCompare(String(a[k] || ""));
 const SORT: Record<Table, string> = {
   shipments: "received_at", trips: "created_at", vehicles: "plate",
-  bill_accounts: "name", bill_payments: "paid_on", claims: "created_at", claim_payments: "paid_on", shipment_payments: "paid_at", runners: "name", customers: "created_at",
+  bill_accounts: "name", bill_payments: "paid_on", claims: "created_at", claim_payments: "paid_on", shipment_payments: "paid_at", runners: "name", customers: "created_at", expenses: "spent_on",
 };
 const ASC = new Set<Table>(["vehicles", "bill_accounts"]);
 
@@ -98,6 +102,8 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   const [runners, setRunners] = useState<Runner[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [hasCustomers, setHasCustomers] = useState(false);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [hasExpenses, setHasExpenses] = useState(false);
   const [hasRunnerList, setHasRunnerList] = useState(false);
   const [hasExtras, setHasExtras] = useState(false);
   const [hasV9, setHasV9] = useState(false);
@@ -123,6 +129,7 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     shipment_payments: setShipPayments as React.Dispatch<React.SetStateAction<Row[]>>,
     runners: setRunners as React.Dispatch<React.SetStateAction<Row[]>>,
     customers: setCustomers as React.Dispatch<React.SetStateAction<Row[]>>,
+    expenses: setExpenses as React.Dispatch<React.SetStateAction<Row[]>>,
   }), []);
 
   /**
@@ -174,6 +181,9 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     const cu = await fetchAll("customers", "created_at");
     setHasCustomers(!cu.error);
     if (!cu.error && cu.data) setCustomers(cu.data as unknown as Customer[]);
+    const ex = await fetchAll("expenses", "spent_on");
+    setHasExpenses(!ex.error);
+    if (!ex.error && ex.data) setExpenses((ex.data as Record<string, unknown>[]).map((r) => ({ ...r, amount: Number(r.amount) })) as unknown as Expense[]);
     setShipPayments(((sp.data || []) as Record<string, unknown>[]).map((r) => ({ ...r, amount: Number(r.amount) })) as unknown as ShipPayment[]);
     setReady(true);
   }, [sb, initialCompany.id, toast, setters, fetchAll]);
@@ -192,11 +202,11 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
     loadAll();
     const filter = `company_id=eq.${initialCompany.id}`;
     const ch = sb.channel(`company-${initialCompany.id}`);
-    (["shipments", "trips", "vehicles", "shipment_payments", "runners", "customers", ...EXTRA] as Table[]).forEach((table) => {
+    (["shipments", "trips", "vehicles", "shipment_payments", "runners", "customers", "expenses", ...EXTRA] as Table[]).forEach((table) => {
       ch.on("postgres_changes", { event: "*", schema: "public", table, filter }, (p: Change) => {
         const set = setters[table];
         if (p.eventType === "DELETE") set((l) => l.filter((x) => x.id !== (p.old as unknown as Row).id));
-        else set((l) => upsert(l, p.new as unknown as Row, table));
+        else set((l) => upsert(l, (table === "expenses" ? { ...p.new, amount: Number((p.new as { amount: unknown }).amount) } : p.new) as unknown as Row, table));
       });
     });
     ch.on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter }, () => { reloadStaff(); });
@@ -291,13 +301,13 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   // Delivery people: the company switched the feature on and the database has the list (0020).
   const delivery = hasRunners && hasRunnerList && hasFeature(company, "delivery");
   const value = useMemo<Store>(() => ({
-    me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, hasRunners, runners, delivery, customers, hasCustomers, saveCustomer, takePayment, logPayment, hasExtras, hasV9, staff, ready,
+    me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, hasRunners, runners, delivery, customers, hasCustomers, saveCustomer, expenses, hasExpenses, takePayment, logPayment, hasExtras, hasV9, staff, ready,
     can: (p) => canRole(me.role, p),
     toast, insert, patch, patchMany, remove, patchCompany, reloadStaff,
     tripById: (id) => (id ? trips.find((t) => t.id === id) : undefined),
     shipById: (id) => (id ? shipments.find((s) => s.id === id) : undefined),
     tripShips: (t) => shipments.filter((s) => s.trip_id === t.id),
-  }), [me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, hasRunners, runners, delivery, customers, hasCustomers, saveCustomer, takePayment, logPayment, hasExtras, hasV9, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
+  }), [me, company, shipments, trips, vehicles, accounts, billPayments, claims, claimPayments, shipPayments, hasPart, hasRunners, runners, delivery, customers, hasCustomers, saveCustomer, expenses, hasExpenses, takePayment, logPayment, hasExtras, hasV9, staff, ready, toast, insert, patch, patchMany, remove, patchCompany, reloadStaff]);
 
   return (
     <Ctx.Provider value={value}>
