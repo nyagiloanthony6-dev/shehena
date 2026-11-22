@@ -6,7 +6,7 @@ import { useUi } from "../CargoApp";
 import { RunnerReport } from "./Runners";
 import { PayPill, StatusPill, TripPill } from "../parts";
 import { DailyChart, YearPanel, chartDays } from "../charts";
-import { stLabel, sumPaid, sumBalance, balanceOf, CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip, type Expense, sumExp, tripExpenses } from "@/lib/domain";
+import { stLabel, sumPaid, sumBalance, balanceOf, CLAIM_KINDS, PAY_LABEL, fmtDate, fmtDay, goodsLabel, pkgsOf, prettyPhone, regShort, sumCharge, tzs, type Shipment, type Trip, type Expense, sumExp, tripExpenses, moneyIn, paysByShip, type PayPlace } from "@/lib/domain";
 
 type Period = "today" | "7" | "30" | "month" | "all" | "custom";
 type Tab = "overview" | "pay" | "expenses" | "trucks" | "claims" | "discounts" | "bills" | "deliveries" | "runners";
@@ -17,6 +17,7 @@ const TABS: [Tab, string][] = [
 // b = billed, pd = paid, u = unpaid at the counter, bl = on monthly bills
 const agg = (L: Shipment[]) => ({ b: sumCharge(L), pd: sumPaid(L), u: sumBalance(L), bl: sumCharge(L.filter((x) => x.pay === "bill")) });
 const localDay = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+const inDays = (iso: string, from: string, to: string) => { const d = localDay(new Date(iso)); return d >= from && d <= to; };
 const daysSince = (iso?: string | null) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : 0);
 
 /** Download rows as a CSV file that opens in Excel (UTF-8 with BOM). */
@@ -397,8 +398,24 @@ function periodText(range: [string, string]) {
 
 function Overview({ S, range }: { S: Shipment[]; range: [string, string] }) {
   const days = chartDays(range);
-  const { shipments } = useStore();
+  const { shipments, shipPayments } = useStore();
   const billed = sumCharge(S);
+  // Money taken in the period (by payment date), and the office that took it.
+  const taken = useMemo(() => {
+    const byShip = paysByShip(shipPayments);
+    const rows: (PayPlace & { s: Shipment })[] = [];
+    for (const s of shipments) for (const p of moneyIn(s, byShip[s.id])) if (inDays(p.at, range[0], range[1])) rows.push({ ...p, s });
+    return rows;
+  }, [shipments, shipPayments, range]);
+  const tOrigin = taken.filter((p) => p.where === "origin").reduce((a, p) => a + p.amount, 0);
+  const tDest = taken.filter((p) => p.where === "dest").reduce((a, p) => a + p.amount, 0);
+  const tOther = taken.filter((p) => p.where === "other").reduce((a, p) => a + p.amount, 0);
+  const tAll = tOrigin + tDest + tOther;
+  const byOffice = Object.entries(taken.reduce<Record<string, { o: number; on: number; d: number; dn: number; x: number; xn: number }>>((m, p) => {
+    const r = (m[p.station] ||= { o: 0, on: 0, d: 0, dn: 0, x: 0, xn: 0 });
+    if (p.where === "origin") { r.o += p.amount; r.on++; } else if (p.where === "dest") { r.d += p.amount; r.dn++; } else { r.x += p.amount; r.xn++; }
+    return m;
+  }, {})).sort((a, b) => b[1].o + b[1].d + b[1].x - (a[1].o + a[1].d + a[1].x));
   const paid = S.filter((s) => s.pay === "paid");
   const paidAmt = sumPaid(S);
   const U = S.filter((x) => x.pay === "unpaid"), B = S.filter((x) => x.pay === "bill");
@@ -419,6 +436,28 @@ function Overview({ S, range }: { S: Shipment[]; range: [string, string] }) {
         <div className={`stat${sumBalance(U) ? " warn" : ""}`}><div className="lbl">Outstanding</div><div className="v">{tzs(sumBalance(U))}</div><div className="s">TZS · {U.length} unpaid{B.length ? ` · ${tzs(sumCharge(B))} on bills` : ""}</div></div>
         <div className="stat"><div className="lbl">Delivered</div><div className="v">{S.filter((s) => s.status === "collected").length}</div><div className="s">of these consignments</div></div>
         <div className="stat"><div className="lbl">Awaiting pickup</div><div className="v">{shipments.filter((s) => s.status === "arrived").length}</div><div className="s">at destinations now</div></div>
+      </div>
+      <div className="panel" style={{ marginTop: 16 }}>
+        <div className="ph"><div><h2>Where the money was taken</h2><div className="sub">Payments made in the period, by the office that took them. Origin = the office that received the goods; destination = where they are collected.</div></div>
+          {taken.length > 0 && <XL onClick={() => downloadCsv(`Shehena-payments-by-office-${range[0]}-${range[1]}`, ["Paid on", "Waybill", "Sender", "Receiver", "Route", "Office", "Origin / destination", "Method", "TZS", "Taken by"],
+            taken.sort((a, b) => a.at.localeCompare(b.at)).map((p) => [fmtDate(p.at), p.s.no, p.s.s_name, p.s.r_name, `${regShort(p.s.origin)} → ${regShort(p.s.dest)}`, regShort(p.station), p.where === "origin" ? "Origin" : p.where === "dest" ? "Destination" : "Other office", p.method, p.amount, p.by || ""]))} />}</div>
+        <div className="where-split">
+          <div className="ws-o"><span>At origin offices</span><b>TZS {tzs(tOrigin)}</b><small>{taken.filter((p) => p.where === "origin").length} payments{tAll ? ` · ${Math.round((tOrigin / tAll) * 100)}%` : ""}</small></div>
+          <div className="ws-d"><span>At destination offices</span><b>TZS {tzs(tDest)}</b><small>{taken.filter((p) => p.where === "dest").length} payments{tAll ? ` · ${Math.round((tDest / tAll) * 100)}%` : ""}</small></div>
+          {tOther > 0 && <div className="ws-x"><span>Other offices</span><b>TZS {tzs(tOther)}</b><small>e.g. drops on the way</small></div>}
+          <div className="ws-t"><span>Total taken</span><b>TZS {tzs(tAll)}</b><small>{taken.length} payments</small></div>
+        </div>
+        {tAll > 0 && <div className="ws-bar" aria-hidden="true"><i className="o" style={{ width: `${(tOrigin / tAll) * 100}%` }} /><i className="d" style={{ width: `${(tDest / tAll) * 100}%` }} /><i className="x" style={{ width: `${(tOther / tAll) * 100}%` }} /></div>}
+        <div className="ledger"><table className="small"><thead><tr><th>Office</th><th className="r">As origin</th><th className="r">As destination</th>{tOther > 0 && <th className="r">Other</th>}<th className="r">Total TZS</th></tr></thead>
+          <tbody>{byOffice.map(([k, x]) => (
+            <tr key={k}><td><b>{regShort(k)}</b></td>
+              <td className="r num">{x.on ? <>{tzs(x.o)}<div className="sub">{x.on} payments</div></> : "—"}</td>
+              <td className="r num">{x.dn ? <>{tzs(x.d)}<div className="sub">{x.dn} payments</div></> : "—"}</td>
+              {tOther > 0 && <td className="r num">{x.xn ? tzs(x.x) : "—"}</td>}
+              <td className="r num" style={{ fontWeight: 700 }}>{tzs(x.o + x.d + x.x)}</td></tr>))}
+            {!taken.length && <tr><td colSpan={5} className="sub">No payments in this period.</td></tr>}</tbody>
+          {taken.length > 0 && <tfoot><tr><td>Total</td><td className="r num">{tzs(tOrigin)}</td><td className="r num">{tzs(tDest)}</td>{tOther > 0 && <td className="r num">{tzs(tOther)}</td>}<td className="r num">{tzs(tAll)}</td></tr></tfoot>}
+        </table></div>
       </div>
       <div className="rgrid">
         <div className="panel"><h2>Billed per day</h2><div className="sub">TZS, {days.length} days to {new Date(days[days.length - 1] + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}. Faded bars: unpaid charges still open, or days outside the period.</div><DailyChart range={range} /></div>

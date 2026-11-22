@@ -4,13 +4,18 @@ import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { Icon } from "../Icon";
 import { PayPill, StatusPill, usePaged, Pager } from "../parts";
-import { sumPaid, sumBalance, isPart, noPrice, nameOr, tripSearchIndex, truckMatches, shipMatches, isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, fmtDate, regShort, sumCharge, tzs } from "@/lib/domain";
+import { sumPaid, sumBalance, isPart, noPrice, nameOr, tripSearchIndex, truckMatches, shipMatches, isAir, statusList, REGIONS, STATUS, officesOf, goodsLabel, fmtDate, regShort, sumCharge, tzs, moneyIn, paysByShip, type PayPlace, type Shipment } from "@/lib/domain";
 
 const localDay = (iso: string) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const inDays = (iso: string, from: string, to: string) => { const d = localDay(iso); return (!from || d >= from) && (!to || d <= to); };
 
+/** "origin" | "dest" | "@DOD" */
+const atMatch = (p: PayPlace, k: string) => (k === "origin" ? p.where === "origin" : k === "dest" ? p.where === "dest" : p.station === k.slice(1));
+
 export default function Consignments() {
-  const { shipments, trips, tripById, can, company } = useStore();
+  const { shipments, trips, tripById, can, company, shipPayments } = useStore();
+  const pays = useMemo(() => paysByShip(shipPayments), [shipPayments]);
+  const [paidAt, setPaidAt] = useState("");
   const tripIdx = useMemo(() => tripSearchIndex(trips), [trips]);
   // Only the towns this company delivers to: its offices (not the head office), plus any other town it has actually sent goods to.
   const destList = useMemo(() => {
@@ -34,9 +39,15 @@ export default function Consignments() {
     return shipments.filter((s) =>
       (!from && !to || inDays(s.received_at, from, to)) &&
       (!dest || s.dest === dest) && (!status || s.status === status) && (!pay || (pay === "noprice" ? noPrice(s) : s.pay === pay)) &&
+      (!paidAt || moneyIn(s, pays[s.id]).some((p) => atMatch(p, paidAt))) &&
       (!ql || shipMatches(s, q) || truckMatches(tripIdx, s.trip_id, q)));
-  }, [shipments, q, dest, status, pay, from, to, tripIdx]);
-  const { rows, pager } = usePaged(list, [q, dest, status, pay, from, to].join("|"));
+  }, [shipments, q, dest, status, pay, from, to, tripIdx, paidAt, pays]);
+  const { rows, pager } = usePaged(list, [q, dest, status, pay, from, to, paidAt].join("|"));
+  const paidHere = paidAt ? list.reduce((a, s) => a + moneyIn(s, pays[s.id]).filter((p) => atMatch(p, paidAt)).reduce((x, p) => x + p.amount, 0), 0) : 0;
+  const payOffices = useMemo(() => [...new Set(shipPayments.map((p) => p.station).filter(Boolean) as string[])], [shipPayments]);
+  const placeName = paidAt === "origin" ? "origin offices" : paidAt === "dest" ? "destination offices" : regShort(paidAt.slice(1));
+  /** Where it was paid, for the list: "at DAR", "at DOD", "at DAR + DOD". */
+  const atLabel = (s: Shipment) => { const st = [...new Set(moneyIn(s, pays[s.id]).map((p) => regShort(p.station)))]; return st.length ? `at ${st.join(" + ")}` : ""; };
   const today = localDay(new Date().toISOString());
   const quick = (days: number) => { setFrom(localDay(new Date(Date.now() - (days - 1) * 864e5).toISOString())); setTo(today); };
   const paidSum = sumPaid(list), owed = sumBalance(list);
@@ -70,9 +81,14 @@ export default function Consignments() {
         <div className="chips">{([["", "All statuses"], ...statusList(isAir(company))] as [string, string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={status === k} onClick={() => setStatus(k)}>{l}</button>)}</div>
         <div className="chips">{([["", "Any payment"], ["unpaid", "Not paid"], ["paid", "Paid"], ["bill", "Monthly bill"], ["noprice", `No amount · ${noPriceN}`]] as ["" | "paid" | "unpaid" | "bill" | "noprice", string][]).map(([k, l]) => <button key={k} className="chip" aria-pressed={pay === k} onClick={() => ui.setListPay(k)}>{l}</button>)}</div>
       </div>
+      <div className="filters" style={{ marginTop: 8 }}>
+        <span className="sub">Paid at</span>
+        <div className="chips">{([["", "Any office"], ["origin", "Origin office"], ["dest", "Destination office"], ...(payOffices.length > 2 ? payOffices.map((o) => ["@" + o, regShort(o)]) : [])] as [string, string][]).map(([k, l]) =>
+          <button key={k} className="chip" aria-pressed={paidAt === k} onClick={() => setPaidAt(k)}>{l}</button>)}</div>
+      </div>
       {list.length > 0 && (
         <div className="sub" style={{ marginTop: 12 }}>
-          Showing <b>{list.length}</b> · TZS <b>{tzs(sumCharge(list))}</b> billed · <span style={{ color: "var(--good)" }}>TZS <b>{tzs(paidSum)}</b> paid</span> · <span style={{ color: "var(--bad)" }}>TZS <b>{tzs(owed)}</b> unpaid</span>
+          Showing <b>{list.length}</b> · TZS <b>{tzs(sumCharge(list))}</b> billed · <span style={{ color: "var(--good)" }}>TZS <b>{tzs(paidSum)}</b> paid</span> · <span style={{ color: "var(--bad)" }}>TZS <b>{tzs(owed)}</b> unpaid</span>{paidAt && <> · <b>TZS {tzs(paidHere)}</b> taken at {placeName}</>}
         </div>
       )}
       {list.length > 0 && (
@@ -86,7 +102,7 @@ export default function Consignments() {
                 <td><b style={{ fontWeight: 600 }}>{goodsLabel(s)}</b><div className="sub">{s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}{s.kg ? ` · ${s.kg} kg` : ""}</div></td>
                 <td>{nameOr(s.s_name)}<div className="sub">to {nameOr(s.r_name)}</div></td>
                 <td className="route">{regShort(s.origin)}<i>→</i>{regShort(s.dest)}</td>
-                <td className="r"><span className="num amt">{tzs(s.charge)}</span><div style={{ marginTop: 3 }}>{noPrice(s) ? <span className="pill no-price">No amount</span> : <PayPill pay={s.pay} part={isPart(s)} />}</div></td>
+                <td className="r"><span className="num amt">{tzs(s.charge)}</span><div style={{ marginTop: 3 }}>{noPrice(s) ? <span className="pill no-price">No amount</span> : <PayPill pay={s.pay} part={isPart(s)} />}{atLabel(s) && <div className="sub" style={{ fontSize: 11.5 }}>{atLabel(s)}</div>}</div></td>
                 <td><StatusPill s={s.status} />{t && <div className="sub mono" style={{ marginTop: 3 }}>{t.plate}</div>}</td>
               </tr>
             );
@@ -98,7 +114,7 @@ export default function Consignments() {
           <div className="ctop"><span className="mono wb sub">{s.no}{s.found_on_arrival && <span className="tag-found">Found</span>}</span><StatusPill s={s.status} /></div>
           <div><b>{goodsLabel(s)}</b> · {s.pkgs} pkg{s.pkgs === 1 ? "" : "s"}</div>
           <div className="sub">{nameOr(s.s_name)} → {nameOr(s.r_name)} · {regShort(s.dest)}</div>
-          <div className="cbot"><b>TZS {tzs(s.charge)}</b>{noPrice(s) ? <span className="pill no-price">No amount</span> : <PayPill pay={s.pay} part={isPart(s)} />}</div>
+          <div className="cbot"><b>TZS {tzs(s.charge)}</b><span>{noPrice(s) ? <span className="pill no-price">No amount</span> : <PayPill pay={s.pay} part={isPart(s)} />}{atLabel(s) && <span className="sub" style={{ fontSize: 11.5, marginLeft: 6 }}>{atLabel(s)}</span>}</span></div>
         </button>
       ))}</div>
       <Pager pager={pager} />

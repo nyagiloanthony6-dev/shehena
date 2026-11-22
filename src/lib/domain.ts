@@ -549,3 +549,21 @@ export const EXPENSE_CATS: Record<Expense["kind"], string[]> = {
 export const sumExp = (L: Pick<Expense, "amount">[]) => L.reduce((a, e) => a + Number(e.amount || 0), 0);
 /** Expenses of a trip. */
 export const tripExpenses = (all: Expense[], tripId: string) => all.filter((e) => e.trip_id === tripId);
+
+/** One payment on a consignment and the office that took it. */
+export type PayPlace = { station: string; amount: number; at: string; method: string; by: string | null; where: "origin" | "dest" | "other" };
+/** Payments of each consignment, by shipment id. */
+export const paysByShip = (pays: ShipPayment[]) => pays.reduce<Record<string, ShipPayment[]>>((m, p) => { (m[p.shipment_id] ||= []).push(p); return m; }, {});
+/**
+ * Where the money for a consignment was taken. Uses the payment records; for payments made
+ * before they were kept, a payment after arrival counts as the destination office, otherwise the origin.
+ */
+export function moneyIn(s: Shipment, rows?: ShipPayment[]): PayPlace[] {
+  const where = (st: string): PayPlace["where"] => (st === s.origin ? "origin" : st === s.dest ? "dest" : "other");
+  if (rows?.length) return rows.map((p) => { const st = p.station || s.origin; return { station: st, amount: Number(p.amount), at: p.paid_at, method: p.method || s.method || "", by: p.paid_by, where: where(st) }; });
+  const amount = s.pay === "paid" ? Number(s.charge || 0) : Number(s.paid_amount || 0);
+  if (!(amount > 0) || s.pay === "bill") return [];
+  const at = s.paid_at || s.received_at;
+  const st = s.arrived_at && at >= s.arrived_at ? s.dest : s.origin;
+  return [{ station: st, amount, at, method: s.method || "", by: s.paid_by || null, where: where(st) }];
+}
