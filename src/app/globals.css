@@ -987,3 +987,9 @@ button.lrow.cu-ship:hover{background:var(--sunk)}
 .tpl-prev p{margin:4px 0 6px;font-size:13.5px;line-height:1.45}
 .tpl-count{font-size:12px;color:var(--muted);font-weight:600}
 .tpl-count.warn{color:#9A5B0B}
+.sms-price{font-size:13.5px;color:#C9D2EA}
+.sms-price em{font-style:normal;font-family:var(--f-display);font-weight:700;font-size:22px;color:#fff;margin-right:4px}
+.sms-packs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:4px 0 6px}
+.sms-packs span{display:flex;flex-direction:column;background:rgba(255,255,255,.08);border-radius:8px;padding:6px 8px;font-size:12px;color:#C9D2EA;font-variant-numeric:tabular-nums}
+.sms-packs b{color:#fff;font-size:12.5px}
+@media (max-width:640px){.sms-packs{grid-template-columns:1fr 1fr}}

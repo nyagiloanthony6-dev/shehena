@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Mark, Wordmark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
-  addSmsBundle, setSmsSender, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
+  addSmsBundle, setSmsSender, saveSmsPrice, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
   setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen, truckActivity, deleteCompany, type TruckRow,
 } from "@/app/owner/actions";
 import {
@@ -18,7 +18,7 @@ import { ROLES, fmtDate, tzs, type Role } from "@/lib/domain";
 
 type Status = "trial" | "active" | "overdue" | "suspended";
 type Company = { id: string; name: string; branch: string; phone: string; created_at: string; mode?: string; account_no?: string };
-type Account = { company_id: string; status: Status; notes: string; status_changed_at: string; trial_ends: string | null; paid_until: string | null; custom_fee: number | null; auto_status: boolean; agent_id: number | string | null; agent_since: string | null; price_model?: PriceModel | null; price_rate?: number | null; price_min?: number | null; sms_balance?: number | null };
+type Account = { company_id: string; status: Status; notes: string; status_changed_at: string; trial_ends: string | null; paid_until: string | null; custom_fee: number | null; auto_status: boolean; agent_id: number | string | null; agent_since: string | null; price_model?: PriceModel | null; price_rate?: number | null; price_min?: number | null; sms_balance?: number | null; sms_price?: number | null };
 type Stat = { company_id: string; staff: number; active_staff: number; vehicles: number; trips_month: number; ship_month: number; billed_month: number; paid_month: number; ship_total: number; last_activity: string | null };
 type Staff = { id: string; company_id: string; full_name: string; email: string; role: Role; active: boolean; created_at: string };
 type Lead = { id: number; created_at: string; name: string; company: string; phone: string; email: string; region: string; trucks: string; message: string; source: string; status: string };
@@ -636,7 +636,7 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close, smsShared 
       <div className="sheet-cols">
         <div className="sheet-col">
       <Billing r={r} agents={agents} settings={settings} busy={busy} run={run} />
-      <SmsCard r={r} busy={busy} run={run} shared={smsShared} />
+      <SmsCard r={r} busy={busy} run={run} shared={smsShared} stdPrice={settings.sms_price} />
         </div>
         <div className="sheet-col">
 
@@ -909,7 +909,9 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
 }
 
 /** SMS bundles: the client's balance and adding a bundle they paid for. */
-function SmsCard({ r, busy, run, shared }: { r: Row; busy: boolean; run: Run; shared?: string }) {
+function SmsCard({ r, busy, run, shared, stdPrice }: { r: Row; busy: boolean; run: Run; shared?: string; stdPrice?: number }) {
+  const [own, setOwn] = useState(r.acc.sms_price != null ? String(r.acc.sms_price) : "");
+  const price = Number(r.acc.sms_price ?? stdPrice ?? 0);
   const [f, setF] = useState({ sms: "", amount: "", method: "M-Pesa", reference: "", note: "" });
   const co = r as unknown as { sms_sender?: string | null; sms_sender_request?: string | null; sms_sender_requested_at?: string | null };
   const [snd, setSnd] = useState(co.sms_sender || co.sms_sender_request || "");
@@ -921,9 +923,10 @@ function SmsCard({ r, busy, run, shared }: { r: Row; busy: boolean; run: Run; sh
   return (
     <div className="card"><h3>SMS · <span className="num">{Number(bal || 0).toLocaleString("en-US")}</span> left</h3>
       <p className="sub" style={{ marginTop: 0 }}>{on ? `${on} automatic message type${on === 1 ? "" : "s"} switched on by the client.` : "The client hasn't switched on automatic SMS yet."} Each SMS sent takes 1 off the balance (long messages take 2–3).</p>
-      <div className="chips" style={{ marginBottom: 8 }}>{[500, 1000, 2000, 5000].map((n) => <button key={n} type="button" className="chip" aria-pressed={Number(f.sms) === n} onClick={() => setF({ ...f, sms: String(n) })}>{n.toLocaleString("en-US")} SMS</button>)}</div>
+      <p className="sub" style={{ margin: "0 0 8px" }}>Price: <b>TZS {price} per SMS</b>{r.acc.sms_price != null ? " (special price)" : " (standard)"}</p>
+      <div className="chips" style={{ marginBottom: 8 }}>{[500, 1000, 2000, 5000].map((n) => <button key={n} type="button" className="chip" aria-pressed={Number(f.sms) === n} onClick={() => setF({ ...f, sms: String(n), amount: price ? String(Math.round(n * price)) : f.amount })}>{n.toLocaleString("en-US")} SMS{price ? ` · ${tzs(Math.round(n * price))}` : ""}</button>)}</div>
       <div className="fields">
-        <label className="f">SMS to add<input inputMode="numeric" value={f.sms} onChange={(e) => setF({ ...f, sms: e.target.value.replace(/[^\d-]/g, "") })} placeholder="e.g. 1000" /></label>
+        <label className="f">SMS to add<input inputMode="numeric" value={f.sms} onChange={(e) => { const sms = e.target.value.replace(/[^\d-]/g, ""); setF({ ...f, sms, amount: price && Number(sms) > 0 ? String(Math.round(Number(sms) * price)) : f.amount }); }} placeholder="e.g. 1000" /></label>
         <label className="f">Paid (TZS)<input inputMode="numeric" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/[^\d]/g, "") })} placeholder="e.g. 30000" /></label>
         <label className="f">Method<input value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} /></label>
         <label className="f">Reference<input value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} placeholder="M-Pesa code" /></label>
@@ -931,6 +934,15 @@ function SmsCard({ r, busy, run, shared }: { r: Row; busy: boolean; run: Run; sh
       {per > 0 && <p className="note">TZS {per} per SMS.</p>}
       <div className="actions"><button className="btn sm primary" disabled={busy || !Number(f.sms)} onClick={() => run(() => addSmsBundle(r.id, { sms: Number(f.sms), amount: Number(f.amount), method: f.method, reference: f.reference, note: f.note }), () => setF({ sms: "", amount: "", method: "M-Pesa", reference: "", note: "" }))}>Add SMS bundle</button></div>
       <p className="note">To correct a mistake, add a negative number (e.g. -500).</p>
+      {"sms_price" in r.acc && (
+        <div className="snd-owner">
+          <div className="lbl" style={{ marginTop: 6 }}>Special SMS price</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+            <input inputMode="decimal" value={own} onChange={(e) => setOwn(e.target.value.replace(/[^\d.]/g, ""))} placeholder={`Standard: ${stdPrice ?? "—"}`} style={{ width: 160 }} aria-label="Special price per SMS" />
+            <button className="btn sm" disabled={busy || own === (r.acc.sms_price != null ? String(r.acc.sms_price) : "")} onClick={() => run(() => saveSmsPrice(own ? Number(own) : (null as unknown as number), r.id))}>{own ? "Save special price" : "Use standard price"}</button>
+          </div>
+        </div>
+      )}
       {"sms_sender_request" in r && (
         <div className="snd-owner">
           <div className="lbl" style={{ marginTop: 6 }}>Sender name</div>
@@ -980,7 +992,29 @@ function Pricing({ settings, rows, busy, run }: { settings: OwnerData["settings"
         <div className="actions"><button className="btn sm primary" type="submit" disabled={busy}>Save billing rules</button></div>
         <p className="note">Clients see a reminder 5 days before the due date, then an overdue warning with the suspension date.</p>
       </form>
+      <SmsPricePanel settings={settings} busy={busy} run={run} />
     </div>
+  );
+}
+
+const SMS_PACKS = [500, 1000, 2000, 5000];
+/** Standard price per SMS, shown to every client in Settings > SMS. */
+function SmsPricePanel({ settings, busy, run }: { settings: OwnerData["settings"]; busy: boolean; run: Run }) {
+  const [v, setV] = useState(settings.sms_price != null ? String(settings.sms_price) : "");
+  const price = Number(v) || 0;
+  return (
+    <form className="panel" noValidate onSubmit={(e) => { e.preventDefault(); run(() => saveSmsPrice(price)); }}>
+      <h2>SMS price</h2>
+      <p className="sub" style={{ marginTop: 4 }}>What clients pay you per SMS. They see this price and the bundle prices in Settings &gt; SMS. You can give a client a special price on their SMS card.</p>
+      <div className="fields" style={{ marginTop: 8 }}>
+        <label className="f">Price per SMS (TZS)<input inputMode="decimal" value={v} onChange={(e) => setV(e.target.value.replace(/[^\d.]/g, ""))} aria-label="Price per SMS" /></label>
+      </div>
+      {price > 0 && <div className="ledger" style={{ border: 0, marginTop: 8 }}><table className="small" style={{ minWidth: 0 }}>
+        <thead><tr><th>Bundle</th>{SMS_PACKS.map((n) => <th key={n} className="r">{n.toLocaleString("en-US")}</th>)}</tr></thead>
+        <tbody><tr><td>TZS</td>{SMS_PACKS.map((n) => <td key={n} className="r num">{tzs(Math.round(n * price))}</td>)}</tr></tbody>
+      </table></div>}
+      <div className="actions"><button className="btn sm primary" type="submit" disabled={busy || !(price > 0) || price === Number(settings.sms_price)}>Save SMS price</button></div>
+    </form>
   );
 }
 

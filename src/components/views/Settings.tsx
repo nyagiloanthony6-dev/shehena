@@ -424,6 +424,12 @@ function SmsSettings({ sub }: { sub?: Subscription | null }) {
         </div>
         <div className="sms-buy">
           <b>{low ? "Running low? " : ""}Buy an SMS bundle</b>
+          {data?.price ? (
+            <>
+              <span className="sms-price"><em>TZS {data.price.toLocaleString("en-US")}</em> per SMS</span>
+              <span className="sms-packs">{[500, 1000, 2000, 5000].map((n) => <span key={n}><b>{n.toLocaleString("en-US")} SMS</b>TZS {tzs(Math.round(n * data.price!))}</span>)}</span>
+            </>
+          ) : null}
           <span>{sub?.instructions || "Pay Serengeti Labs and your SMS are added to this balance."}</span>
           <span className="sub-l">One SMS = 160 characters. Longer messages use 2 or 3 SMS.</span>
         </div>

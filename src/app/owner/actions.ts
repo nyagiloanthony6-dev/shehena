@@ -525,3 +525,21 @@ export async function setSmsSender(company_id: string, name: string): Promise<Re
     return { ok: n ? `SMS for this client now go out as "${n}".` : "This client now uses the shared sender name." };
   } catch (e) { return fail(e); }
 }
+
+/** Standard price per SMS (TZS), or a special price for one client (null = standard). Shown to clients. */
+export async function saveSmsPrice(price: number, company_id?: string | null): Promise<Result> {
+  try {
+    const by = await owner();
+    const p = price === null || Number.isNaN(Number(price)) ? null : Math.round(Number(price) * 100) / 100;
+    if (!company_id && !(p !== null && p > 0)) return { error: "Enter the price per SMS." };
+    if (company_id && p !== null && !(p > 0)) return { error: "Enter a price above 0, or leave it empty for the standard price." };
+    const admin = supabaseAdmin();
+    const { error } = company_id
+      ? await admin.from("company_accounts").update({ sms_price: p }).eq("company_id", company_id)
+      : await admin.from("platform_settings").update({ sms_price: p }).eq("id", 1);
+    if (error) return { error: /sms_price/.test(error.message) ? "Run migration 0030_sms_price.sql in Supabase first." : "Could not save the price." };
+    await audit(by, "sms_price", company_id || null, { price: p });
+    revalidatePath("/owner");
+    return { ok: company_id ? (p ? `This client now pays TZS ${p} per SMS.` : "This client now pays the standard SMS price.") : `Standard SMS price saved: TZS ${p} per SMS.` };
+  } catch (e) { return fail(e); }
+}

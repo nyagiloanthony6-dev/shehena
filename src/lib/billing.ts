@@ -7,7 +7,7 @@ export interface BillingPayment {
   period_from: string; period_to: string; method: string; reference: string; paid_on: string; recorded_by: string; created_at: string;
   setup_fee?: number; trucks?: number | null; trips?: number | null;
 }
-export interface BillingSettings { trial_days: number; grace_days: number; auto_suspend: boolean; billing_instructions: string; truck_price: number; min_fee: number }
+export interface BillingSettings { trial_days: number; grace_days: number; auto_suspend: boolean; billing_instructions: string; truck_price: number; min_fee: number; /** standard price per SMS, TZS (migration 0030) */ sms_price?: number }
 export type Pricing = Pick<BillingSettings, "truck_price" | "min_fee">;
 export interface BillingAccount {
   company_id: string; status: AccountStatus; trial_ends: string | null; paid_until: string | null;

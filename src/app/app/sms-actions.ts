@@ -98,19 +98,22 @@ export async function requestSender(name: string): Promise<{ ok?: string; error?
   } catch (e) { return { error: (e as Error).message }; }
 }
 
-export async function smsOverview(): Promise<{ sender: string; shared: boolean; ready: boolean; configured: boolean; balance: number; log: { id: string; created_at: string; kind: string; to_role: string; phone: string; body: string; parts: number; status: string; error: string; auto: boolean; sent_by: string }[]; monthSent: number; topups: { paid_on: string; sms: number; amount: number }[] }> {
+export async function smsOverview(): Promise<{ price: number | null; sender: string; shared: boolean; ready: boolean; configured: boolean; balance: number; log: { id: string; created_at: string; kind: string; to_role: string; phone: string; body: string; parts: number; status: string; error: string; auto: boolean; sent_by: string }[]; monthSent: number; topups: { paid_on: string; sms: number; amount: number }[] }> {
   try {
     const { me, company } = await caller();
     const admin = supabaseAdmin();
-    const { data: acc, error } = await admin.from("company_accounts").select("sms_balance").eq("company_id", company.id).maybeSingle();
+    const { data: acc, error } = await admin.from("company_accounts").select("*").eq("company_id", company.id).maybeSingle();
+    const { data: ps } = await admin.from("platform_settings").select("*").eq("id", 1).maybeSingle();
+    const raw = acc?.sms_price ?? ps?.sms_price;
+    const price = raw != null && Number(raw) > 0 ? Number(raw) : null;
     const sender = senderFor(company), shared = !company.sms_sender?.trim();
-    if (error && /sms_balance/.test(error.message)) return { sender, shared, ready: false, configured: smsConfigured(), balance: 0, log: [], monthSent: 0, topups: [] };
+    if (error || !acc || !("sms_balance" in acc)) return { price, sender, shared, ready: false, configured: smsConfigured(), balance: 0, log: [], monthSent: 0, topups: [] };
     const start = new Date(); start.setUTCDate(1); start.setUTCHours(0, 0, 0, 0);
     const [{ data: log }, { data: month }, { data: tops }] = await Promise.all([
       admin.from("sms_log").select("id, created_at, kind, to_role, phone, body, parts, status, error, auto, sent_by").eq("company_id", company.id).order("created_at", { ascending: false }).limit(60),
       admin.from("sms_log").select("parts").eq("company_id", company.id).eq("status", "sent").gte("created_at", start.toISOString()),
       me.role === "admin" || me.role === "ceo" ? admin.from("sms_topups").select("paid_on, sms, amount").eq("company_id", company.id).order("created_at", { ascending: false }).limit(12) : Promise.resolve({ data: [] }),
     ]);
-    return { sender, shared, ready: true, configured: smsConfigured(), balance: Number(acc?.sms_balance || 0), log: (log || []) as never, monthSent: (month || []).reduce((a, r) => a + Number(r.parts || 0), 0), topups: (tops || []) as never };
-  } catch { return { sender: "", shared: true, ready: false, configured: false, balance: 0, log: [], monthSent: 0, topups: [] }; }
+    return { price, sender, shared, ready: true, configured: smsConfigured(), balance: Number(acc?.sms_balance || 0), log: (log || []) as never, monthSent: (month || []).reduce((a, r) => a + Number(r.parts || 0), 0), topups: (tops || []) as never };
+  } catch { return { price: null, sender: "", shared: true, ready: false, configured: false, balance: 0, log: [], monthSent: 0, topups: [] }; }
 }
