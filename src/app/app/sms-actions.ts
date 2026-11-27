@@ -35,7 +35,8 @@ export async function autoSms(ids: string[], kind: NoticeKind): Promise<{ sent: 
   try {
     if (!ids.length) return none;
     const { sb, me, company } = await caller();
-    const auto: SmsAuto = company.sms_auto || {};
+    const a0: SmsAuto = company.sms_auto || {};
+    const auto: SmsAuto = { ...a0, collected_receiver: a0.collected_receiver ?? a0.collected_sender };
     const wanted = SMS_EVENTS.filter((e) => e.kind === kind && auto[e.key]).map((e) => e.to);
     if (!wanted.length) return none;
     const { L, plates } = await shipmentsFor(sb, ids);

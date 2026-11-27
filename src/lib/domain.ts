@@ -415,6 +415,9 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   if (kind === "departed") return sw
     ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umepakiwa kwenye ${veh} ${plate} na umeondoka ${O} ${day} kuelekea ${D}. Tutakujulisha ukifika. ${co}${ph ? ", simu: " + ph : ""}`
     : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), are loaded on ${veh} ${plate} and left ${O} on ${day} for ${D}. We will notify you on arrival. ${co}${ph ? ", tel: " + ph : ""}`;
+  if (kind === "collected" && to === "receiver") return sw
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) kutoka kwa ${s.s_name} umechukuliwa ofisini ${D} ${fmtDay(s.collected_at || new Date().toISOString())}${s.collector_name && s.collector_name !== s.r_name ? ` na ${s.collector_name}` : ""}. Asante kwa kutumia ${co}.${ph ? " Simu: " + ph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}) from ${s.s_name}, were collected at our ${D} office on ${fmtDay(s.collected_at || new Date().toISOString())}${s.collector_name && s.collector_name !== s.r_name ? ` by ${s.collector_name}` : ""}. Thank you for using ${co}.${ph ? " Tel: " + ph : ""}`;
   if (kind === "collected") return sw
     ? `Habari ${s.s_name}, mzigo namba ${s.no} (${items}) uliotuma kwa ${s.r_name} umechukuliwa ${D}${s.collector_name ? ` na ${s.collector_name}` : ""}. Asante kwa kutumia ${co}.${ph ? " Simu: " + ph : ""}`
     : `Hello ${s.s_name}, waybill ${s.no} (${items}) you sent to ${s.r_name} has been collected in ${D}${s.collector_name ? ` by ${s.collector_name}` : ""}. Thank you for using ${co}.${ph ? " Tel: " + ph : ""}`;
@@ -578,13 +581,13 @@ export function moneyIn(s: Shipment, rows?: ShipPayment[]): PayPlace[] {
 }
 
 /** Which SMS Shehena sends by itself for a company. */
-export type SmsAuto = { received_receiver?: boolean; received_sender?: boolean; departed?: boolean; arrived?: boolean; collected_sender?: boolean; reminder_days?: number };
+export type SmsAuto = { received_receiver?: boolean; received_sender?: boolean; departed?: boolean; arrived?: boolean; collected_receiver?: boolean; /** older setting, read as collected_receiver */ collected_sender?: boolean; reminder_days?: number };
 export const SMS_EVENTS: { key: keyof SmsAuto; kind: NoticeKind; to: NoticeTo; label: string; help: string }[] = [
   { key: "received_receiver", kind: "received", to: "receiver", label: "Goods received → receiver", help: "Waybill number, goods and destination, when goods are saved" },
   { key: "received_sender", kind: "received", to: "sender", label: "Goods received → sender", help: "Receipt number and payment, when goods are saved" },
   { key: "departed", kind: "departed", to: "receiver", label: "Truck departed → receiver", help: "Goods are on the way, with the truck plate" },
   { key: "arrived", kind: "arrived", to: "receiver", label: "Goods arrived → receiver", help: "Ready to collect: office address, phone and amount to pay" },
-  { key: "collected_sender", kind: "collected", to: "sender", label: "Goods collected → sender", help: "The goods were collected, and by whom" },
+  { key: "collected_receiver", kind: "collected", to: "receiver", label: "Goods collected → receiver", help: "Confirms the goods were collected, when and by whom" },
 ];
 /** Number of SMS a text needs: 160 characters (70 with emoji or special letters), or 153/67 per part when longer. */
 export function smsParts(text: string) {

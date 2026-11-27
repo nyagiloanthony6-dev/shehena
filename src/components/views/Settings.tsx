@@ -405,7 +405,7 @@ const KIND_LABEL: Record<string, string> = { received: "Goods received", departe
 function SmsSettings({ sub }: { sub?: Subscription | null }) {
   const { company, me, toast } = useStore();
   const [data, setData] = useState<Awaited<ReturnType<typeof smsOverview>> | null>(null);
-  const [auto, setAuto] = useState<SmsAuto>(() => ({ ...(company.sms_auto || {}) }));
+  const [auto, setAuto] = useState<SmsAuto>(() => { const a = { ...(company.sms_auto || {}) }; if (a.collected_receiver === undefined && a.collected_sender !== undefined) a.collected_receiver = a.collected_sender; delete a.collected_sender; return a; });
   const [busy, startSave] = useTransition();
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => { let on = true; smsOverview().then((d) => on && setData(d)); return () => { on = false; }; }, []);
