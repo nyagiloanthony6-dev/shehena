@@ -464,7 +464,7 @@ function SmsSettings({ sub }: { sub?: Subscription | null }) {
                 <span className="sub">{fmtDate(l.created_at)} · {l.auto ? "automatic" : `by ${l.sent_by}`}{l.parts > 1 ? ` · ${l.parts} SMS` : ""}</span></span>
               <span className={`sms-st ${c}`}>{t}</span>
             </summary>
-            <p>{l.body}</p>{l.error && <p className="err">{l.error}</p>}
+            <p>{l.body}</p>{l.error && <p className="err">{l.error.replace(/next\s*-?\s*sms/gi, "Serengeti Labs SMS")}</p>}
           </details>); })}
           {data && !data.log.length && <p className="sub">No SMS sent yet.</p>}
         </div>
@@ -495,7 +495,7 @@ function SenderCard({ data, admin }: { data: Awaited<ReturnType<typeof smsOvervi
         <div className="snd-phone" aria-hidden="true"><span className="snd-from">{data?.sender || "…"}</span><span className="snd-msg">Habari Juma Hassan, mzigo wako namba DAR-DOD-… umefika Dodoma…</span></div>
         <div className="snd-info">
           {data && !data.shared ? <p><span className="pill acc-active">Approved</span> Your SMS show as <b>{data.sender}</b>.</p>
-            : <p>Your SMS show as <b>{data?.sender || "the shared name"}</b> (shared by Shehena) until your own name is approved.</p>}
+            : <p>Your SMS show as <b>{data?.sender || "SERENGETI"}</b> (Serengeti Labs) until your own name is approved.</p>}
           {pending && <p className="note">Requested <b>{req}</b>{company.sms_sender_requested_at ? ` on ${dayLabel(company.sms_sender_requested_at.slice(0, 10))}` : ""}. Serengeti Labs registers it with the SMS network; approval usually takes a few working days.</p>}
           {!has && <p className="note">Run database update 0028 in Supabase to choose your own sender name.</p>}
           {has && admin && (

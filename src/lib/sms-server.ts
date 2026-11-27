@@ -6,16 +6,18 @@ import { intlPhone, message, smsParts, type Company, type NoticeKind, type Notic
  * SMS through NextSMS (messaging-service.co.tz).
  * Vercel environment variables:
  *   NEXTSMS_USERNAME, NEXTSMS_PASSWORD  - the NextSMS login (never sent to the browser)
- *   NEXTSMS_SENDER_ID                   - the approved sender name, e.g. SHEHENA
+ *   NEXTSMS_SENDER_ID                   - the shared sender name (max 11 characters); default SERENGETI
  *   NEXTSMS_TEST=1                      - optional: use NextSMS test mode (nothing is delivered)
  */
 const BASE = process.env.NEXTSMS_BASE_URL || "https://messaging-service.co.tz/api/sms/v1";
 export const smsConfigured = () => !!(process.env.NEXTSMS_USERNAME && process.env.NEXTSMS_PASSWORD);
 const auth = () => "Basic " + Buffer.from(`${process.env.NEXTSMS_USERNAME}:${process.env.NEXTSMS_PASSWORD}`).toString("base64");
 /** The company's own approved sender name, or the shared one. */
-export const senderFor = (c?: Pick<Company, "sms_sender"> | null) => c?.sms_sender?.trim() || process.env.NEXTSMS_SENDER_ID || "NEXTSMS";
+export const senderFor = (c?: Pick<Company, "sms_sender"> | null) => c?.sms_sender?.trim() || process.env.NEXTSMS_SENDER_ID || "SERENGETI";
 
 type Sent = { ok: boolean; id: string; error: string };
+/** Clients see Serengeti Labs, never the SMS supplier: strip its name from error texts they can read. */
+const neutral = (t: string) => t.replace(/next\s*-?\s*sms|messaging-service\.co\.tz/gi, "Serengeti Labs SMS").slice(0, 300);
 
 /** Send one SMS. Phone in 255XXXXXXXXX form. */
 async function nextSms(from: string, phone: string, text: string, reference: string): Promise<Sent> {
@@ -31,11 +33,11 @@ async function nextSms(from: string, phone: string, text: string, reference: str
     const m = (body?.messages || [])[0] || {};
     const group = String(m?.status?.groupName || "").toUpperCase();
     if (!res.ok || group === "REJECTED" || group === "UNDELIVERABLE") {
-      return { ok: false, id: String(m?.messageId || ""), error: String(m?.status?.description || body?.message || body?.error || `NextSMS answered ${res.status}`).slice(0, 300) };
+      return { ok: false, id: String(m?.messageId || ""), error: neutral(String(m?.status?.description || body?.message || body?.error || `Serengeti Labs SMS answered ${res.status}`)) };
     }
     return { ok: true, id: String(m?.messageId || ""), error: "" };
   } catch (e) {
-    return { ok: false, id: "", error: ((e as Error).message || "Could not reach NextSMS").slice(0, 300) };
+    return { ok: false, id: "", error: neutral((e as Error).message || "Could not reach Serengeti Labs SMS") };
   }
 }
 

@@ -67,7 +67,7 @@ function msg(r?: SmsResult): { ok?: string; error?: string } {
   if (r.status === "no_credit") return { error: "No SMS left. Buy an SMS bundle from Serengeti Labs." };
   if (r.status === "skipped") return { error: "This customer has no valid phone number." };
   if (r.status === "not_configured") return { error: "SMS sending isn't set up yet. Contact Serengeti Labs." };
-  return { error: `SMS not sent: ${r.error || "NextSMS refused it"}. Nothing was charged.` };
+  return { error: `SMS not sent: ${r.error || "the SMS network refused it"}. Nothing was charged.` };
 }
 
 /** Admin: choose which SMS go out automatically. */
