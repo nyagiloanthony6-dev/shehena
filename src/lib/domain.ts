@@ -27,6 +27,8 @@ export interface Company {
   sms_sender?: string | null;
   sms_sender_request?: string | null;
   sms_sender_requested_at?: string | null;
+  /** the client's own SMS wording, by "<kind>_<to>" (migration 0029) */
+  sms_templates?: Record<string, string>;
   /** extra features switched on in Settings, e.g. "delivery" (delivery people) */
   features?: string[];
   /** unique Shehena account number (SH10001…) */
@@ -406,6 +408,18 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   if (plate === "TBA") plate = "";
   const veh = sw ? (air ? "ndege" : "gari") : (air ? "flight" : "vehicle");
   const day = fmtDay(s.transit_at || new Date().toISOString());
+  // The client's own wording, if they wrote one for this message.
+  const tpl = company.sms_templates?.[`${kind}_${to}`]?.trim();
+  if (tpl) {
+    const off = officeInfo(company, s.dest);
+    return fillTemplate(tpl, {
+      receiver: s.r_name, sender: s.s_name, waybill: s.no, goods: items, packages: String(s.pkgs),
+      from: O, to: D, truck: plate, date: fmtDay(new Date().toISOString()), departed: day, arrived: s.arrived_at ? fmtDay(s.arrived_at) : "",
+      total: `TZS ${tzs(s.charge)}`, due: `TZS ${tzs(balanceOf(s))}`, paid: `TZS ${tzs(paidOf(s))}`, payment: payLine,
+      pay_how: company.payment_instructions?.trim() || "", company: co, phone: ph,
+      office: off.address || "", office_phone: off.phone || ph, collected_by: s.collector_name || s.r_name,
+    });
+  }
   if (kind === "received" && to === "sender") return sw
     ? `Habari ${s.s_name}, tumepokea mzigo wako (${items}) kwenda kwa ${s.r_name}, ${D}. Namba ya risiti: ${s.no}. ${payLine} Asante kwa kutumia ${co}.${ph ? " Simu: " + ph : ""}`
     : `Hello ${s.s_name}, we have received your goods (${items}) for ${s.r_name}, ${D}. Receipt no: ${s.no}. ${payLine} Thank you for using ${co}.${ph ? " Tel: " + ph : ""}`;
@@ -601,3 +615,40 @@ export function cleanSender(v: string) {
   const s = (v || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
   return s.length >= 3 && s.length <= 11 && /[A-Z]/.test(s) ? s : "";
 }
+
+/** Blanks clients can use in their SMS wording. */
+export const SMS_BLANKS: [string, string][] = [
+  ["receiver", "Receiver's name"], ["sender", "Sender's name"], ["waybill", "Waybill / receipt number"], ["goods", "Goods and packages"],
+  ["packages", "Number of packages"], ["from", "Origin town"], ["to", "Destination town"], ["truck", "Truck plate"],
+  ["due", "Amount still to pay"], ["total", "Total charge"], ["paid", "Amount paid"], ["payment", "Payment line (paid / not paid / balance)"],
+  ["pay_how", "How to pay (from Company settings)"], ["office", "Destination office address"], ["office_phone", "Destination office phone"],
+  ["company", "Your company name"], ["phone", "Your company phone"], ["date", "Today's date"], ["departed", "Departure date"],
+  ["arrived", "Arrival date"], ["collected_by", "Who collected"],
+];
+/** Fill {blanks} in a client's template; unknown blanks are left as typed. */
+export function fillTemplate(tpl: string, v: Record<string, string>) {
+  return tpl.replace(/\{(\w+)\}/g, (m, k: string) => (k in v ? v[k] ?? "" : m)).replace(/[ \t]{2,}/g, " ").replace(/\s+([.,])/g, "$1").trim();
+}
+/** Blanks in a template that Shehena doesn't know (typos). */
+export const unknownBlanks = (tpl: string) => [...new Set([...tpl.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).filter((k) => !SMS_BLANKS.some(([b]) => b === k)))];
+/** The messages a client can reword, with Shehena's standard wording as a starting point. */
+export const SMS_TEMPLATES: { key: string; kind: NoticeKind; to: NoticeTo; label: string; sw: string; en: string }[] = [
+  { key: "received_receiver", kind: "received", to: "receiver", label: "Goods received → receiver",
+    sw: "Habari {receiver}, mzigo wako ({goods}) kutoka kwa {sender} umepokelewa {from} na utasafirishwa kwenda {to}. Namba ya mzigo: {waybill}. {payment} {company}, simu: {phone}",
+    en: "Hello {receiver}, your goods ({goods}) from {sender} have been received in {from} and will be sent to {to}. Waybill no: {waybill}. {payment} {company}, tel: {phone}" },
+  { key: "received_sender", kind: "received", to: "sender", label: "Goods received → sender",
+    sw: "Habari {sender}, tumepokea mzigo wako ({goods}) kwenda kwa {receiver}, {to}. Namba ya risiti: {waybill}. {payment} Asante kwa kutumia {company}. Simu: {phone}",
+    en: "Hello {sender}, we have received your goods ({goods}) for {receiver}, {to}. Receipt no: {waybill}. {payment} Thank you for using {company}. Tel: {phone}" },
+  { key: "departed_receiver", kind: "departed", to: "receiver", label: "Truck departed → receiver",
+    sw: "Habari {receiver}, mzigo wako namba {waybill} ({goods}) umepakiwa kwenye gari {truck} na umeondoka {from} {departed} kuelekea {to}. Tutakujulisha ukifika. {company}, simu: {phone}",
+    en: "Hello {receiver}, your goods, waybill {waybill} ({goods}), are loaded on vehicle {truck} and left {from} on {departed} for {to}. We will notify you on arrival. {company}, tel: {phone}" },
+  { key: "arrived_receiver", kind: "arrived", to: "receiver", label: "Goods arrived → receiver",
+    sw: "Habari {receiver}, mzigo wako namba {waybill} ({goods}) umefika {to}. Kiasi cha kulipa: {due}. Fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. Ofisi yetu {to}: {office}. {company}, simu: {office_phone}",
+    en: "Hello {receiver}, your goods, waybill {waybill} ({goods}), have arrived in {to}. Amount due: {due}. Come to our office with ID and this waybill number to collect. Our {to} office: {office}. {company}, tel: {office_phone}" },
+  { key: "reminder_receiver", kind: "reminder", to: "receiver", label: "Reminder → receiver",
+    sw: "Kumbusho: Habari {receiver}, mzigo wako namba {waybill} ({goods}) upo ofisini {to} tangu {arrived}. Kiasi cha kulipa ni {due}. Fika na kitambulisho kuuchukua. {company}, simu: {office_phone}",
+    en: "Reminder: Hello {receiver}, your goods, waybill {waybill} ({goods}), have been waiting at our {to} office since {arrived}. Amount due: {due}. Come with ID to collect. {company}, tel: {office_phone}" },
+  { key: "collected_receiver", kind: "collected", to: "receiver", label: "Goods collected → receiver",
+    sw: "Habari {receiver}, mzigo wako namba {waybill} ({goods}) kutoka kwa {sender} umechukuliwa ofisini {to} {date} na {collected_by}. Asante kwa kutumia {company}. Simu: {phone}",
+    en: "Hello {receiver}, your goods, waybill {waybill} ({goods}) from {sender}, were collected at our {to} office on {date} by {collected_by}. Thank you for using {company}. Tel: {phone}" },
+];

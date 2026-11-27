@@ -1,8 +1,8 @@
 "use client";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useStore } from "../store";
 import { RegionOptions } from "../RegionOptions";
-import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, regShort, tzs, type Trip, type Profile, type Role, type Vehicle, type OfficeInfo, SMS_EVENTS, message, smsParts, prettyPhone, fmtDate, type SmsAuto, cleanSender, type Company, type NoticeKind, type NoticeTo, type Shipment } from "@/lib/domain";
+import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, regShort, tzs, type Trip, type Profile, type Role, type Vehicle, type OfficeInfo, SMS_EVENTS, message, smsParts, prettyPhone, fmtDate, type SmsAuto, cleanSender, SMS_TEMPLATES, SMS_BLANKS, unknownBlanks, type Company, type NoticeKind, type NoticeTo, type Shipment } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
 import { requestSender, saveSmsAuto, smsOverview } from "@/app/app/sms-actions";
 import { ACTIVE_DAYS, dayLabel, monthLabel, monthOf, planLabel, type Subscription } from "@/lib/billing";
@@ -453,6 +453,8 @@ function SmsSettings({ sub }: { sub?: Subscription | null }) {
         ) : <p className="note">Only the Admin can change these.</p>}
       </div>
 
+      <TemplatesCard admin={admin} />
+
       <div className="sb-card">
         <h3>Sent SMS</h3>
         <div className="sub">The last 60 messages. Messages that were not sent are never charged.</div>
@@ -511,11 +513,76 @@ function SenderCard({ data, admin }: { data: Awaited<ReturnType<typeof smsOvervi
   );
 }
 
+/** Clients write their own SMS wording, with {blanks} Shehena fills in. */
+function TemplatesCard({ admin }: { admin: boolean }) {
+  const { company, patchCompany, toast } = useStore();
+  const ready = "sms_templates" in company;
+  const sw = company.message_lang !== "en";
+  const saved = company.sms_templates || {};
+  const [open, setOpen] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const refs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const textOf = (k: string, std: string) => draft[k] ?? (saved[k]?.trim() || std);
+  const insert = (k: string, std: string, blank: string) => {
+    const el = refs.current[k]; const cur = textOf(k, std);
+    const a = el?.selectionStart ?? cur.length, b = el?.selectionEnd ?? cur.length;
+    const next = cur.slice(0, a) + `{${blank}}` + cur.slice(b);
+    setDraft((d) => ({ ...d, [k]: next }));
+    setTimeout(() => { el?.focus(); const p = a + blank.length + 2; el?.setSelectionRange(p, p); }, 0);
+  };
+  async function save(k: string, value: string | null) {
+    setBusy(true);
+    const next = { ...saved };
+    if (value === null) delete next[k]; else next[k] = value.trim();
+    const ok = await patchCompany({ sms_templates: next });
+    setBusy(false);
+    if (ok) { toast(value === null ? "Back to the standard wording." : "Message wording saved."); setDraft((d) => { const n = { ...d }; delete n[k]; return n; }); }
+  }
+  return (
+    <div className="sb-card">
+      <div className="sb-h"><div><h3>Message wording</h3><div className="sub">Write each SMS your way. Words in {"{curly brackets}"} are filled in for each consignment, e.g. {"{receiver}"} becomes the receiver&apos;s name. The same wording is used for WhatsApp.</div></div></div>
+      {!ready && <p className="note">Run database update 0029 in Supabase to edit the wording.</p>}
+      <div className="tpl-list">{SMS_TEMPLATES.map((t) => {
+        const std = sw ? t.sw : t.en;
+        const custom = !!saved[t.key]?.trim();
+        const text = textOf(t.key, std);
+        const dirty = draft[t.key] !== undefined && draft[t.key].trim() !== (saved[t.key]?.trim() || std);
+        const bad = unknownBlanks(text);
+        const preview = exampleSms({ ...company, sms_templates: { [t.key]: text } }, t.kind, t.to, true) as string;
+        const parts = smsParts(preview);
+        return (
+          <div key={t.key} className={`tpl${open === t.key ? " open" : ""}`}>
+            <button type="button" className="tpl-h" onClick={() => setOpen(open === t.key ? null : t.key)} aria-expanded={open === t.key}>
+              <b>{t.label}</b><span className={`tpl-tag${custom ? " c" : ""}`}>{custom ? "Your wording" : "Standard"}</span><span className="tpl-chev" aria-hidden="true">{open === t.key ? "▴" : "▾"}</span>
+            </button>
+            {open === t.key && (
+              <div className="tpl-body">
+                <textarea ref={(el) => { refs.current[t.key] = el; }} rows={4} value={text} disabled={!admin || !ready} onChange={(e) => setDraft((d) => ({ ...d, [t.key]: e.target.value }))} aria-label={`Wording: ${t.label}`} />
+                {admin && ready && <div className="tpl-blanks"><span className="sub">Tap to add:</span>{SMS_BLANKS.map(([b, l]) => <button key={b} type="button" className="tpl-blank" title={l} onClick={() => insert(t.key, std, b)}>{`{${b}}`}</button>)}</div>}
+                {bad.length > 0 && <p className="err">Not known: {bad.map((b) => `{${b}}`).join(", ")}. Check the spelling or tap a blank above.</p>}
+                <div className="tpl-prev"><div className="lbl">Example</div><p>{preview}</p><span className={`tpl-count${parts > 1 ? " warn" : ""}`}>{preview.length} characters · {parts} SMS{parts > 1 ? " (shorten to 160 characters for 1 SMS)" : ""}</span></div>
+                {admin && ready && (
+                  <div className="actions">
+                    <button className="btn primary" disabled={busy || !dirty || bad.length > 0 || !text.trim()} onClick={() => save(t.key, text)}>Save wording</button>
+                    {(custom || dirty) && <button className="btn" disabled={busy} onClick={() => (custom ? save(t.key, null) : setDraft((d) => { const n = { ...d }; delete n[t.key]; return n; }))}>{custom ? "Use standard wording" : "Undo changes"}</button>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}</div>
+    </div>
+  );
+}
+
 /** A sample message for the settings screen. */
-function exampleSms(company: Company, kind: NoticeKind, to: NoticeTo) {
+function exampleSms(company: Company, kind: NoticeKind, to: NoticeTo, plain = false): React.ReactNode {
   const s = { no: "DAR-DOD-261127-1234", s_name: "Asha Mohamed", r_name: "Juma Hassan", s_phone: "0712345678", r_phone: "0754112233", item: "Bales of cloth", pkgs: 3, items: [], charge: 45000, pay: "unpaid", paid_amount: 0,
-    origin: company.default_origin || "DAR", dest: officesOf(company).find((c) => c !== (company.default_origin || "DAR")) || "DOD", arrived_at: new Date().toISOString(), collector_name: "Juma Hassan", notices: [] } as unknown as Shipment;
+    origin: company.default_origin || "DAR", dest: officesOf(company).find((c) => c !== (company.default_origin || "DAR")) || "DOD", arrived_at: new Date(Date.now() - 2 * 864e5).toISOString(), collected_at: new Date().toISOString(), collector_name: "Juma Hassan", notices: [] } as unknown as Shipment;
   const text = message(s, kind, to, company, "T 186 DNH");
+  if (plain) return text;
   return <>{text}<em> · {smsParts(text)} SMS</em></>;
 }
 

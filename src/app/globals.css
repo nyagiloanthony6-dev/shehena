@@ -969,3 +969,21 @@ button.lrow.cu-ship:hover{background:var(--sunk)}
 .snd-req .sub{flex-basis:100%;font-size:12px}
 .snd-owner{border-top:1px dashed var(--line);margin-top:12px;padding-top:6px}
 @media (max-width:640px){.snd{grid-template-columns:1fr}}
+/* ---- SMS wording ---- */
+.tpl-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.tpl{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.tpl.open{border-color:#23409A}
+.tpl-h{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;background:none;border:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.tpl-h b{font-size:14.5px}
+.tpl-tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:var(--sunk);color:var(--muted)}
+.tpl-tag.c{background:#E2F3E8;color:#1D7A44}
+.tpl-chev{margin-left:auto;color:var(--muted)}
+.tpl-body{padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+.tpl-body textarea{font-size:14.5px;line-height:1.5;min-height:110px}
+.tpl-blanks{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tpl-blank{font-family:var(--f-mono,ui-monospace,monospace);font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:#23409A;cursor:pointer}
+.tpl-blank:hover{background:var(--sunk)}
+.tpl-prev{background:var(--sunk);border-radius:10px;padding:10px 12px}
+.tpl-prev p{margin:4px 0 6px;font-size:13.5px;line-height:1.45}
+.tpl-count{font-size:12px;color:var(--muted);font-weight:600}
+.tpl-count.warn{color:#9A5B0B}

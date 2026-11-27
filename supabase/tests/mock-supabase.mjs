@@ -99,7 +99,7 @@ const DEFAULTS = {
   customers: { name: "", notes: "" },
   expenses: { kind: "office", trip_id: null, description: "", method: "Cash", paid_to: "", reference: "", updated_at: null, updated_by: null },
   claim_payments: { method: "", reference: "" },
-  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [], office_info: {}, sms_auto: {}, sms_sender: null, sms_sender_request: null, sms_sender_requested_at: null, mode: "road", kg_rate: 0, vol_divisor: 6000, features: [], get account_no() { return "SH" + (10000 + (db.companies?.length || 0) + 1); } },
+  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [], office_info: {}, sms_auto: {}, sms_sender: null, sms_sender_request: null, sms_sender_requested_at: null, sms_templates: {}, mode: "road", kg_rate: 0, vol_divisor: 6000, features: [], get account_no() { return "SH" + (10000 + (db.companies?.length || 0) + 1); } },
   profiles: { active: true, station: null },
 };
 
