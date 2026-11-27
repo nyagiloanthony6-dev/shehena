@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Mark, Wordmark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
-  addSmsBundle, setSmsSender, saveSmsPrice, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
+  addSmsBundle, setSmsSender, saveSmsPrice, ownerTestSms, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
   setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen, truckActivity, deleteCompany, type TruckRow,
 } from "@/app/owner/actions";
 import {
@@ -370,6 +370,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
               ? <><div className="big">{data.sms.balance != null ? data.sms.balance.toLocaleString("en-US") : "—"}<small>SMS left</small></div>
                   <div className="sub">Sender name {data.sms.sender || "not set (NEXTSMS_SENDER_ID)"}{data.sms.test ? " · TEST MODE: nothing is delivered" : ""} · clients hold {rows.reduce((a, r) => a + Number(r.acc.sms_balance || 0), 0).toLocaleString("en-US")} SMS in bundles</div></>
               : <div className="sub">Not connected. In Vercel, add NEXTSMS_USERNAME, NEXTSMS_PASSWORD and NEXTSMS_SENDER_ID, then redeploy.</div>}
+            <TestSms busy={pending} run={run} sender={data.sms?.sender} />
           </div>
           <div className="oc-card" style={{ marginTop: 14 }}>
             <div className="oc-hd"><h2>Payments received</h2><span className="sub">Newest first · record new payments from a client&apos;s details</span></div>
@@ -998,6 +999,19 @@ function Pricing({ settings, rows, busy, run }: { settings: OwnerData["settings"
 }
 
 const SMS_PACKS = [500, 1000, 2000, 5000];
+/** Send a test SMS to your own phone to check the connection and a sender name. */
+function TestSms({ busy, run, sender }: { busy: boolean; run: Run; sender?: string }) {
+  const [phone, setPhone] = useState("");
+  const [from, setFrom] = useState("");
+  return (
+    <div className="testsms">
+      <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Your phone, e.g. 0713 123 105" aria-label="Phone for test SMS" />
+      <input value={from} onChange={(e) => setFrom(e.target.value.toUpperCase().slice(0, 11))} placeholder={`Sender (${sender || "SERENGETI"})`} aria-label="Sender name for test" style={{ width: 170 }} />
+      <button className="btn sm" disabled={busy || phone.replace(/\D/g, "").length < 9} onClick={() => run(() => ownerTestSms(phone, from))}>Send test SMS</button>
+    </div>
+  );
+}
+
 /** Standard price per SMS, shown to every client in Settings > SMS. */
 function SmsPricePanel({ settings, busy, run }: { settings: OwnerData["settings"]; busy: boolean; run: Run }) {
   const [v, setV] = useState(settings.sms_price != null ? String(settings.sms_price) : "");

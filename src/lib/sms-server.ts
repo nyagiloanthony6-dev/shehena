@@ -41,6 +41,12 @@ async function nextSms(from: string, phone: string, text: string, reference: str
   }
 }
 
+/** Owner console: send one test SMS (not charged to any client). */
+export async function sendTestSms(phone: string, text: string, from?: string) {
+  if (!smsConfigured()) return { ok: false, id: "", error: "Not connected: add NEXTSMS_USERNAME and NEXTSMS_PASSWORD in Vercel and redeploy." };
+  return nextSms(from || senderFor(null), phone, text, `test-${Date.now()}`);
+}
+
 /** The NextSMS account balance (SMS left), for the owner console. */
 export async function providerBalance(): Promise<number | null> {
   if (!smsConfigured()) return null;

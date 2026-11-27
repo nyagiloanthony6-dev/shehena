@@ -1,6 +1,7 @@
 "use server";
 import { allRows } from "@/lib/all-rows";
-import { cleanSender } from "@/lib/domain";
+import { cleanSender, intlPhone } from "@/lib/domain";
+import { sendTestSms } from "@/lib/sms-server";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { currentOwner, type AccountStatus } from "@/lib/owner";
@@ -541,5 +542,19 @@ export async function saveSmsPrice(price: number, company_id?: string | null): P
     await audit(by, "sms_price", company_id || null, { price: p });
     revalidatePath("/owner");
     return { ok: company_id ? (p ? `This client now pays TZS ${p} per SMS.` : "This client now pays the standard SMS price.") : `Standard SMS price saved: TZS ${p} per SMS.` };
+  } catch (e) { return fail(e); }
+}
+
+/** Send a test SMS from the owner console to check the NextSMS connection and sender name. */
+export async function ownerTestSms(phone: string, sender?: string): Promise<Result> {
+  try {
+    await owner();
+    const p = intlPhone(phone);
+    if (!/^255[67]\d{8}$/.test(p)) return { error: "Enter a valid Tanzanian mobile number, e.g. 0712 345 678." };
+    const from = sender?.trim() ? cleanSender(sender) : "";
+    if (sender?.trim() && !from) return { error: "Sender names are 3 to 11 letters or numbers." };
+    const r = await sendTestSms(p, `Shehena test SMS ${new Date().toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" })}: the SMS connection works.`, from || undefined);
+    if (!r.ok) return { error: `Not sent: ${r.error}` };
+    return { ok: `Test SMS sent to ${phone}${process.env.NEXTSMS_TEST === "1" ? " (TEST MODE: NextSMS accepts it but doesn't deliver it)" : ""}. It should arrive within a minute.` };
   } catch (e) { return fail(e); }
 }
