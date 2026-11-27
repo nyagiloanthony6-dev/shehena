@@ -23,6 +23,10 @@ export interface Company {
   office_info?: Record<string, OfficeInfo>;
   /** automatic SMS chosen by the company (migration 0027) */
   sms_auto?: SmsAuto;
+  /** approved SMS sender name (set by Serengeti Labs), and the name the client asked for (migration 0028) */
+  sms_sender?: string | null;
+  sms_sender_request?: string | null;
+  sms_sender_requested_at?: string | null;
   /** extra features switched on in Settings, e.g. "delivery" (delivery people) */
   features?: string[];
   /** unique Shehena account number (SH10001…) */
@@ -587,4 +591,10 @@ export function smsParts(text: string) {
   const gsm = /^[\n\r\x20-\x7E£¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ¡ÄÖÑÜ§¿äöñüà€]*$/.test(text);
   const n = text.length, one = gsm ? 160 : 70, many = gsm ? 153 : 67;
   return n <= one ? 1 : Math.ceil(n / many);
+}
+
+/** An SMS sender name: 3-11 letters, numbers or spaces (operator rule). Returns the cleaned name or "". */
+export function cleanSender(v: string) {
+  const s = (v || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  return s.length >= 3 && s.length <= 11 && /[A-Z]/.test(s) ? s : "";
 }

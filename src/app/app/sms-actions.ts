@@ -1,8 +1,8 @@
 "use server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { sendNotices, smsConfigured, type SmsResult } from "@/lib/sms-server";
-import { SMS_EVENTS, type Company, type NoticeKind, type NoticeTo, type Profile, type Shipment, type SmsAuto } from "@/lib/domain";
+import { senderFor, sendNotices, smsConfigured, type SmsResult } from "@/lib/sms-server";
+import { cleanSender, SMS_EVENTS, type Company, type NoticeKind, type NoticeTo, type Profile, type Shipment, type SmsAuto } from "@/lib/domain";
 
 /** The signed-in staff member and their company. */
 async function caller() {
@@ -85,18 +85,31 @@ export async function saveSmsAuto(auto: SmsAuto): Promise<{ ok?: string; error?:
 }
 
 /** SMS balance and recent messages, for the Settings screen. */
-export async function smsOverview(): Promise<{ ready: boolean; configured: boolean; balance: number; log: { id: string; created_at: string; kind: string; to_role: string; phone: string; body: string; parts: number; status: string; error: string; auto: boolean; sent_by: string }[]; monthSent: number; topups: { paid_on: string; sms: number; amount: number }[] }> {
+export async function requestSender(name: string): Promise<{ ok?: string; error?: string }> {
+  try {
+    const { me, company } = await caller();
+    if (me.role !== "admin") return { error: "Only the Admin can request a sender name." };
+    const n = cleanSender(name);
+    if (!n) return { error: "Use 3 to 11 letters or numbers, e.g. G2K TRANS." };
+    const { error } = await supabaseAdmin().from("companies").update({ sms_sender_request: n, sms_sender_requested_at: new Date().toISOString() }).eq("id", company.id);
+    if (error) return { error: /sms_sender/.test(error.message) ? "Run database update 0028 in Supabase first." : "Could not save." };
+    return { ok: `Requested "${n}". Serengeti Labs will register it and tell you when it is ready.` };
+  } catch (e) { return { error: (e as Error).message }; }
+}
+
+export async function smsOverview(): Promise<{ sender: string; shared: boolean; ready: boolean; configured: boolean; balance: number; log: { id: string; created_at: string; kind: string; to_role: string; phone: string; body: string; parts: number; status: string; error: string; auto: boolean; sent_by: string }[]; monthSent: number; topups: { paid_on: string; sms: number; amount: number }[] }> {
   try {
     const { me, company } = await caller();
     const admin = supabaseAdmin();
     const { data: acc, error } = await admin.from("company_accounts").select("sms_balance").eq("company_id", company.id).maybeSingle();
-    if (error && /sms_balance/.test(error.message)) return { ready: false, configured: smsConfigured(), balance: 0, log: [], monthSent: 0, topups: [] };
+    const sender = senderFor(company), shared = !company.sms_sender?.trim();
+    if (error && /sms_balance/.test(error.message)) return { sender, shared, ready: false, configured: smsConfigured(), balance: 0, log: [], monthSent: 0, topups: [] };
     const start = new Date(); start.setUTCDate(1); start.setUTCHours(0, 0, 0, 0);
     const [{ data: log }, { data: month }, { data: tops }] = await Promise.all([
       admin.from("sms_log").select("id, created_at, kind, to_role, phone, body, parts, status, error, auto, sent_by").eq("company_id", company.id).order("created_at", { ascending: false }).limit(60),
       admin.from("sms_log").select("parts").eq("company_id", company.id).eq("status", "sent").gte("created_at", start.toISOString()),
       me.role === "admin" || me.role === "ceo" ? admin.from("sms_topups").select("paid_on, sms, amount").eq("company_id", company.id).order("created_at", { ascending: false }).limit(12) : Promise.resolve({ data: [] }),
     ]);
-    return { ready: true, configured: smsConfigured(), balance: Number(acc?.sms_balance || 0), log: (log || []) as never, monthSent: (month || []).reduce((a, r) => a + Number(r.parts || 0), 0), topups: (tops || []) as never };
-  } catch { return { ready: false, configured: false, balance: 0, log: [], monthSent: 0, topups: [] }; }
+    return { sender, shared, ready: true, configured: smsConfigured(), balance: Number(acc?.sms_balance || 0), log: (log || []) as never, monthSent: (month || []).reduce((a, r) => a + Number(r.parts || 0), 0), topups: (tops || []) as never };
+  } catch { return { sender: "", shared: true, ready: false, configured: false, balance: 0, log: [], monthSent: 0, topups: [] }; }
 }

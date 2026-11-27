@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Mark, Wordmark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
-  addSmsBundle, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
+  addSmsBundle, setSmsSender, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
   setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen, truckActivity, deleteCompany, type TruckRow,
 } from "@/app/owner/actions";
 import {
@@ -209,6 +209,8 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
     ...rows.filter((r) => r.acc.status === "trial" && r.bill.due && r.bill.due <= in7).map((r): Attn => ({ tone: "info", icon: `${Math.max(0, daysAgo(r.bill.due) === null ? 0 : -(daysAgo(r.bill.due) as number))}d`, title: `${r.name}'s trial ends ${dayLabel(r.bill.due as string)}`, sub: `${r.bill.trucks} truck${r.bill.trucks === 1 ? "" : "s"} used · ${r.st.ship_month} consignments this month`, act: "Open", go: () => setOpenId(r.id) })),
     ...rows.filter((r) => r.acc.status === "active" && r.bill.due && r.bill.due <= in5).map((r): Attn => ({ tone: "warn", icon: "TZS", title: `${r.name} pays on ${dayLabel(r.bill.due as string)}`, sub: `TZS ${tzs(r.bill.fee)} due`, act: "Open", go: () => setOpenId(r.id) })),
     ...quiet.map((r): Attn => ({ tone: "warn", icon: "zz", title: `${r.name} quiet ${daysAgo(r.st.last_activity)} days`, sub: `last activity ${fmtDate(r.st.last_activity || r.created_at).slice(0, 11)}`, act: "Open", go: () => setOpenId(r.id) })),
+    ...rows.filter((r) => { const c = r as unknown as { sms_sender?: string | null; sms_sender_request?: string | null }; return !!c.sms_sender_request && c.sms_sender_request !== c.sms_sender; })
+      .map((r): Attn => ({ tone: "info", icon: "SMS", title: `${r.name} wants SMS sender "${(r as unknown as { sms_sender_request: string }).sms_sender_request}"`, sub: "Register it with NextSMS, then approve it", act: "Open", go: () => setOpenId(r.id) })),
     ...(newLeads ? [{ tone: "good", icon: "+", title: `${newLeads} new demo request${newLeads === 1 ? "" : "s"}`, sub: data.leads.filter((l) => l.status === "new").slice(0, 3).map((l) => l.company || l.name).join(", "), act: "View", go: () => setPage("demos") } as Attn] : []),
   ];
   const top = [...rows].filter((r) => r.acc.status !== "suspended").sort((x, y) => y.st.ship_month - x.st.ship_month || y.st.billed_month - x.st.billed_month).slice(0, 5);
@@ -422,7 +424,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
         <>
           <div className="scrim" onClick={() => setOpenId(null)} />
           <aside className="sheet wide" aria-label={open.name}>
-            <CompanySheet key={open.id} r={open} agents={data.agents} settings={data.settings} audit={data.audit.filter((a) => a.company_id === open.id)} busy={pending} run={run} close={() => setOpenId(null)} />
+            <CompanySheet key={open.id} r={open} agents={data.agents} settings={data.settings} audit={data.audit.filter((a) => a.company_id === open.id)} busy={pending} run={run} close={() => setOpenId(null)} smsShared={data.sms?.sender} />
           </aside>
         </>
       )}
@@ -615,8 +617,8 @@ function DeleteCompany({ r, busy, run, close }: { r: Row; busy: boolean; run: Ru
   );
 }
 
-function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
-  r: Row; agents: Agent[]; settings: BillingSettings; audit: Audit[]; busy: boolean; close: () => void; run: Run;
+function CompanySheet({ r, agents, settings, audit, busy, run, close, smsShared }: {
+  r: Row; agents: Agent[]; settings: BillingSettings; audit: Audit[]; busy: boolean; close: () => void; run: Run; smsShared?: string;
 }) {
   const [notes, setNotes] = useState(r.acc.notes || "");
   const [confirmSuspend, setConfirmSuspend] = useState(false);
@@ -634,7 +636,7 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
       <div className="sheet-cols">
         <div className="sheet-col">
       <Billing r={r} agents={agents} settings={settings} busy={busy} run={run} />
-      <SmsCard r={r} busy={busy} run={run} />
+      <SmsCard r={r} busy={busy} run={run} shared={smsShared} />
         </div>
         <div className="sheet-col">
 
@@ -907,8 +909,10 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
 }
 
 /** SMS bundles: the client's balance and adding a bundle they paid for. */
-function SmsCard({ r, busy, run }: { r: Row; busy: boolean; run: Run }) {
+function SmsCard({ r, busy, run, shared }: { r: Row; busy: boolean; run: Run; shared?: string }) {
   const [f, setF] = useState({ sms: "", amount: "", method: "M-Pesa", reference: "", note: "" });
+  const co = r as unknown as { sms_sender?: string | null; sms_sender_request?: string | null; sms_sender_requested_at?: string | null };
+  const [snd, setSnd] = useState(co.sms_sender || co.sms_sender_request || "");
   const bal = r.acc.sms_balance;
   if (bal === undefined) return <div className="card"><h3>SMS</h3><p className="note">Run migration 0027_sms.sql in Supabase to sell SMS bundles.</p></div>;
   const auto = (r as unknown as { sms_auto?: Record<string, unknown> }).sms_auto || {};
@@ -927,6 +931,17 @@ function SmsCard({ r, busy, run }: { r: Row; busy: boolean; run: Run }) {
       {per > 0 && <p className="note">TZS {per} per SMS.</p>}
       <div className="actions"><button className="btn sm primary" disabled={busy || !Number(f.sms)} onClick={() => run(() => addSmsBundle(r.id, { sms: Number(f.sms), amount: Number(f.amount), method: f.method, reference: f.reference, note: f.note }), () => setF({ sms: "", amount: "", method: "M-Pesa", reference: "", note: "" }))}>Add SMS bundle</button></div>
       <p className="note">To correct a mistake, add a negative number (e.g. -500).</p>
+      {"sms_sender_request" in r && (
+        <div className="snd-owner">
+          <div className="lbl" style={{ marginTop: 6 }}>Sender name</div>
+          <p className="sub" style={{ margin: "2px 0 8px" }}>Now: <b>{co.sms_sender || `${shared || "shared"} (shared)`}</b>{co.sms_sender_request && co.sms_sender_request !== co.sms_sender ? <> · client requested <b>{co.sms_sender_request}</b>{co.sms_sender_requested_at ? ` on ${dayLabel(co.sms_sender_requested_at.slice(0, 10))}` : ""}</> : null}</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input value={snd} onChange={(e) => setSnd(e.target.value.toUpperCase().slice(0, 11))} placeholder="e.g. G2K TRANS" maxLength={11} style={{ width: 180 }} aria-label="Approved sender name" />
+            <button className="btn sm primary" disabled={busy || snd === (co.sms_sender || "")} onClick={() => run(() => setSmsSender(r.id, snd))}>{snd ? "Approve name" : "Use shared name"}</button>
+          </div>
+          <p className="note">Register the name with NextSMS first; approve it here only once NextSMS confirms it, or SMS from this client will be rejected.</p>
+        </div>
+      )}
     </div>
   );
 }

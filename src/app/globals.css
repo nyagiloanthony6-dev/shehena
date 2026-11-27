@@ -958,3 +958,14 @@ button.lrow.cu-ship:hover{background:var(--sunk)}
 .sms-dot.good,.sms-st.good{background:#1D7A44}.sms-dot.bad,.sms-st.bad{background:#B4232C}.sms-dot.muted,.sms-st.muted{background:#8A93A8}
 .sms-st{color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px}
 @media (max-width:640px){.sms-hero{grid-template-columns:1fr}.sms-rule{grid-template-columns:46px minmax(0,1fr)}.sms-eye{grid-column:2;justify-self:start;padding:0}}
+/* ---- SMS sender name ---- */
+.snd{display:grid;grid-template-columns:240px minmax(0,1fr);gap:18px;align-items:start}
+.snd-phone{background:#F1F3F8;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:8px;border:1px solid var(--line)}
+.snd-from{font-weight:800;font-size:15px;text-align:center;color:#14213F;letter-spacing:.02em}
+.snd-msg{background:#fff;border-radius:14px 14px 14px 4px;padding:10px 12px;font-size:12.5px;line-height:1.4;color:#3A4664;box-shadow:0 1px 2px rgba(20,33,63,.08)}
+.snd-info p{margin:0 0 8px}
+.snd-req{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
+.snd-req input{width:170px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+.snd-req .sub{flex-basis:100%;font-size:12px}
+.snd-owner{border-top:1px dashed var(--line);margin-top:12px;padding-top:6px}
+@media (max-width:640px){.snd{grid-template-columns:1fr}}

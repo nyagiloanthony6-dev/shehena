@@ -1,5 +1,6 @@
 "use server";
 import { allRows } from "@/lib/all-rows";
+import { cleanSender } from "@/lib/domain";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { currentOwner, type AccountStatus } from "@/lib/owner";
@@ -508,5 +509,19 @@ export async function addSmsBundle(company_id: string, input: { sms: number; amo
     await audit(by, "sms_bundle", company_id, { sms, amount });
     revalidatePath("/owner");
     return { ok: `${sms > 0 ? "Added" : "Removed"} ${Math.abs(sms).toLocaleString("en-US")} SMS. Balance now ${Number(left ?? 0).toLocaleString("en-US")}.` };
+  } catch (e) { return fail(e); }
+}
+
+/** Set (approve) a client's SMS sender name, after it is registered with NextSMS. Empty = use the shared name. */
+export async function setSmsSender(company_id: string, name: string): Promise<Result> {
+  try {
+    const by = await owner();
+    const n = name.trim() ? cleanSender(name) : "";
+    if (name.trim() && !n) return { error: "Use 3 to 11 letters or numbers." };
+    const { error } = await supabaseAdmin().from("companies").update({ sms_sender: n || null }).eq("id", company_id);
+    if (error) return { error: /sms_sender/.test(error.message) ? "Run migration 0028_sms_sender.sql in Supabase first." : "Could not save." };
+    await audit(by, "sms_sender", company_id, { sender: n || null });
+    revalidatePath("/owner");
+    return { ok: n ? `SMS for this client now go out as "${n}".` : "This client now uses the shared sender name." };
   } catch (e) { return fail(e); }
 }

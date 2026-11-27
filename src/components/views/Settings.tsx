@@ -2,9 +2,9 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useStore } from "../store";
 import { RegionOptions } from "../RegionOptions";
-import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, regShort, tzs, type Trip, type Profile, type Role, type Vehicle, type OfficeInfo, SMS_EVENTS, message, smsParts, prettyPhone, fmtDate, type SmsAuto, type Company, type NoticeKind, type NoticeTo, type Shipment } from "@/lib/domain";
+import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, regShort, tzs, type Trip, type Profile, type Role, type Vehicle, type OfficeInfo, SMS_EVENTS, message, smsParts, prettyPhone, fmtDate, type SmsAuto, cleanSender, type Company, type NoticeKind, type NoticeTo, type Shipment } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
-import { saveSmsAuto, smsOverview } from "@/app/app/sms-actions";
+import { requestSender, saveSmsAuto, smsOverview } from "@/app/app/sms-actions";
 import { ACTIVE_DAYS, dayLabel, monthLabel, monthOf, planLabel, type Subscription } from "@/lib/billing";
 import { downloadSubscriptionReceipt } from "../billingPdf";
 
@@ -429,6 +429,8 @@ function SmsSettings({ sub }: { sub?: Subscription | null }) {
         </div>
       </div>
 
+      <SenderCard data={data} admin={admin} />
+
       <div className="sb-card">
         <div className="sb-h"><div><h3>Send automatically</h3><div className="sub">Shehena sends these SMS by itself, from your SMS balance. You can still send any message by hand with the Send SMS button.</div></div></div>
         <div className="sms-rules">{SMS_EVENTS.map((e) => (
@@ -474,6 +476,37 @@ function SmsSettings({ sub }: { sub?: Subscription | null }) {
             <tbody>{data!.topups.map((t, i) => <tr key={i}><td>{dayLabel(t.paid_on)}</td><td className="r num">{t.sms.toLocaleString("en-US")}</td><td className="r num">{tzs(t.amount)}</td></tr>)}</tbody></table></div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The name customers see as the SMS sender: the company's own (once approved) or the shared one. */
+function SenderCard({ data, admin }: { data: Awaited<ReturnType<typeof smsOverview>> | null; admin: boolean }) {
+  const { company, toast } = useStore();
+  const [name, setName] = useState(company.sms_sender_request || "");
+  const [busy, start] = useTransition();
+  const has = "sms_sender_request" in company;
+  const req = company.sms_sender_request;
+  const pending = !!req && req !== company.sms_sender;
+  return (
+    <div className="sb-card">
+      <div className="sb-h"><div><h3>Sender name</h3><div className="sub">The name customers see instead of a phone number when your SMS arrive.</div></div></div>
+      <div className="snd">
+        <div className="snd-phone" aria-hidden="true"><span className="snd-from">{data?.sender || "…"}</span><span className="snd-msg">Habari Juma Hassan, mzigo wako namba DAR-DOD-… umefika Dodoma…</span></div>
+        <div className="snd-info">
+          {data && !data.shared ? <p><span className="pill acc-active">Approved</span> Your SMS show as <b>{data.sender}</b>.</p>
+            : <p>Your SMS show as <b>{data?.sender || "the shared name"}</b> (shared by Shehena) until your own name is approved.</p>}
+          {pending && <p className="note">Requested <b>{req}</b>{company.sms_sender_requested_at ? ` on ${dayLabel(company.sms_sender_requested_at.slice(0, 10))}` : ""}. Serengeti Labs registers it with the SMS network; approval usually takes a few working days.</p>}
+          {!has && <p className="note">Run database update 0028 in Supabase to choose your own sender name.</p>}
+          {has && admin && (
+            <div className="snd-req">
+              <input value={name} onChange={(e) => setName(e.target.value.toUpperCase().slice(0, 11))} placeholder="e.g. G2K TRANS" aria-label="Sender name to request" maxLength={11} />
+              <button className="btn" disabled={busy || !cleanSender(name) || cleanSender(name) === req} onClick={() => start(async () => { const r = await requestSender(name); toast(r.ok || r.error || "", !r.ok); })}>{pending ? "Change request" : company.sms_sender ? "Request a new name" : "Request this name"}</button>
+              <span className="sub">3–11 letters or numbers, usually your company name. {name.length}/11</span>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

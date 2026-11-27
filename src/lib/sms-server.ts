@@ -12,18 +12,19 @@ import { intlPhone, message, smsParts, type Company, type NoticeKind, type Notic
 const BASE = process.env.NEXTSMS_BASE_URL || "https://messaging-service.co.tz/api/sms/v1";
 export const smsConfigured = () => !!(process.env.NEXTSMS_USERNAME && process.env.NEXTSMS_PASSWORD);
 const auth = () => "Basic " + Buffer.from(`${process.env.NEXTSMS_USERNAME}:${process.env.NEXTSMS_PASSWORD}`).toString("base64");
-const sender = () => process.env.NEXTSMS_SENDER_ID || "NEXTSMS";
+/** The company's own approved sender name, or the shared one. */
+export const senderFor = (c?: Pick<Company, "sms_sender"> | null) => c?.sms_sender?.trim() || process.env.NEXTSMS_SENDER_ID || "NEXTSMS";
 
 type Sent = { ok: boolean; id: string; error: string };
 
 /** Send one SMS. Phone in 255XXXXXXXXX form. */
-async function nextSms(phone: string, text: string, reference: string): Promise<Sent> {
+async function nextSms(from: string, phone: string, text: string, reference: string): Promise<Sent> {
   const url = `${BASE}/${process.env.NEXTSMS_TEST === "1" ? "test/" : ""}text/single`;
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { Authorization: auth(), "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ from: sender(), to: phone, text, reference }),
+      body: JSON.stringify({ from, to: phone, text, reference }),
       cache: "no-store",
     });
     const body = await res.json().catch(() => ({}));
@@ -72,7 +73,7 @@ export async function sendNotices(company: Company, jobs: SmsJob[]): Promise<Sms
     if (!smsConfigured()) { await log("not_configured"); out.push({ id: s.id, to: j.to, status: "not_configured" }); continue; }
     const { data: left } = await admin.rpc("sms_take", { p_company: company.id, p_n: parts });
     if (left === null || left === undefined) { await log("no_credit"); out.push({ id: s.id, to: j.to, status: "no_credit", parts }); continue; }
-    const r = await nextSms(phone, text, `${s.no}-${j.kind}-${j.to}`.slice(0, 60));
+    const r = await nextSms(senderFor(company), phone, text, `${s.no}-${j.kind}-${j.to}`.slice(0, 60));
     if (!r.ok) {
       await admin.rpc("sms_give", { p_company: company.id, p_n: parts });
       await log("failed", r.id, r.error);
