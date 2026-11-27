@@ -4,7 +4,7 @@
 export type Role = "admin" | "cashier" | "ceo" | "agent";
 export type ShipStatus = "received" | "loaded" | "transit" | "arrived" | "collected";
 export type TripStatus = "loading" | "departed" | "arrived";
-export type NoticeKind = "received" | "departed" | "arrived" | "reminder";
+export type NoticeKind = "received" | "departed" | "arrived" | "reminder" | "collected";
 export type NoticeTo = "sender" | "receiver";
 
 export interface Company {
@@ -21,6 +21,8 @@ export interface Company {
   offices?: string[];
   /** address and phone of each branch office, by region code (e.g. DOD); the head office uses `branch` and `phone` */
   office_info?: Record<string, OfficeInfo>;
+  /** automatic SMS chosen by the company (migration 0027) */
+  sms_auto?: SmsAuto;
   /** extra features switched on in Settings, e.g. "delivery" (delivery people) */
   features?: string[];
   /** unique Shehena account number (SH10001…) */
@@ -409,6 +411,9 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   if (kind === "departed") return sw
     ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umepakiwa kwenye ${veh} ${plate} na umeondoka ${O} ${day} kuelekea ${D}. Tutakujulisha ukifika. ${co}${ph ? ", simu: " + ph : ""}`
     : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), are loaded on ${veh} ${plate} and left ${O} on ${day} for ${D}. We will notify you on arrival. ${co}${ph ? ", tel: " + ph : ""}`;
+  if (kind === "collected") return sw
+    ? `Habari ${s.s_name}, mzigo namba ${s.no} (${items}) uliotuma kwa ${s.r_name} umechukuliwa ${D}${s.collector_name ? ` na ${s.collector_name}` : ""}. Asante kwa kutumia ${co}.${ph ? " Simu: " + ph : ""}`
+    : `Hello ${s.s_name}, waybill ${s.no} (${items}) you sent to ${s.r_name} has been collected in ${D}${s.collector_name ? ` by ${s.collector_name}` : ""}. Thank you for using ${co}.${ph ? " Tel: " + ph : ""}`;
   if (kind === "arrived" && to === "sender") return sw
     ? `Habari ${s.s_name}, mzigo namba ${s.no} (${items}) uliotuma kwa ${s.r_name} umefika ${D}. ${co}${ph ? ", simu: " + ph : ""}`
     : `Hello ${s.s_name}, waybill ${s.no} (${items}) you sent to ${s.r_name} has arrived in ${D}. ${co}${ph ? ", tel: " + ph : ""}`;
@@ -566,4 +571,20 @@ export function moneyIn(s: Shipment, rows?: ShipPayment[]): PayPlace[] {
   const at = s.paid_at || s.received_at;
   const st = s.arrived_at && at >= s.arrived_at ? s.dest : s.origin;
   return [{ station: st, amount, at, method: s.method || "", by: s.paid_by || null, where: where(st) }];
+}
+
+/** Which SMS Shehena sends by itself for a company. */
+export type SmsAuto = { received_receiver?: boolean; received_sender?: boolean; departed?: boolean; arrived?: boolean; collected_sender?: boolean; reminder_days?: number };
+export const SMS_EVENTS: { key: keyof SmsAuto; kind: NoticeKind; to: NoticeTo; label: string; help: string }[] = [
+  { key: "received_receiver", kind: "received", to: "receiver", label: "Goods received → receiver", help: "Waybill number, goods and destination, when goods are saved" },
+  { key: "received_sender", kind: "received", to: "sender", label: "Goods received → sender", help: "Receipt number and payment, when goods are saved" },
+  { key: "departed", kind: "departed", to: "receiver", label: "Truck departed → receiver", help: "Goods are on the way, with the truck plate" },
+  { key: "arrived", kind: "arrived", to: "receiver", label: "Goods arrived → receiver", help: "Ready to collect: office address, phone and amount to pay" },
+  { key: "collected_sender", kind: "collected", to: "sender", label: "Goods collected → sender", help: "The goods were collected, and by whom" },
+];
+/** Number of SMS a text needs: 160 characters (70 with emoji or special letters), or 153/67 per part when longer. */
+export function smsParts(text: string) {
+  const gsm = /^[\n\r\x20-\x7E£¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ¡ÄÖÑÜ§¿äöñüà€]*$/.test(text);
+  const n = text.length, one = gsm ? 160 : 70, many = gsm ? 153 : 67;
+  return n <= one ? 1 : Math.ceil(n / many);
 }

@@ -3,7 +3,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 
-const db = { expenses: [], customers: [], companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000 }],
+const db = { sms_log: [], sms_topups: [], expenses: [], customers: [], companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000 }],
   billing_bands: [[0, 1, 80000], [2, 3, 150000], [4, 6, 250000], [7, 10, 350000], [11, null, 450000]].map(([min_trucks, max_trucks, monthly_fee], i) => ({ id: i + 1, min_trucks, max_trucks, monthly_fee })),
   billing_payments: [], sales_agents: [], commissions: [], agent_payouts: [],
   bill_accounts: [], bill_payments: [], claims: [], claim_payments: [], shipment_payments: [], runners: [] };
@@ -99,7 +99,7 @@ const DEFAULTS = {
   customers: { name: "", notes: "" },
   expenses: { kind: "office", trip_id: null, description: "", method: "Cash", paid_to: "", reference: "", updated_at: null, updated_by: null },
   claim_payments: { method: "", reference: "" },
-  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [], office_info: {}, mode: "road", kg_rate: 0, vol_divisor: 6000, features: [], get account_no() { return "SH" + (10000 + (db.companies?.length || 0) + 1); } },
+  companies: { branch: "", phone: "", default_origin: "DAR", message_lang: "sw", payment_instructions: "", found_goods_by: "all", offices: [], office_info: {}, sms_auto: {}, mode: "road", kg_rate: 0, vol_divisor: 6000, features: [], get account_no() { return "SH" + (10000 + (db.companies?.length || 0) + 1); } },
   profiles: { active: true, station: null },
 };
 
@@ -148,6 +148,15 @@ http.createServer(async (req, res) => {
     return send(res, 200, userObj(u));
   }
   // ---------------- rpc
+  if (p === "/rest/v1/rpc/sms_take" || p === "/rest/v1/rpc/sms_give") {
+    if (!caller(req)?.service) return send(res, 401, { message: "permission denied" });
+    const b = await readBody(req); const a = db.company_accounts.find((x) => x.company_id === b.p_company);
+    if (!a) return send(res, 200, null);
+    a.sms_balance = Number(a.sms_balance || 0);
+    if (p.endsWith("take")) { if (a.sms_balance < b.p_n) return send(res, 200, null); a.sms_balance -= b.p_n; }
+    else a.sms_balance = Math.max(0, a.sms_balance + b.p_n);
+    return send(res, 200, a.sms_balance);
+  }
   if (p === "/rest/v1/rpc/owner_company_stats") {
     if (!caller(req)?.service) return send(res, 401, { message: "permission denied" });
     const m0 = new Date(); m0.setDate(1); m0.setHours(0, 0, 0, 0); const inM = (d) => d && new Date(d) >= m0;
@@ -191,7 +200,7 @@ http.createServer(async (req, res) => {
       // part payments (mirrors migration 0017)
       if (table === "shipments") for (const r of list) { const e = syncPaid(r, null); if (e) return send(res, 400, { message: e }); }
       db[table].push(...list);
-      if (table === "companies") list.forEach((co) => db.company_accounts.push({ company_id: co.id, status: "trial", trial_ends: plusDays(ymd(), db.platform_settings[0].trial_days), paid_until: null, custom_fee: null, auto_status: true, notes: "", status_changed_at: new Date().toISOString(), created_at: new Date().toISOString() }));
+      if (table === "companies") list.forEach((co) => db.company_accounts.push({ company_id: co.id, status: "trial", trial_ends: plusDays(ymd(), db.platform_settings[0].trial_days), paid_until: null, custom_fee: null, auto_status: true, sms_balance: 0, notes: "", status_changed_at: new Date().toISOString(), created_at: new Date().toISOString() }));
       if (table === "leads") list.forEach((r, i) => { r.id = db.leads.length + i; r.created_at = new Date().toISOString(); r.status = r.status || "new"; });
       if (table === "owner_audit") list.forEach((r, i) => { r.id = db.owner_audit.length + i; r.at = new Date().toISOString(); });
       if (table === "billing_bands") list.forEach((r, i) => { r.id = Date.now() + i; });

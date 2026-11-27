@@ -1,9 +1,10 @@
 "use client";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useStore } from "../store";
 import { RegionOptions } from "../RegionOptions";
-import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, regShort, tzs, type Trip, type Profile, type Role, type Vehicle, type OfficeInfo } from "@/lib/domain";
+import { FEATURES, REGIONS, ROLES, isAir, regionsFor, terms, officesOf, fmtDay, regShort, tzs, type Trip, type Profile, type Role, type Vehicle, type OfficeInfo, SMS_EVENTS, message, smsParts, prettyPhone, fmtDate, type SmsAuto, type Company, type NoticeKind, type NoticeTo, type Shipment } from "@/lib/domain";
 import { createStaff, setStaffActive, setStaffPassword, setStaffRole } from "@/app/app/actions";
+import { saveSmsAuto, smsOverview } from "@/app/app/sms-actions";
 import { ACTIVE_DAYS, dayLabel, monthLabel, monthOf, planLabel, type Subscription } from "@/lib/billing";
 import { downloadSubscriptionReceipt } from "../billingPdf";
 
@@ -372,7 +373,7 @@ function AddVehicle() {
   );
 }
 
-type SettingsTab = "company" | "staff" | "vehicles" | "subscription";
+type SettingsTab = "company" | "staff" | "vehicles" | "sms" | "subscription";
 /** Optional features the company switches on; each adds its own page to the side bar. */
 function FeaturesForm() {
   const { company, patchCompany, toast } = useStore();
@@ -397,6 +398,94 @@ function FeaturesForm() {
   );
 }
 
+const SMS_STATUS: Record<string, [string, string]> = { sent: ["Sent", "good"], failed: ["Not sent", "bad"], no_credit: ["No SMS left", "bad"], not_configured: ["SMS not set up", "muted"], skipped: ["No phone", "muted"] };
+const KIND_LABEL: Record<string, string> = { received: "Goods received", departed: "Departed", arrived: "Arrived", reminder: "Reminder", collected: "Collected" };
+
+/** SMS sent by Shehena: balance, which messages go out automatically, and what was sent. */
+function SmsSettings({ sub }: { sub?: Subscription | null }) {
+  const { company, me, toast } = useStore();
+  const [data, setData] = useState<Awaited<ReturnType<typeof smsOverview>> | null>(null);
+  const [auto, setAuto] = useState<SmsAuto>(() => ({ ...(company.sms_auto || {}) }));
+  const [busy, startSave] = useTransition();
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => { let on = true; smsOverview().then((d) => on && setData(d)); return () => { on = false; }; }, []);
+  const admin = me.role === "admin";
+  const ready = "sms_auto" in company && data?.ready !== false;
+  const changed = JSON.stringify(auto) !== JSON.stringify(company.sms_auto || {});
+  const low = (data?.balance ?? 0) < 50;
+  return (
+    <div className="sms">
+      {!ready && <p className="note">Run database update 0027 in Supabase to turn on SMS.</p>}
+      <div className="sms-hero">
+        <div>
+          <div className="sb-lbl">SMS left</div>
+          <div className="sb-big">{data ? (data.balance).toLocaleString("en-US") : "…"}</div>
+          <div className="sb-work">{data ? `${data.monthSent.toLocaleString("en-US")} SMS used this month` : "Loading…"}{data && !data.configured ? " · sending not switched on yet by Serengeti Labs" : ""}</div>
+        </div>
+        <div className="sms-buy">
+          <b>{low ? "Running low? " : ""}Buy an SMS bundle</b>
+          <span>{sub?.instructions || "Pay Serengeti Labs and your SMS are added to this balance."}</span>
+          <span className="sub-l">One SMS = 160 characters. Longer messages use 2 or 3 SMS.</span>
+        </div>
+      </div>
+
+      <div className="sb-card">
+        <div className="sb-h"><div><h3>Send automatically</h3><div className="sub">Shehena sends these SMS by itself, from your SMS balance. You can still send any message by hand with the Send SMS button.</div></div></div>
+        <div className="sms-rules">{SMS_EVENTS.map((e) => (
+          <label key={e.key} className={`sms-rule${auto[e.key] ? " on" : ""}`}>
+            <span className="sms-sw"><input type="checkbox" role="switch" checked={!!auto[e.key]} disabled={!admin || !ready} onChange={(x) => setAuto({ ...auto, [e.key]: x.target.checked })} /><i /></span>
+            <span><b>{e.label}</b><span className="sub">{e.help}</span></span>
+            <button type="button" className="sms-eye" onClick={(x) => { x.preventDefault(); setOpen(open === e.key ? null : e.key); }}>{open === e.key ? "Hide" : "Example"}</button>
+            {open === e.key && <span className="sms-ex">{exampleSms(company, e.kind, e.to)}</span>}
+          </label>))}
+          <label className={`sms-rule${auto.reminder_days ? " on" : ""}`}>
+            <span className="sms-sw"><input type="checkbox" role="switch" checked={!!auto.reminder_days} disabled={!admin || !ready} onChange={(x) => setAuto({ ...auto, reminder_days: x.target.checked ? 3 : 0 })} /><i /></span>
+            <span><b>Reminder → receiver</b><span className="sub">Goods not collected and not paid: remind every
+              <select value={auto.reminder_days || 3} disabled={!admin || !ready || !auto.reminder_days} onClick={(x) => x.preventDefault()} onChange={(x) => setAuto({ ...auto, reminder_days: Number(x.target.value) })} style={{ width: "auto", display: "inline-block", margin: "0 6px", height: 30, padding: "0 6px" }}>
+                {[1, 2, 3, 5, 7].map((d) => <option key={d} value={d}>{d}</option>)}</select>
+              day{(auto.reminder_days || 3) === 1 ? "" : "s"} (sent in the morning)</span></span>
+          </label>
+        </div>
+        {admin ? (
+          <div className="actions"><button className="btn primary" disabled={!changed || busy || !ready} onClick={() => startSave(async () => { const r = await saveSmsAuto(auto); toast(r.ok || r.error || "", !r.ok); })}>{busy ? "Saving…" : "Save SMS settings"}</button></div>
+        ) : <p className="note">Only the Admin can change these.</p>}
+      </div>
+
+      <div className="sb-card">
+        <h3>Sent SMS</h3>
+        <div className="sub">The last 60 messages. Messages that were not sent are never charged.</div>
+        <div className="sms-log">{(data?.log || []).map((l) => { const [t, c] = SMS_STATUS[l.status] || [l.status, "muted"]; return (
+          <details key={l.id} className="sms-li">
+            <summary>
+              <span className={`sms-dot ${c}`} />
+              <span className="sms-li-m"><b>{KIND_LABEL[l.kind] || l.kind}</b> → {l.to_role === "sender" ? "sender" : "receiver"} <span className="mono sub">{prettyPhone(l.phone)}</span>
+                <span className="sub">{fmtDate(l.created_at)} · {l.auto ? "automatic" : `by ${l.sent_by}`}{l.parts > 1 ? ` · ${l.parts} SMS` : ""}</span></span>
+              <span className={`sms-st ${c}`}>{t}</span>
+            </summary>
+            <p>{l.body}</p>{l.error && <p className="err">{l.error}</p>}
+          </details>); })}
+          {data && !data.log.length && <p className="sub">No SMS sent yet.</p>}
+        </div>
+      </div>
+
+      {(data?.topups.length || 0) > 0 && (
+        <div className="sb-card"><h3>SMS bundles bought</h3>
+          <div className="ledger"><table className="small"><thead><tr><th>Date</th><th className="r">SMS</th><th className="r">TZS</th></tr></thead>
+            <tbody>{data!.topups.map((t, i) => <tr key={i}><td>{dayLabel(t.paid_on)}</td><td className="r num">{t.sms.toLocaleString("en-US")}</td><td className="r num">{tzs(t.amount)}</td></tr>)}</tbody></table></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A sample message for the settings screen. */
+function exampleSms(company: Company, kind: NoticeKind, to: NoticeTo) {
+  const s = { no: "DAR-DOD-261127-1234", s_name: "Asha Mohamed", r_name: "Juma Hassan", s_phone: "0712345678", r_phone: "0754112233", item: "Bales of cloth", pkgs: 3, items: [], charge: 45000, pay: "unpaid", paid_amount: 0,
+    origin: company.default_origin || "DAR", dest: officesOf(company).find((c) => c !== (company.default_origin || "DAR")) || "DOD", arrived_at: new Date().toISOString(), collector_name: "Juma Hassan", notices: [] } as unknown as Shipment;
+  const text = message(s, kind, to, company, "T 186 DNH");
+  return <>{text}<em> · {smsParts(text)} SMS</em></>;
+}
+
 export default function Settings({ sub, initialTab = "company" }: { sub?: Subscription | null; initialTab?: SettingsTab }) {
   const { staff, vehicles, company } = useStore();
   const air = isAir(company);
@@ -405,6 +494,7 @@ export default function Settings({ sub, initialTab = "company" }: { sub?: Subscr
     ["company", "Company & offices"], ["staff", `Staff · ${staff.length}`],
     // Air cargo companies fly with airlines; they don't keep trucks.
     ...(air && !vehicles.length ? [] : [["vehicles", `Vehicles · ${vehicles.length}`] as [SettingsTab, string]]),
+    ["sms", "SMS"],
     ...(sub ? [["subscription", "Shehena subscription"] as [SettingsTab, string]] : []),
   ];
   return (
@@ -433,6 +523,7 @@ export default function Settings({ sub, initialTab = "company" }: { sub?: Subscr
           <AddVehicle />
         </fieldset>
       )}
+      {tab === "sms" && <SmsSettings sub={sub} />}
       {tab === "subscription" && sub && <SubscriptionCard sub={sub} />}
     </section>
   );

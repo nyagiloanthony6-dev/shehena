@@ -4,6 +4,7 @@ import { qr } from "./stickers";
 import { useState } from "react";
 import { useStore } from "./store";
 import { printSlips } from "./printer";
+import { smsAfter } from "./sms";
 import { officeLine, POWERED_BY, WEBSITE, hasFeature, paidOf, METHODS, PAY_LABEL, fmtDate, itemsOf, prettyPhone, regName, tzs, type Company, type Shipment, type Trip } from "@/lib/domain";
 
 export const ID_TYPES = ["NIDA", "Driving licence", "Voter ID", "Passport", "Work ID", "Other"];
@@ -61,6 +62,7 @@ export function ReleaseForm({ s, onDone }: { s: Shipment; onDone: () => void }) 
     setBusy(false);
     if (!ok) return;
     if (unpaid && !onBill) await logPayment({ ...s, ...values } as Shipment, balance, f.method);
+    smsAfter([s.id], "collected", toast);
     toast(`${onBill ? `TZS ${tzs(due)} put on ${bills.find((a) => a.id === f.account)?.name || "the bill"}. ` : unpaid ? `TZS ${tzs(balance)} received${before ? ` (balance; TZS ${tzs(before)} paid before)` : ""}. ` : ""}Released to ${details.collector_name}. Delivery note ${dn} printing.`);
     try { await printSlips("delivery", { ...s, ...values, dn_no: dn, ...details } as Shipment, company, { trip: tripById(s.trip_id) }); }
     catch (e) { const m = (e as Error).message; toast(`Released, but the delivery note didn't print${m === "NEEDS_PAIRING" ? " (choose the printer under Printer settings)" : ""}. Print it from the consignment.`, true); }

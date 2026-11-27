@@ -5,7 +5,7 @@ import { PrinterLine } from "../PrinterSetup";
 import { RegionOptions } from "../RegionOptions";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
-import { FoundPicker, Slip } from "../parts";
+import { FoundPicker, Slip, smsAfter } from "../parts";
 import { METHODS, REGIONS, INTL, canRecordFound, chargeableKg, isAir, kgFmt, terms, volumeKg, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment, type EditEntry, officesOf, isPart, customerRows, prettyPhone, fmtDay } from "@/lib/domain";
 
 type Line = { name: string; pkgs: string; kg: string; unit: string; charge: string; l: string; w: string; h: string; rate: string };
@@ -225,6 +225,7 @@ export default function Receive() {
     // Keep a record of the money taken now (full or part), for the payment history and reports.
     if (f.pay === "paid") await logPayment(saved, Number(saved.charge), f.method);
     else if (f.pay === "part") await logPayment(saved, partAmt, f.method);
+    smsAfter([saved.id], "received", toast);
     setF(blank(home, firstDest));
     setLines([blankLine(defRate)]);
     setFoundNote("");

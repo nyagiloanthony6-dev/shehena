@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Mark, Wordmark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
-  createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
+  addSmsBundle, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
   setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen, truckActivity, deleteCompany, type TruckRow,
 } from "@/app/owner/actions";
 import {
@@ -18,12 +18,13 @@ import { ROLES, fmtDate, tzs, type Role } from "@/lib/domain";
 
 type Status = "trial" | "active" | "overdue" | "suspended";
 type Company = { id: string; name: string; branch: string; phone: string; created_at: string; mode?: string; account_no?: string };
-type Account = { company_id: string; status: Status; notes: string; status_changed_at: string; trial_ends: string | null; paid_until: string | null; custom_fee: number | null; auto_status: boolean; agent_id: number | string | null; agent_since: string | null; price_model?: PriceModel | null; price_rate?: number | null; price_min?: number | null };
+type Account = { company_id: string; status: Status; notes: string; status_changed_at: string; trial_ends: string | null; paid_until: string | null; custom_fee: number | null; auto_status: boolean; agent_id: number | string | null; agent_since: string | null; price_model?: PriceModel | null; price_rate?: number | null; price_min?: number | null; sms_balance?: number | null };
 type Stat = { company_id: string; staff: number; active_staff: number; vehicles: number; trips_month: number; ship_month: number; billed_month: number; paid_month: number; ship_total: number; last_activity: string | null };
 type Staff = { id: string; company_id: string; full_name: string; email: string; role: Role; active: boolean; created_at: string };
 type Lead = { id: number; created_at: string; name: string; company: string; phone: string; email: string; region: string; trucks: string; message: string; source: string; status: string };
 type Audit = { id: number; at: string; owner_email: string; company_id: string | null; action: string; detail: Record<string, unknown> };
 export interface OwnerData {
+  sms?: { configured: boolean; balance: number | null; test: boolean; sender: string };
   me: string; hasCompany: boolean; error: string;
   companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[]; leads: Lead[]; siteUrl: string;
   settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null } & BillingSettings;
@@ -361,6 +362,13 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
             <div className="oc-card"><div className="lbl">Received this month</div><div className="big">{tzs(received)}<small>TZS</small></div><Delta now={received} before={receivedLast} label={mName(lastMonth)} /></div>
             <div className={`oc-card${owed ? " warn" : ""}`}><div className="lbl">Overdue</div><div className="big">{count("overdue")}</div><div className="sub">{owed ? `TZS ${tzs(owed)} a month unpaid` : "Nobody is overdue"}</div></div>
           </div>
+          <div className={`oc-card${data.sms && data.sms.configured && (data.sms.balance ?? 0) < 1000 ? " warn" : ""}`} style={{ marginTop: 14 }}>
+            <div className="lbl">NextSMS account</div>
+            {data.sms?.configured
+              ? <><div className="big">{data.sms.balance != null ? data.sms.balance.toLocaleString("en-US") : "—"}<small>SMS left</small></div>
+                  <div className="sub">Sender name {data.sms.sender || "not set (NEXTSMS_SENDER_ID)"}{data.sms.test ? " · TEST MODE: nothing is delivered" : ""} · clients hold {rows.reduce((a, r) => a + Number(r.acc.sms_balance || 0), 0).toLocaleString("en-US")} SMS in bundles</div></>
+              : <div className="sub">Not connected. In Vercel, add NEXTSMS_USERNAME, NEXTSMS_PASSWORD and NEXTSMS_SENDER_ID, then redeploy.</div>}
+          </div>
           <div className="oc-card" style={{ marginTop: 14 }}>
             <div className="oc-hd"><h2>Payments received</h2><span className="sub">Newest first · record new payments from a client&apos;s details</span></div>
             {data.payments.length ? (
@@ -626,6 +634,7 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close }: {
       <div className="sheet-cols">
         <div className="sheet-col">
       <Billing r={r} agents={agents} settings={settings} busy={busy} run={run} />
+      <SmsCard r={r} busy={busy} run={run} />
         </div>
         <div className="sheet-col">
 
@@ -893,6 +902,31 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
       ) : <div className="actions"><button className="btn sm" onClick={() => setEdit(true)}>Change price or dates</button>
         {!a.paid_until && <button className="btn sm" disabled={busy} onClick={() => run(() => setAccountBilling(r.id, { trial_ends: addDays(today(), settings.trial_days), paid_until: a.paid_until }))}>Give a {settings.trial_days}-day trial</button>}
       </div>}
+    </div>
+  );
+}
+
+/** SMS bundles: the client's balance and adding a bundle they paid for. */
+function SmsCard({ r, busy, run }: { r: Row; busy: boolean; run: Run }) {
+  const [f, setF] = useState({ sms: "", amount: "", method: "M-Pesa", reference: "", note: "" });
+  const bal = r.acc.sms_balance;
+  if (bal === undefined) return <div className="card"><h3>SMS</h3><p className="note">Run migration 0027_sms.sql in Supabase to sell SMS bundles.</p></div>;
+  const auto = (r as unknown as { sms_auto?: Record<string, unknown> }).sms_auto || {};
+  const on = Object.entries(auto).filter(([k, v]) => k !== "reminder_days" && v).length + (auto.reminder_days ? 1 : 0);
+  const per = Number(f.sms) > 0 && Number(f.amount) > 0 ? Math.round(Number(f.amount) / Number(f.sms)) : 0;
+  return (
+    <div className="card"><h3>SMS · <span className="num">{Number(bal || 0).toLocaleString("en-US")}</span> left</h3>
+      <p className="sub" style={{ marginTop: 0 }}>{on ? `${on} automatic message type${on === 1 ? "" : "s"} switched on by the client.` : "The client hasn't switched on automatic SMS yet."} Each SMS sent takes 1 off the balance (long messages take 2–3).</p>
+      <div className="chips" style={{ marginBottom: 8 }}>{[500, 1000, 2000, 5000].map((n) => <button key={n} type="button" className="chip" aria-pressed={Number(f.sms) === n} onClick={() => setF({ ...f, sms: String(n) })}>{n.toLocaleString("en-US")} SMS</button>)}</div>
+      <div className="fields">
+        <label className="f">SMS to add<input inputMode="numeric" value={f.sms} onChange={(e) => setF({ ...f, sms: e.target.value.replace(/[^\d-]/g, "") })} placeholder="e.g. 1000" /></label>
+        <label className="f">Paid (TZS)<input inputMode="numeric" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/[^\d]/g, "") })} placeholder="e.g. 30000" /></label>
+        <label className="f">Method<input value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} /></label>
+        <label className="f">Reference<input value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} placeholder="M-Pesa code" /></label>
+      </div>
+      {per > 0 && <p className="note">TZS {per} per SMS.</p>}
+      <div className="actions"><button className="btn sm primary" disabled={busy || !Number(f.sms)} onClick={() => run(() => addSmsBundle(r.id, { sms: Number(f.sms), amount: Number(f.amount), method: f.method, reference: f.reference, note: f.note }), () => setF({ sms: "", amount: "", method: "M-Pesa", reference: "", note: "" }))}>Add SMS bundle</button></div>
+      <p className="note">To correct a mistake, add a negative number (e.g. -500).</p>
     </div>
   );
 }

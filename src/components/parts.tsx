@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 import { qr } from "./stickers";
 import { useStore } from "./store";
 import { useUi } from "./CargoApp";
+import { sendSmsNow } from "@/app/app/sms-actions";
+import { smsAfter } from "./sms";
+export { smsAfter };
 import { canRecordFound, sumPaid, sumBalance, balanceOf, isPart, paidOf,
   PAY_LABEL, type Pay, cwOf, isAir, kgFmt, terms, fmtDate, fmtDay, goodsLabel, intlPhone, itemsOf, message, pkgsOf, prettyPhone, regName, regShort, stLabel, tLabel, tzs,
   type Company, type NoticeKind, type NoticeTo, type Shipment, type Trip,
@@ -21,14 +24,18 @@ export const PayPill = ({ pay, long, part }: { pay: Pay; long?: boolean; part?: 
 );
 export const Example = () => null;
 
+
+
 /** Mark a truck arrived: the trip and every consignment still in transit on it. */
 export function useArriveTrip() {
   const { patch, patchMany, tripShips, me, toast, company } = useStore();
   return async (t: Trip) => {
     const at = new Date().toISOString();
     if (await patch<Trip>("trips", t.id, { status: "arrived", arrived_at: at, arrived_by: me.full_name })) {
-      await patchMany("shipments", tripShips(t).filter((s) => s.status === "transit").map((s) => s.id), { status: "arrived", arrived_at: at });
-      toast(`${t.plate} ${isAir(company) ? "landed" : "arrived"}. Send the arrival notices.`);
+      const ids = tripShips(t).filter((s) => s.status === "transit").map((s) => s.id);
+      await patchMany("shipments", ids, { status: "arrived", arrived_at: at });
+      toast(`${t.plate} ${isAir(company) ? "landed" : "arrived"}. ${company.sms_auto?.arrived ? "Arrival SMS are being sent." : "Send the arrival notices."}`);
+      smsAfter(ids, "arrived", toast);
       return true;
     }
     return false;
@@ -244,7 +251,10 @@ async function copy(text: string, toast: (m: string, e?: boolean) => void) {
 /** WhatsApp / SMS / Copy buttons; tapping WhatsApp or SMS logs the notice on the consignment. */
 export function SendButtons({ s, kind, to }: { s: Shipment; kind: NoticeKind; to: NoticeTo }) {
   const { company, me, can, patch, toast, tripById } = useStore();
+  const [busy, setBusy] = useState(false);
   if (!can("notify")) return null;
+  // After update 0027 Shehena sends the SMS itself (from the company's SMS balance).
+  const gateway = "sms_auto" in company;
   const phone = to === "sender" ? s.s_phone : s.r_phone;
   const txt = message(s, kind, to, company, tripById(s.trip_id)?.plate);
   const p = intlPhone(phone);
@@ -253,7 +263,9 @@ export function SendButtons({ s, kind, to }: { s: Shipment; kind: NoticeKind; to
   return (
     <>
       <a className="btn wa sm" target="_blank" rel="noopener noreferrer" href={`https://wa.me/${p}?text=${encodeURIComponent(txt)}`} onClick={() => log("WhatsApp")}>WhatsApp</a>
-      <a className="btn sm" href={`sms:+${p}?body=${encodeURIComponent(txt)}`} onClick={() => log("SMS")}>SMS</a>
+      {gateway
+        ? <button className="btn sm" disabled={busy} onClick={async () => { setBusy(true); const r = await sendSmsNow(s.id, kind, to); setBusy(false); toast(r.ok || r.error || "", !r.ok); }}>{busy ? "Sending…" : "Send SMS"}</button>
+        : <a className="btn sm" href={`sms:+${p}?body=${encodeURIComponent(txt)}`} onClick={() => log("SMS")}>SMS</a>}
       <button className="btn sm" onClick={() => copy(txt, toast)}>Copy</button>
     </>
   );
@@ -272,7 +284,7 @@ export function NotifyBlock({ s, kind, to }: { s: Shipment; kind: NoticeKind; to
       <div className="msg">{message(s, kind, to, company, tripById(s.trip_id)?.plate)}</div>
       <div className="actions"><SendButtons s={s} kind={kind} to={to} /></div>
       {logs.length
-        ? <ul className="log">{logs.map((n, i) => <li key={i}>✓ Opened in {n.channel} by {n.by || "staff"} · {fmtDate(n.at)}</li>)}</ul>
+        ? <ul className="log">{logs.map((n, i) => <li key={i}>✓ {(n as { auto?: boolean }).auto ? `SMS sent by ${n.by || "Shehena"}` : `Opened in ${n.channel} by ${n.by || "staff"}`} · {fmtDate(n.at)}</li>)}</ul>
         : <p className="note">Not sent yet.</p>}
     </>
   );

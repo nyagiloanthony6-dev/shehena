@@ -5,6 +5,7 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
+import { smsAfter } from "../sms";
 import { METHODS, balanceOf, fmtDate, goodsLabel, isOut, officesOf, prettyPhone, regName, regShort, tzs, type Company, type Runner, type Shipment } from "@/lib/domain";
 
 const dnNumber = () => {
@@ -128,6 +129,7 @@ function RunnerCard({ name, list }: { name: string; list: Shipment[] }) {
     }
     setBusy(false);
     if (done) toast(`${done} delivered by ${name}. TZS ${tzs(money)} received${money ? ` (${method})` : ""}.`);
+    if (done) smsAfter(sel.map((s) => s.id), "collected", toast);
   }
   async function returned(s: Shipment) {
     if (await patch<Shipment>("shipments", s.id, { runner_name: "", runner_phone: "", runner_out_at: null, runner_by: null })) toast(`${s.no} is back at the office.`);

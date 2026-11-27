@@ -493,3 +493,20 @@ export async function deleteCompany(companyId: string, typedName: string): Promi
     return { ok: `${co.name} deleted, with ${(staff || []).length} staff sign-in${(staff || []).length === 1 ? "" : "s"} and ${ships || 0} consignment${ships === 1 ? "" : "s"}. Your payment records are kept.` };
   } catch (e) { return fail(e); }
 }
+
+/** Add an SMS bundle a client paid for (negative SMS corrects a mistake). */
+export async function addSmsBundle(company_id: string, input: { sms: number; amount: number; method: string; reference: string; note: string }): Promise<Result> {
+  try {
+    const by = await owner();
+    const sms = Math.round(Number(input.sms));
+    if (!sms) return { error: "Enter the number of SMS." };
+    const amount = Math.max(0, Math.round(Number(input.amount) || 0));
+    const admin = supabaseAdmin();
+    const { error } = await admin.from("sms_topups").insert({ company_id, sms, amount, method: input.method.trim(), reference: input.reference.trim(), note: input.note.trim(), recorded_by: by });
+    if (error) return { error: /sms_topups/.test(error.message) ? "Run migration 0027_sms.sql in Supabase first." : "Could not save the bundle." };
+    const { data: left } = await admin.rpc("sms_give", { p_company: company_id, p_n: sms });
+    await audit(by, "sms_bundle", company_id, { sms, amount });
+    revalidatePath("/owner");
+    return { ok: `${sms > 0 ? "Added" : "Removed"} ${Math.abs(sms).toLocaleString("en-US")} SMS. Balance now ${Number(left ?? 0).toLocaleString("en-US")}.` };
+  } catch (e) { return fail(e); }
+}

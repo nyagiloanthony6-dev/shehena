@@ -8,7 +8,7 @@ import { PrinterSetup, modeLabel, usePrinterPrefs } from "./PrinterSetup";
 import { downloadManifest } from "./manifest";
 import { DeliveryNoteCard, ReleaseForm } from "./release";
 import { GiveToRunner } from "./views/Runners";
-import { useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
+import { smsAfter, useArriveTrip, BulkNotices, Meter, NotifyBlock, PayPill, Slip, StatusPill, TripSummary, downloadReceipt, tripTotals } from "./parts";
 import { shipMatches, plateKey, intlPhone, tripExpenses, sumExp } from "@/lib/domain";
 import { ExpenseBatch, catBadge } from "./views/Expenses";
 import { Icon } from "./Icon";
@@ -265,7 +265,8 @@ export function TripSheet({ id }: { id: string }) {
     const at = now();
     if (await patch<Trip>("trips", t.id, { status: "departed", departed_at: at, departed_by: me.full_name })) {
       await patchMany("shipments", list.map((s) => s.id), { status: "transit", transit_at: at });
-      toast(`${air ? `MAWB ${t.mawb || t.no}` : t.plate} departed. Send the departure notices.`);
+      toast(`${air ? `MAWB ${t.mawb || t.no}` : t.plate} departed. ${company.sms_auto?.departed ? "Departure SMS are being sent." : "Send the departure notices."}`);
+      smsAfter(list.map((s) => s.id), "departed", toast);
     }
   };
   const arrive = async () => { setConfirm(""); await arriveTrip(t); };
