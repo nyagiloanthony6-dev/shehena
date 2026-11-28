@@ -19,11 +19,10 @@ const sendPaths = (header: string) => {
   const own = env("NEXTSMS_SEND_PATH");
   const test = env("NEXTSMS_TEST") === "1";
   const v1 = test ? "/api/sms/v1/test/text/single" : "/api/sms/v1/text/single";
-  // NextSMS v2 (Bearer token), sender-ID SMS. Not /api/mobile/... - that is the phone/SIM gateway product.
-  const v2 = test ? ["/api/v2/test/text/single", "/api/sms/v2/test/text/single"] : ["/api/v2/text/single", "/api/sms/v2/text/single", "/api/v2/sms/text/single"];
-  return [...(own ? [own] : []), ...(isV2(header) ? [...v2, v1] : [v1, ...v2])];
+  // NextSMS v2 (API token, "Bearer"): POST /api/sms/v2/text/single (from the NextSMS API docs).
+  const v2 = test ? "/api/sms/v2/test/text/single" : "/api/sms/v2/text/single";
+  return [...(own ? [own] : []), isV2(header) ? v2 : v1];
 };
-let workingSend: string | null = null;
 /** Values pasted into Vercel often carry spaces, quotes or a line break: remove them. */
 const env = (k: string) => (process.env[k] || "").trim().replace(/^["']|["']$/g, "").trim();
 const b64 = (u: string, p: string) => Buffer.from(`${u.trim()}:${p}`).toString("base64");
@@ -76,8 +75,9 @@ async function nextSms(from: string, phone: string, text: string, reference: str
   const c = login || (await creds());
   if (!c) return { ok: false, id: "", error: "SMS is not connected." };
   try {
-    const paths = workingSend ? [workingSend] : sendPaths(c.header);
-    let res: Response | null = null, used = "";
+    // Each login uses its own address: an API token (v2) and a username/password (v1) never share one.
+    const paths = sendPaths(c.header);
+    let res: Response | null = null;
     for (const path of paths) {
       res = await fetch(HOST + path, {
         method: "POST",
@@ -85,11 +85,9 @@ async function nextSms(from: string, phone: string, text: string, reference: str
         body: JSON.stringify({ from, to: phone, text, reference }),
         cache: "no-store",
       });
-      used = path;
       if (res.status !== 404 && res.status !== 405) break; // the address exists: stop here, whatever the answer
     }
     if (!res) return { ok: false, id: "", error: "No sending address." };
-    if (res.ok) workingSend = used;
     const body = await res.json().catch(() => ({}));
     const m = (body?.messages || body?.data?.messages || [])[0] || body?.data || {};
     const group = String(m?.status?.groupName || "").toUpperCase();
