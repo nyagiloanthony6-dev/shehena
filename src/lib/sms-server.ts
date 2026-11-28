@@ -27,7 +27,9 @@ let workingSend: string | null = null;
 /** Values pasted into Vercel often carry spaces, quotes or a line break: remove them. */
 const env = (k: string) => (process.env[k] || "").trim().replace(/^["']|["']$/g, "").trim();
 const b64 = (u: string, p: string) => Buffer.from(`${u.trim()}:${p}`).toString("base64");
-type Creds = { header: string; source: "owner" | "vercel" };
+type Creds = { header: string; source: "owner" | "vercel" | "client" };
+/** Authorization header from a saved login (username + password, or a token marked __bearer__ / __key__). */
+const headerOf = (username: string, secret: string) => username === "__bearer__" ? "Bearer " + secret : username === "__key__" ? "Basic " + secret : "Basic " + b64(username, secret);
 let cache: { at: number; c: Creds | null } | null = null;
 /** Forget the cached login (after connecting or disconnecting in the owner console). */
 export const clearSmsLogin = () => { cache = null; };
@@ -38,10 +40,7 @@ async function creds(): Promise<Creds | null> {
   let c: Creds | null = null;
   try {
     const { data } = await supabaseAdmin().from("sms_provider").select("username,password").eq("id", 1).maybeSingle();
-    if (data?.username && data?.password) c = {
-      header: data.username === "__bearer__" ? "Bearer " + data.password : data.username === "__key__" ? "Basic " + data.password : "Basic " + b64(data.username, data.password),
-      source: "owner",
-    };
+    if (data?.username && data?.password) c = { header: headerOf(data.username, data.password), source: "owner" };
   } catch { /* table not created yet */ }
   if (!c) {
     const t = env("NEXTSMS_TOKEN");
@@ -51,8 +50,20 @@ async function creds(): Promise<Creds | null> {
   cache = { at: Date.now(), c };
   return c;
 }
+/** A client's own NextSMS user (sub-account), if connected. */
+async function clientCreds(companyId?: string | null): Promise<Creds | null> {
+  if (!companyId) return null;
+  try {
+    const { data } = await supabaseAdmin().from("sms_client_logins").select("username,secret").eq("company_id", companyId).maybeSingle();
+    return data?.username && data?.secret ? { header: headerOf(data.username, data.secret), source: "client" } : null;
+  } catch { return null; }
+}
+/** The login a company's SMS go out with: its own NextSMS user, else the main one. */
+const loginFor = async (companyId?: string | null) => (await clientCreds(companyId)) || (await creds());
 export const smsConfigured = async () => !!(await creds());
-export const smsSource = async () => (await creds())?.source || null;
+export const smsSource = async () => ((await creds())?.source as "owner" | "vercel" | undefined) || null;
+/** Can this company send SMS (its own NextSMS user, or the main login)? */
+export const smsConfiguredFor = async (companyId?: string | null) => !!(await loginFor(companyId));
 /** The company's own approved sender name, or the shared one. */
 export const senderFor = (c?: Pick<Company, "sms_sender"> | null) => c?.sms_sender?.trim() || env("NEXTSMS_SENDER_ID") || "SHEHENA";
 
@@ -61,8 +72,8 @@ type Sent = { ok: boolean; id: string; error: string };
 const neutral = (t: string) => t.replace(/next\s*-?\s*sms|messaging-service\.co\.tz/gi, "Serengeti Labs SMS").slice(0, 300);
 
 /** Send one SMS. Phone in 255XXXXXXXXX form. */
-async function nextSms(from: string, phone: string, text: string, reference: string): Promise<Sent> {
-  const c = await creds();
+async function nextSms(from: string, phone: string, text: string, reference: string, login?: Creds | null): Promise<Sent> {
+  const c = login || (await creds());
   if (!c) return { ok: false, id: "", error: "SMS is not connected." };
   try {
     const paths = workingSend ? [workingSend] : sendPaths(c.header);
@@ -92,7 +103,9 @@ async function nextSms(from: string, phone: string, text: string, reference: str
 }
 
 /** Owner console: send one test SMS (not charged to any client). */
-export async function sendTestSms(phone: string, text: string, from?: string) {
+export async function sendTestSms(phone: string, text: string, from?: string, companyId?: string | null) {
+  const login = await loginFor(companyId);
+  if (companyId && login) return nextSms(from || "SHEHENA", phone, text, `test-${Date.now()}`, login);
   if (!(await smsConfigured())) return { ok: false, id: "", error: "Not connected: connect NextSMS on the owner Billing page." };
   return nextSms(from || senderFor(null), phone, text, `test-${Date.now()}`);
 }
@@ -135,10 +148,11 @@ export async function sendNotices(company: Company, jobs: SmsJob[]): Promise<Sms
       company_id: company.id, shipment_id: s.id, kind: j.kind, to_role: j.to, phone, body: text, parts: status === "sent" ? parts : 0,
       status, provider_id, error, auto: j.auto, sent_by: j.by,
     });
-    if (!(await smsConfigured())) { await log("not_configured"); out.push({ id: s.id, to: j.to, status: "not_configured" }); continue; }
+    const login = await loginFor(company.id);
+    if (!login) { await log("not_configured"); out.push({ id: s.id, to: j.to, status: "not_configured" }); continue; }
     const { data: left } = await admin.rpc("sms_take", { p_company: company.id, p_n: parts });
     if (left === null || left === undefined) { await log("no_credit"); out.push({ id: s.id, to: j.to, status: "no_credit", parts }); continue; }
-    const r = await nextSms(senderFor(company), phone, text, `${s.no}-${j.kind}-${j.to}`.slice(0, 60));
+    const r = await nextSms(senderFor(company), phone, text, `${s.no}-${j.kind}-${j.to}`.slice(0, 60), login);
     if (!r.ok) {
       await admin.rpc("sms_give", { p_company: company.id, p_n: parts });
       await log("failed", r.id, r.error);
@@ -169,4 +183,22 @@ export async function testSmsKey(key: string): Promise<{ balance: number | null;
     if (!last.error && last.balance !== null) return { ...last, scheme: sc };
   }
   return { ...last, scheme: order[0] };
+}
+
+/** Check a NextSMS login (username + password, or a token) and say how to store it. */
+export async function checkLogin(username: string, password: string, key?: string): Promise<{ balance: number | null; error: string; store?: { username: string; secret: string } }> {
+  const k = (key || "").trim();
+  if (k) {
+    const t = await testSmsKey(k);
+    if (t.error || t.balance === null) return { balance: null, error: (t.error || "NextSMS did not accept this token.").replace("Check the username and password.", "Check the API token.") };
+    return { balance: t.balance, error: "", store: { username: t.scheme === "basic" ? "__key__" : "__bearer__", secret: k.replace(/^(basic|bearer)\s+/i, "") } };
+  }
+  const t = await testSmsLogin(username.trim(), password);
+  if (t.error || t.balance === null) return { balance: null, error: t.error || "NextSMS did not accept this login." };
+  return { balance: t.balance, error: "", store: { username: username.trim(), secret: password } };
+}
+/** Balance of a client's own NextSMS user (null if it has none). */
+export async function clientBalance(companyId: string) {
+  const c = await clientCreds(companyId);
+  return c ? providerBalance(c.header) : null;
 }

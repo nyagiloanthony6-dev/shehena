@@ -1,7 +1,7 @@
 "use server";
 import { allRows } from "@/lib/all-rows";
 import { cleanSender, intlPhone } from "@/lib/domain";
-import { clearSmsLogin, sendTestSms, testSmsKey, testSmsLogin } from "@/lib/sms-server";
+import { checkLogin, clearSmsLogin, clientBalance, sendTestSms, testSmsKey, testSmsLogin } from "@/lib/sms-server";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { currentOwner, type AccountStatus } from "@/lib/owner";
@@ -546,14 +546,14 @@ export async function saveSmsPrice(price: number, company_id?: string | null): P
 }
 
 /** Send a test SMS from the owner console to check the NextSMS connection and sender name. */
-export async function ownerTestSms(phone: string, sender?: string): Promise<Result> {
+export async function ownerTestSms(phone: string, sender?: string, company_id?: string): Promise<Result> {
   try {
     await owner();
     const p = intlPhone(phone);
     if (!/^255[67]\d{8}$/.test(p)) return { error: "Enter a valid Tanzanian mobile number, e.g. 0712 345 678." };
     const from = sender?.trim() ? cleanSender(sender) : "";
     if (sender?.trim() && !from) return { error: "Sender names are 3 to 15 letters or numbers." };
-    const r = await sendTestSms(p, `Shehena test SMS ${new Date().toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" })}: the SMS connection works.`, from || undefined);
+    const r = await sendTestSms(p, `Shehena test SMS ${new Date().toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" })}: the SMS connection works.`, from || undefined, company_id || null);
     if (!r.ok) return { error: `Not sent: ${r.error}` };
     return { ok: `Test SMS sent to ${phone}${process.env.NEXTSMS_TEST === "1" ? " (TEST MODE: NextSMS accepts it but doesn't deliver it)" : ""}. It should arrive within a minute.` };
   } catch (e) { return fail(e); }
@@ -587,5 +587,40 @@ export async function disconnectNextSms(): Promise<Result> {
     await audit(by, "sms_disconnect", null, {});
     revalidatePath("/owner");
     return { ok: "NextSMS login removed." };
+  } catch (e) { return fail(e); }
+}
+
+/** Connect a client's own NextSMS API key (one key per client under your NextSMS account). */
+export async function connectClientSms(company_id: string, apiKey: string): Promise<Result> {
+  try {
+    const by = await owner();
+    if (!apiKey.trim()) return { error: "Paste this client's NextSMS API key." };
+    const t = await checkLogin("", "", apiKey);
+    if (t.error || !t.store) return { error: t.error || "NextSMS did not accept this API key." };
+    const { error } = await supabaseAdmin().from("sms_client_logins").upsert({ company_id, username: t.store.username, secret: t.store.secret, connected_at: new Date().toISOString(), connected_by: by });
+    if (error) return { error: /sms_client_logins/.test(error.message) ? "Run migration 0032_sms_client_logins.sql in Supabase first." : "The key works, but it could not be saved." };
+    await audit(by, "sms_client_key", company_id, { connected: true });
+    revalidatePath("/owner");
+    return { ok: `API key connected for this client${t.balance !== null ? ` · ${t.balance.toLocaleString("en-US")} SMS on it` : ""}. Their SMS now go out with this key.` };
+  } catch (e) { return fail(e); }
+}
+/** Remove a client's own API key (they then use your main NextSMS login). */
+export async function disconnectClientSms(company_id: string): Promise<Result> {
+  try {
+    const by = await owner();
+    await supabaseAdmin().from("sms_client_logins").delete().eq("company_id", company_id);
+    await audit(by, "sms_client_key", company_id, { connected: false });
+    revalidatePath("/owner");
+    return { ok: "Client API key removed. Their SMS use your main NextSMS login." };
+  } catch (e) { return fail(e); }
+}
+/** Check a client's API key and its NextSMS balance. */
+export async function checkClientSms(company_id: string): Promise<Result> {
+  try {
+    await owner();
+    const r = await clientBalance(company_id);
+    if (!r) return { error: "This client has no API key yet." };
+    if (r.error) return { error: r.error.replace("Check the username and password.", "Check the API key.") };
+    return { ok: `✓ Key works${r.balance !== null ? ` · ${r.balance.toLocaleString("en-US")} SMS on it` : ""}.` };
   } catch (e) { return fail(e); }
 }

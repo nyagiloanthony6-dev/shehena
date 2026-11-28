@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { sendNotices, smsConfigured, type SmsJob } from "@/lib/sms-server";
+import { sendNotices, smsConfiguredFor, type SmsJob } from "@/lib/sms-server";
 import { balanceOf, type Company, type Shipment } from "@/lib/domain";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,6 @@ export const maxDuration = 60;
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
-  if (!(await smsConfigured())) return NextResponse.json({ ok: true, skipped: "SMS not configured" });
   const admin = supabaseAdmin();
   const { data: cos, error } = await admin.from("companies").select("*");
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
@@ -22,7 +21,7 @@ export async function GET(req: Request) {
   const summary: Record<string, number> = {};
   for (const co of (cos || []) as Company[]) {
     const days = Number(co.sms_auto?.reminder_days || 0);
-    if (!days) continue;
+    if (!days || !(await smsConfiguredFor(co.id))) continue;
     const cutoff = new Date(now - days * 864e5).toISOString();
     const { data: ships } = await admin.from("shipments").select("*").eq("company_id", co.id).eq("status", "arrived").eq("pay", "unpaid").lte("arrived_at", cutoff).limit(500);
     const { data: trips } = await admin.from("trips").select("id, plate").eq("company_id", co.id).in("id", [...new Set((ships || []).map((s) => s.trip_id).filter(Boolean))] as string[]);

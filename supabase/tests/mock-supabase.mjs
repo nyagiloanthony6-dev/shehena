@@ -3,14 +3,14 @@
 import http from "node:http";
 import crypto from "node:crypto";
 
-const db = { sms_provider: [], sms_log: [], sms_topups: [], expenses: [], customers: [], companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000, sms_price: 30 }],
+const db = { sms_provider: [], sms_client_logins: [], sms_log: [], sms_topups: [], expenses: [], customers: [], companies: [], profiles: [], vehicles: [], trips: [], shipments: [], company_accounts: [], owner_audit: [], leads: [], platform_settings: [{ id: 1, signup_open: true, announcement: "", announcement_updated_at: null, trial_days: 14, grace_days: 7, auto_suspend: true, billing_instructions: "", truck_price: 50000, min_fee: 80000, sms_price: 30 }],
   billing_bands: [[0, 1, 80000], [2, 3, 150000], [4, 6, 250000], [7, 10, 350000], [11, null, 450000]].map(([min_trucks, max_trucks, monthly_fee], i) => ({ id: i + 1, min_trucks, max_trucks, monthly_fee })),
   billing_payments: [], sales_agents: [], commissions: [], agent_payouts: [],
   bill_accounts: [], bill_payments: [], claims: [], claim_payments: [], shipment_payments: [], runners: [] };
 const ymd = (d = new Date()) => new Date(d.getTime() + 3 * 3600e3).toISOString().slice(0, 10);
 const plusDays = (s, n) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-const SERVICE_ONLY = ["company_accounts", "owner_audit", "leads", "billing_bands", "billing_payments", "sales_agents", "commissions", "agent_payouts"];
-const PK = { company_accounts: "company_id", platform_settings: "id" };
+const SERVICE_ONLY = ["company_accounts", "sms_client_logins", "sms_provider", "owner_audit", "leads", "billing_bands", "billing_payments", "sales_agents", "commissions", "agent_payouts"];
+const PK = { company_accounts: "company_id", sms_client_logins: "company_id", sms_provider: "id", platform_settings: "id" };
 const suspended = (cid) => db.company_accounts.find((a) => a.company_id === cid)?.status === "suspended";
 const users = []; // {id,email,password,banned}
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Mark, Wordmark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
-  addSmsBundle, setSmsSender, saveSmsPrice, ownerTestSms, connectNextSms, disconnectNextSms, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
+  addSmsBundle, setSmsSender, connectClientSms, disconnectClientSms, checkClientSms, saveSmsPrice, ownerTestSms, connectNextSms, disconnectNextSms, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
   setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen, truckActivity, deleteCompany, type TruckRow,
 } from "@/app/owner/actions";
 import {
@@ -24,7 +24,7 @@ type Staff = { id: string; company_id: string; full_name: string; email: string;
 type Lead = { id: number; created_at: string; name: string; company: string; phone: string; email: string; region: string; trucks: string; message: string; source: string; status: string };
 type Audit = { id: number; at: string; owner_email: string; company_id: string | null; action: string; detail: Record<string, unknown> };
 export interface OwnerData {
-  sms?: { source?: "owner" | "vercel" | null; configured: boolean; balance: number | null; error?: string; test: boolean; sender: string };
+  sms?: { source?: "owner" | "vercel" | null; configured: boolean; balance: number | null; error?: string; test: boolean; sender: string; keys?: string[] | null };
   me: string; hasCompany: boolean; error: string;
   companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[]; leads: Lead[]; siteUrl: string;
   settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null } & BillingSettings;
@@ -427,7 +427,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
         <>
           <div className="scrim" onClick={() => setOpenId(null)} />
           <aside className="sheet wide" aria-label={open.name}>
-            <CompanySheet key={open.id} r={open} agents={data.agents} settings={data.settings} audit={data.audit.filter((a) => a.company_id === open.id)} busy={pending} run={run} close={() => setOpenId(null)} smsShared={data.sms?.sender} />
+            <CompanySheet key={open.id} r={open} agents={data.agents} settings={data.settings} audit={data.audit.filter((a) => a.company_id === open.id)} busy={pending} run={run} close={() => setOpenId(null)} smsShared={data.sms?.sender} smsKeys={data.sms?.keys} />
           </aside>
         </>
       )}
@@ -620,8 +620,8 @@ function DeleteCompany({ r, busy, run, close }: { r: Row; busy: boolean; run: Ru
   );
 }
 
-function CompanySheet({ r, agents, settings, audit, busy, run, close, smsShared }: {
-  r: Row; agents: Agent[]; settings: BillingSettings; audit: Audit[]; busy: boolean; close: () => void; run: Run; smsShared?: string;
+function CompanySheet({ r, agents, settings, audit, busy, run, close, smsShared, smsKeys }: {
+  r: Row; agents: Agent[]; settings: BillingSettings; audit: Audit[]; busy: boolean; close: () => void; run: Run; smsShared?: string; smsKeys?: string[] | null;
 }) {
   const [notes, setNotes] = useState(r.acc.notes || "");
   const [confirmSuspend, setConfirmSuspend] = useState(false);
@@ -639,7 +639,7 @@ function CompanySheet({ r, agents, settings, audit, busy, run, close, smsShared 
       <div className="sheet-cols">
         <div className="sheet-col">
       <Billing r={r} agents={agents} settings={settings} busy={busy} run={run} />
-      <SmsCard r={r} busy={busy} run={run} shared={smsShared} stdPrice={settings.sms_price} />
+      <SmsCard r={r} busy={busy} run={run} shared={smsShared} stdPrice={settings.sms_price} keys={smsKeys} />
         </div>
         <div className="sheet-col">
 
@@ -912,7 +912,7 @@ function Billing({ r, agents, settings, busy, run }: { r: Row; agents: Agent[]; 
 }
 
 /** SMS bundles: the client's balance and adding a bundle they paid for. */
-function SmsCard({ r, busy, run, shared, stdPrice }: { r: Row; busy: boolean; run: Run; shared?: string; stdPrice?: number }) {
+function SmsCard({ r, busy, run, shared, stdPrice, keys }: { r: Row; busy: boolean; run: Run; shared?: string; stdPrice?: number; keys?: string[] | null }) {
   const [own, setOwn] = useState(r.acc.sms_price != null ? String(r.acc.sms_price) : "");
   const price = Number(r.acc.sms_price ?? stdPrice ?? 0);
   const [f, setF] = useState({ sms: "", amount: "", method: "M-Pesa", reference: "", note: "" });
@@ -957,6 +957,45 @@ function SmsCard({ r, busy, run, shared, stdPrice }: { r: Row; busy: boolean; ru
           <p className="note">You can set a name for any client, with or without a request. Type it exactly as registered in NextSMS (same spelling and spaces), and set it here only once NextSMS confirms it, or SMS from this client will be rejected.</p>
         </div>
       )}
+      <ClientKey r={r} busy={busy} run={run} keys={keys} sender={co.sms_sender || shared} />
+    </div>
+  );
+}
+
+/** Each client can send with its own NextSMS API key (one NextSMS account, a separate key per client). */
+function ClientKey({ r, busy, run, keys, sender }: { r: Row; busy: boolean; run: Run; keys?: string[] | null; sender?: string }) {
+  const has = !!keys?.includes(r.id);
+  const [open, setOpen] = useState(false);
+  const [key, setKey] = useState("");
+  const [show, setShow] = useState(false);
+  const [phone, setPhone] = useState("");
+  if (keys === undefined) return null;
+  if (keys === null) return <div className="snd-owner"><div className="lbl" style={{ marginTop: 6 }}>NextSMS API key</div><p className="note">Run migration 0032_sms_client_logins.sql in Supabase to give this client its own API key.</p></div>;
+  return (
+    <div className="snd-owner">
+      <div className="lbl" style={{ marginTop: 6 }}>NextSMS API key for this client</div>
+      <p className="sub" style={{ margin: "2px 0 8px" }}>{has ? <><b>✓ Uses its own API key.</b> SMS go out with this client&apos;s key and sender name <b>{sender || "SHEHENA"}</b>.</> : <>No key yet: SMS use your <b>main NextSMS login</b>.</>}</p>
+      {(open || !has) ? (
+        <form className="testsms" noValidate onSubmit={(e) => { e.preventDefault(); run(() => connectClientSms(r.id, key), () => { setKey(""); setOpen(false); }); }}>
+          <input value={key} onChange={(e) => setKey(e.target.value)} type={show ? "text" : "password"} placeholder="Paste this client's API key" autoComplete="off" aria-label="Client NextSMS API key" />
+          <button type="button" className="btn sm" onClick={() => setShow(!show)}>{show ? "Hide" : "Show"}</button>
+          <button className="btn sm primary" type="submit" disabled={busy || !key.trim()}>Test & connect</button>
+          {has && <button type="button" className="btn sm" onClick={() => setOpen(false)}>Cancel</button>}
+        </form>
+      ) : (
+        <div className="testsms" style={{ alignItems: "center" }}>
+          <button className="btn sm" disabled={busy} onClick={() => run(() => checkClientSms(r.id))}>Check key</button>
+          <button className="btn sm" onClick={() => setOpen(true)}>Change key</button>
+          <button className="btn sm" disabled={busy} onClick={() => run(() => disconnectClientSms(r.id))}>Remove key</button>
+        </div>
+      )}
+      {has && (
+        <div className="testsms" style={{ marginTop: 8 }}>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Your phone, e.g. 0713 123 105" aria-label="Phone for client test SMS" />
+          <button className="btn sm" disabled={busy || phone.replace(/\D/g, "").length < 9} onClick={() => run(() => ownerTestSms(phone, sender || "", r.id))}>Send test as {sender || "SHEHENA"}</button>
+        </div>
+      )}
+      <p className="note">In NextSMS, open this client&apos;s API key, copy it and paste it here. Shehena checks it with NextSMS before saving; only the server can read it.</p>
     </div>
   );
 }

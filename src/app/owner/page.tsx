@@ -49,6 +49,7 @@ export default async function OwnerPage() {
     tripsByMonth(),
   ]);
   const smsProvider = await providerBalance();
+  const smsKeys = await admin.from("sms_client_logins").select("company_id").then((r) => (r.error ? null : (r.data || []).map((x) => x.company_id as string)), () => null);
   const n = <T extends Record<string, unknown>>(rows: T[] | null, keys: string[]) => (rows || []).map((r) => ({ ...r, ...Object.fromEntries(keys.map((k) => [k, Number(r[k])])) }));
   const data: OwnerData = {
     me: user.email!,
@@ -67,7 +68,7 @@ export default async function OwnerPage() {
     payouts: n(payouts.data, ["amount"]) as never,
     audit: audit.data || [],
     leads: leads.data || [],
-    sms: { source: await smsSource(), configured: await smsConfigured(), balance: smsProvider.balance, error: smsProvider.error, test: process.env.NEXTSMS_TEST === "1", sender: process.env.NEXTSMS_SENDER_ID || "SHEHENA" },
+    sms: { source: await smsSource(), configured: await smsConfigured(), balance: smsProvider.balance, error: smsProvider.error, test: process.env.NEXTSMS_TEST === "1", sender: process.env.NEXTSMS_SENDER_ID || "SHEHENA", keys: smsKeys },
     siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "https://www.shehenacargo.co.tz",
     error: [companies, accounts, stats, staff].some((r) => r.error) ? "Some figures couldn't load. Check that migration 0003 has been run in Supabase."
       : payments.error ? "Billing isn't set up yet. Run migration 0006_billing.sql in Supabase." : "",
