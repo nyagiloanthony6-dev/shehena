@@ -91,7 +91,7 @@ export async function requestSender(name: string): Promise<{ ok?: string; error?
     const { me, company } = await caller();
     if (me.role !== "admin") return { error: "Only the Admin can request a sender name." };
     const n = cleanSender(name);
-    if (!n) return { error: "Use 3 to 11 letters or numbers, e.g. G2K TRANS." };
+    if (!n) return { error: "Use 3 to 15 letters or numbers, e.g. G2K TRANS." };
     const { error } = await supabaseAdmin().from("companies").update({ sms_sender_request: n, sms_sender_requested_at: new Date().toISOString() }).eq("id", company.id);
     if (error) return { error: /sms_sender/.test(error.message) ? "Run database update 0028 in Supabase first." : "Could not save." };
     return { ok: `Requested "${n}". Serengeti Labs will register it and tell you when it is ready.` };

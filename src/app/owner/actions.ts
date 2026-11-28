@@ -518,7 +518,7 @@ export async function setSmsSender(company_id: string, name: string): Promise<Re
   try {
     const by = await owner();
     const n = name.trim() ? cleanSender(name) : "";
-    if (name.trim() && !n) return { error: "Use 3 to 11 letters or numbers." };
+    if (name.trim() && !n) return { error: "Use 3 to 15 letters or numbers." };
     const { error } = await supabaseAdmin().from("companies").update({ sms_sender: n || null }).eq("id", company_id);
     if (error) return { error: /sms_sender/.test(error.message) ? "Run migration 0028_sms_sender.sql in Supabase first." : "Could not save." };
     await audit(by, "sms_sender", company_id, { sender: n || null });
@@ -552,7 +552,7 @@ export async function ownerTestSms(phone: string, sender?: string): Promise<Resu
     const p = intlPhone(phone);
     if (!/^255[67]\d{8}$/.test(p)) return { error: "Enter a valid Tanzanian mobile number, e.g. 0712 345 678." };
     const from = sender?.trim() ? cleanSender(sender) : "";
-    if (sender?.trim() && !from) return { error: "Sender names are 3 to 11 letters or numbers." };
+    if (sender?.trim() && !from) return { error: "Sender names are 3 to 15 letters or numbers." };
     const r = await sendTestSms(p, `Shehena test SMS ${new Date().toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" })}: the SMS connection works.`, from || undefined);
     if (!r.ok) return { error: `Not sent: ${r.error}` };
     return { ok: `Test SMS sent to ${phone}${process.env.NEXTSMS_TEST === "1" ? " (TEST MODE: NextSMS accepts it but doesn't deliver it)" : ""}. It should arrive within a minute.` };

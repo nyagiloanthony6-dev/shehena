@@ -6,14 +6,14 @@ import { intlPhone, message, smsParts, type Company, type NoticeKind, type Notic
  * SMS through NextSMS (messaging-service.co.tz).
  * Vercel environment variables:
  *   NEXTSMS_USERNAME, NEXTSMS_PASSWORD  - the NextSMS login (never sent to the browser)
- *   NEXTSMS_SENDER_ID                   - the shared sender name (max 11 characters); default SERENGETI
+ *   NEXTSMS_SENDER_ID                   - the shared sender name (default SHEHENA (registered)
  *   NEXTSMS_TEST=1                      - optional: use NextSMS test mode (nothing is delivered)
  */
 const BASE = process.env.NEXTSMS_BASE_URL || "https://messaging-service.co.tz/api/sms/v1";
 export const smsConfigured = () => !!(process.env.NEXTSMS_USERNAME && process.env.NEXTSMS_PASSWORD);
 const auth = () => "Basic " + Buffer.from(`${process.env.NEXTSMS_USERNAME}:${process.env.NEXTSMS_PASSWORD}`).toString("base64");
 /** The company's own approved sender name, or the shared one. */
-export const senderFor = (c?: Pick<Company, "sms_sender"> | null) => c?.sms_sender?.trim() || process.env.NEXTSMS_SENDER_ID || "SERENGETI";
+export const senderFor = (c?: Pick<Company, "sms_sender"> | null) => c?.sms_sender?.trim() || process.env.NEXTSMS_SENDER_ID || "SHEHENA";
 
 type Sent = { ok: boolean; id: string; error: string };
 /** Clients see Serengeti Labs, never the SMS supplier: strip its name from error texts they can read. */

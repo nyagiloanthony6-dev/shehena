@@ -503,14 +503,14 @@ function SenderCard({ data, admin }: { data: Awaited<ReturnType<typeof smsOvervi
         <div className="snd-phone" aria-hidden="true"><span className="snd-from">{data?.sender || "…"}</span><span className="snd-msg">Habari Juma Hassan, mzigo wako namba DAR-DOD-… umefika Dodoma…</span></div>
         <div className="snd-info">
           {data && !data.shared ? <p><span className="pill acc-active">Approved</span> Your SMS show as <b>{data.sender}</b>.</p>
-            : <p>Your SMS show as <b>{data?.sender || "SERENGETI"}</b> (Serengeti Labs) until your own name is approved.</p>}
+            : <p>Your SMS show as <b>{data?.sender || "SHEHENA"}</b> until your own name is approved.</p>}
           {pending && <p className="note">Requested <b>{req}</b>{company.sms_sender_requested_at ? ` on ${dayLabel(company.sms_sender_requested_at.slice(0, 10))}` : ""}. Serengeti Labs registers it with the SMS network; approval usually takes a few working days.</p>}
           {!has && <p className="note">Run database update 0028 in Supabase to choose your own sender name.</p>}
           {has && admin && (
             <div className="snd-req">
-              <input value={name} onChange={(e) => setName(e.target.value.toUpperCase().slice(0, 11))} placeholder="e.g. G2K TRANS" aria-label="Sender name to request" maxLength={11} />
+              <input value={name} onChange={(e) => setName(e.target.value.toUpperCase().slice(0, 15))} placeholder="e.g. G2K TRANS" aria-label="Sender name to request" maxLength={15} />
               <button className="btn" disabled={busy || !cleanSender(name) || cleanSender(name) === req} onClick={() => start(async () => { const r = await requestSender(name); toast(r.ok || r.error || "", !r.ok); })}>{pending ? "Change request" : company.sms_sender ? "Request a new name" : "Request this name"}</button>
-              <span className="sub">3–11 letters or numbers, usually your company name. {name.length}/11</span>
+              <span className="sub">Up to 15 letters or numbers, usually your company name, exactly as you want it registered. {name.length}/15</span>
             </div>
           )}
         </div>

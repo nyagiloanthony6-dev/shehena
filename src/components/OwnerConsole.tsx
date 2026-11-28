@@ -949,10 +949,10 @@ function SmsCard({ r, busy, run, shared, stdPrice }: { r: Row; busy: boolean; ru
           <div className="lbl" style={{ marginTop: 6 }}>Sender name</div>
           <p className="sub" style={{ margin: "2px 0 8px" }}>Now: <b>{co.sms_sender || `${shared || "shared"} (shared)`}</b>{co.sms_sender_request && co.sms_sender_request !== co.sms_sender ? <> · client requested <b>{co.sms_sender_request}</b>{co.sms_sender_requested_at ? ` on ${dayLabel(co.sms_sender_requested_at.slice(0, 10))}` : ""}</> : null}</p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input value={snd} onChange={(e) => setSnd(e.target.value.toUpperCase().slice(0, 11))} placeholder="e.g. G2K TRANS" maxLength={11} style={{ width: 180 }} aria-label="Approved sender name" />
+            <input value={snd} onChange={(e) => setSnd(e.target.value.toUpperCase().slice(0, 15))} placeholder="e.g. G2K TRANS" maxLength={15} style={{ width: 190 }} aria-label="Approved sender name" />
             <button className="btn sm primary" disabled={busy || snd === (co.sms_sender || "")} onClick={() => run(() => setSmsSender(r.id, snd))}>{!snd ? "Use shared name" : co.sms_sender_request && snd === co.sms_sender_request ? "Approve requested name" : "Set sender name"}</button>
           </div>
-          <p className="note">You can set a name for any client, with or without a request. Register it with NextSMS first and set it here only once NextSMS confirms it, or SMS from this client will be rejected.</p>
+          <p className="note">You can set a name for any client, with or without a request. Type it exactly as registered in NextSMS (same spelling and spaces), and set it here only once NextSMS confirms it, or SMS from this client will be rejected.</p>
         </div>
       )}
     </div>
@@ -1006,7 +1006,7 @@ function TestSms({ busy, run, sender }: { busy: boolean; run: Run; sender?: stri
   return (
     <div className="testsms">
       <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Your phone, e.g. 0713 123 105" aria-label="Phone for test SMS" />
-      <input value={from} onChange={(e) => setFrom(e.target.value.toUpperCase().slice(0, 11))} placeholder={`Sender (${sender || "SERENGETI"})`} aria-label="Sender name for test" style={{ width: 170 }} />
+      <input value={from} onChange={(e) => setFrom(e.target.value.toUpperCase().slice(0, 15))} placeholder={`Sender (${sender || "SHEHENA"})`} aria-label="Sender name for test" style={{ width: 170 }} />
       <button className="btn sm" disabled={busy || phone.replace(/\D/g, "").length < 9} onClick={() => run(() => ownerTestSms(phone, from))}>Send test SMS</button>
     </div>
   );

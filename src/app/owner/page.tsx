@@ -67,7 +67,7 @@ export default async function OwnerPage() {
     payouts: n(payouts.data, ["amount"]) as never,
     audit: audit.data || [],
     leads: leads.data || [],
-    sms: { configured: smsConfigured(), balance: smsProvider, test: process.env.NEXTSMS_TEST === "1", sender: process.env.NEXTSMS_SENDER_ID || "SERENGETI" },
+    sms: { configured: smsConfigured(), balance: smsProvider, test: process.env.NEXTSMS_TEST === "1", sender: process.env.NEXTSMS_SENDER_ID || "SHEHENA" },
     siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "https://www.shehenacargo.co.tz",
     error: [companies, accounts, stats, staff].some((r) => r.error) ? "Some figures couldn't load. Check that migration 0003 has been run in Supabase."
       : payments.error ? "Billing isn't set up yet. Run migration 0006_billing.sql in Supabase." : "",

@@ -610,10 +610,10 @@ export function smsParts(text: string) {
   return n <= one ? 1 : Math.ceil(n / many);
 }
 
-/** An SMS sender name: 3-11 letters, numbers or spaces (operator rule). Returns the cleaned name or "". */
+/** An SMS sender name: 3-15 letters, numbers, spaces, dots or dashes, as registered with the SMS provider. Returns the cleaned name or "". */
 export function cleanSender(v: string) {
-  const s = (v || "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
-  return s.length >= 3 && s.length <= 11 && /[A-Z]/.test(s) ? s : "";
+  const s = (v || "").toUpperCase().replace(/[^A-Z0-9 .\-&]/g, "").replace(/\s+/g, " ").trim();
+  return s.length >= 3 && s.length <= 15 && /[A-Z]/.test(s) ? s : "";
 }
 
 /** Blanks clients can use in their SMS wording. */
