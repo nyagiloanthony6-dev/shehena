@@ -1,7 +1,7 @@
 "use server";
 import { allRows } from "@/lib/all-rows";
 import { cleanSender, intlPhone } from "@/lib/domain";
-import { clearSmsLogin, sendTestSms, testSmsLogin } from "@/lib/sms-server";
+import { clearSmsLogin, sendTestSms, testSmsKey, testSmsLogin } from "@/lib/sms-server";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { currentOwner, type AccountStatus } from "@/lib/owner";
@@ -560,17 +560,18 @@ export async function ownerTestSms(phone: string, sender?: string): Promise<Resu
 }
 
 /** Connect NextSMS from the owner console: test the login, then save it (server-only table). */
-export async function connectNextSms(username: string, password: string): Promise<Result> {
+export async function connectNextSms(username: string, password: string, apiKey?: string): Promise<Result> {
   try {
     const by = await owner();
+    const key = (apiKey || "").trim().replace(/^Basic\s+/i, "");
     const u = username.trim();
-    if (!u || !password) return { error: "Enter the NextSMS username and password." };
-    const t = await testSmsLogin(u, password);
-    if (t.error || t.balance === null) return { error: t.error || "NextSMS did not accept this login." };
-    const { error } = await supabaseAdmin().from("sms_provider").upsert({ id: 1, username: u, password, connected_at: new Date().toISOString(), connected_by: by });
+    if (!key && (!u || !password)) return { error: "Enter the NextSMS username and password, or an API key." };
+    const t = key ? await testSmsKey(key) : await testSmsLogin(u, password);
+    if (t.error || t.balance === null) return { error: (t.error || "NextSMS did not accept this login.").replace("Check the username and password.", key ? "Check the API key." : "Check the username and password.") };
+    const { error } = await supabaseAdmin().from("sms_provider").upsert({ id: 1, username: key ? "__key__" : u, password: key || password, connected_at: new Date().toISOString(), connected_by: by });
     if (error) return { error: /sms_provider/.test(error.message) ? "Run migration 0031_sms_provider.sql in Supabase first." : "Login works, but it could not be saved." };
     clearSmsLogin();
-    await audit(by, "sms_connect", null, { username: u });
+    await audit(by, "sms_connect", null, { method: key ? "api key" : "login", username: key ? "" : u });
     revalidatePath("/owner");
     return { ok: `Connected to NextSMS · ${t.balance.toLocaleString("en-US")} SMS left.` };
   } catch (e) { return fail(e); }

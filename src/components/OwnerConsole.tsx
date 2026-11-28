@@ -1007,6 +1007,8 @@ function ConnectSms({ busy, run, sms }: { busy: boolean; run: Run; sms?: OwnerDa
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [show, setShow] = useState(false);
+  const [useKey, setUseKey] = useState(false);
+  const [key, setKey] = useState("");
   if (!open) return (
     <div className="testsms" style={{ alignItems: "center" }}>
       <span className="sub">Login {sms?.source === "owner" ? "saved here in the owner console" : "from Vercel settings"}.</span>
@@ -1015,14 +1017,19 @@ function ConnectSms({ busy, run, sms }: { busy: boolean; run: Run; sms?: OwnerDa
     </div>
   );
   return (
-    <form className="connect-sms" noValidate onSubmit={(e) => { e.preventDefault(); run(() => connectNextSms(u, p), () => { setP(""); setOpen(false); }); }}>
+    <form className="connect-sms" noValidate onSubmit={(e) => { e.preventDefault(); run(() => connectNextSms(u, p, useKey ? key : ""), () => { setP(""); setKey(""); setOpen(false); }); }}>
       <b>Connect NextSMS</b>
-      <span className="sub">Use the same username and password you use to log in on the NextSMS website. Shehena checks it with NextSMS before saving. Only the server can read it; clients and staff never see it.</span>
+      <div className="chips"><button type="button" className="chip" aria-pressed={!useKey} onClick={() => setUseKey(false)}>Username + password</button><button type="button" className="chip" aria-pressed={useKey} onClick={() => setUseKey(true)}>API key</button></div>
+      <span className="sub">{useKey ? "Paste the API key NextSMS gave you (a long code, sometimes starting with \"Basic\")." : "Use the same username and password you use to log in on the NextSMS website."} Shehena checks it with NextSMS before saving. Only the server can read it; clients and staff never see it.</span>
       <div className="testsms">
-        <input value={u} onChange={(e) => setU(e.target.value)} placeholder="NextSMS username" autoComplete="off" aria-label="NextSMS username" />
-        <input value={p} onChange={(e) => setP(e.target.value)} type={show ? "text" : "password"} placeholder="NextSMS password" autoComplete="new-password" aria-label="NextSMS password" />
+        {useKey
+          ? <input value={key} onChange={(e) => setKey(e.target.value)} type={show ? "text" : "password"} placeholder="NextSMS API key" autoComplete="off" aria-label="NextSMS API key" />
+          : <>
+              <input value={u} onChange={(e) => setU(e.target.value)} placeholder="NextSMS username" autoComplete="off" aria-label="NextSMS username" />
+              <input value={p} onChange={(e) => setP(e.target.value)} type={show ? "text" : "password"} placeholder="NextSMS password" autoComplete="new-password" aria-label="NextSMS password" />
+            </>}
         <button type="button" className="btn sm" onClick={() => setShow(!show)}>{show ? "Hide" : "Show"}</button>
-        <button className="btn sm primary" type="submit" disabled={busy || !u.trim() || !p}>Test & connect</button>
+        <button className="btn sm primary" type="submit" disabled={busy || (useKey ? !key.trim() : !u.trim() || !p)}>Test & connect</button>
         {sms?.configured && <button type="button" className="btn sm" onClick={() => setOpen(false)}>Cancel</button>}
       </div>
       <span className="sub">Refused? Try the username shown in your NextSMS dashboard instead of your email, and ask NextSMS to enable API access on your account.</span>

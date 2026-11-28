@@ -24,7 +24,7 @@ async function creds(): Promise<Creds | null> {
   let c: Creds | null = null;
   try {
     const { data } = await supabaseAdmin().from("sms_provider").select("username,password").eq("id", 1).maybeSingle();
-    if (data?.username && data?.password) c = { token: b64(data.username, data.password), source: "owner" };
+    if (data?.username && data?.password) c = { token: data.username === "__key__" ? data.password : b64(data.username, data.password), source: "owner" };
   } catch { /* table not created yet */ }
   if (!c) {
     const t = env("NEXTSMS_TOKEN").replace(/^Basic\s+/i, "");
@@ -128,3 +128,5 @@ export async function sendNotices(company: Company, jobs: SmsJob[]): Promise<Sms
 
 /** Test a NextSMS username and password (owner console). */
 export const testSmsLogin = (username: string, password: string) => providerBalance(b64(username, password));
+/** Test a NextSMS API key (the Base64 "Basic" key some NextSMS accounts are given). */
+export const testSmsKey = (key: string) => providerBalance(key.trim().replace(/^Basic\s+/i, ""));
