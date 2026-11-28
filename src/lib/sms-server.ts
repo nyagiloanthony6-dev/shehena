@@ -19,8 +19,8 @@ const sendPaths = (header: string) => {
   const own = env("NEXTSMS_SEND_PATH");
   const test = env("NEXTSMS_TEST") === "1";
   const v1 = test ? "/api/sms/v1/test/text/single" : "/api/sms/v1/text/single";
-  // NextSMS v2 (Bearer token): POST /api/mobile/v2/text/single (test mode: /api/mobile/v2/test/text/single).
-  const v2 = test ? ["/api/mobile/v2/test/text/single", "/api/v2/test/text/single"] : ["/api/mobile/v2/text/single", "/api/v2/text/single"];
+  // NextSMS v2 (Bearer token), sender-ID SMS. Not /api/mobile/... - that is the phone/SIM gateway product.
+  const v2 = test ? ["/api/v2/test/text/single", "/api/sms/v2/test/text/single"] : ["/api/v2/text/single", "/api/sms/v2/text/single", "/api/v2/sms/text/single"];
   return [...(own ? [own] : []), ...(isV2(header) ? [...v2, v1] : [v1, ...v2])];
 };
 let workingSend: string | null = null;
