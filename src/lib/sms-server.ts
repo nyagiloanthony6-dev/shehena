@@ -9,7 +9,21 @@ import { intlPhone, message, smsParts, type Company, type NoticeKind, type Notic
  *   NEXTSMS_SENDER_ID                   - the shared sender name (default SHEHENA (registered)
  *   NEXTSMS_TEST=1                      - optional: use NextSMS test mode (nothing is delivered)
  */
-const BASE = process.env.NEXTSMS_BASE_URL || "https://messaging-service.co.tz/api/sms/v1";
+/** NextSMS server. NEXTSMS_HOST only for testing (e.g. http://localhost:54400). */
+const HOST = (process.env.NEXTSMS_HOST || "https://messaging-service.co.tz").replace(/\/+$/, "");
+/** Newer NextSMS accounts use Bearer tokens on /api/v2; older ones Basic login on /api/sms/v1. */
+const isV2 = (header: string) => /^bearer\s/i.test(header);
+const balancePaths = (header: string) => (isV2(header) ? ["/api/v2/balance", "/api/mobile/v2/balance", "/api/sms/v1/balance"] : ["/api/sms/v1/balance", "/api/v2/balance"]);
+/** Sending addresses to try, in order. Only an address that doesn't exist (404/405) moves on, so an SMS is never sent twice. */
+const sendPaths = (header: string) => {
+  const own = env("NEXTSMS_SEND_PATH");
+  const test = env("NEXTSMS_TEST") === "1";
+  const v1 = test ? "/api/sms/v1/test/text/single" : "/api/sms/v1/text/single";
+  // NextSMS v2 (Bearer token): POST /api/mobile/v2/text/single (test mode: /api/mobile/v2/test/text/single).
+  const v2 = test ? ["/api/mobile/v2/test/text/single", "/api/v2/test/text/single"] : ["/api/mobile/v2/text/single", "/api/v2/text/single"];
+  return [...(own ? [own] : []), ...(isV2(header) ? [...v2, v1] : [v1, ...v2])];
+};
+let workingSend: string | null = null;
 /** Values pasted into Vercel often carry spaces, quotes or a line break: remove them. */
 const env = (k: string) => (process.env[k] || "").trim().replace(/^["']|["']$/g, "").trim();
 const b64 = (u: string, p: string) => Buffer.from(`${u.trim()}:${p}`).toString("base64");
@@ -50,21 +64,28 @@ const neutral = (t: string) => t.replace(/next\s*-?\s*sms|messaging-service\.co\
 async function nextSms(from: string, phone: string, text: string, reference: string): Promise<Sent> {
   const c = await creds();
   if (!c) return { ok: false, id: "", error: "SMS is not connected." };
-  const url = `${BASE}/${env("NEXTSMS_TEST") === "1" ? "test/" : ""}text/single`;
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: c.header, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ from, to: phone, text, reference }),
-      cache: "no-store",
-    });
+    const paths = workingSend ? [workingSend] : sendPaths(c.header);
+    let res: Response | null = null, used = "";
+    for (const path of paths) {
+      res = await fetch(HOST + path, {
+        method: "POST",
+        headers: { Authorization: c.header, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ from, to: phone, text, reference }),
+        cache: "no-store",
+      });
+      used = path;
+      if (res.status !== 404 && res.status !== 405) break; // the address exists: stop here, whatever the answer
+    }
+    if (!res) return { ok: false, id: "", error: "No sending address." };
+    if (res.ok) workingSend = used;
     const body = await res.json().catch(() => ({}));
-    const m = (body?.messages || [])[0] || {};
+    const m = (body?.messages || body?.data?.messages || [])[0] || body?.data || {};
     const group = String(m?.status?.groupName || "").toUpperCase();
     if (!res.ok || group === "REJECTED" || group === "UNDELIVERABLE") {
       return { ok: false, id: String(m?.messageId || ""), error: neutral(String(m?.status?.description || body?.message || body?.error || `Serengeti Labs SMS answered ${res.status}`)) };
     }
-    return { ok: true, id: String(m?.messageId || ""), error: "" };
+    return { ok: true, id: String(m?.messageId || m?.message_id || m?.id || ""), error: "" };
   } catch (e) {
     return { ok: false, id: "", error: neutral((e as Error).message || "Could not reach Serengeti Labs SMS") };
   }
@@ -81,7 +102,12 @@ export async function providerBalance(header?: string): Promise<{ balance: numbe
   const t = header || (await creds())?.header;
   if (!t) return { balance: null, error: "" };
   try {
-    const res = await fetch(`${BASE}/balance`, { headers: { Authorization: t, Accept: "application/json" }, cache: "no-store" });
+    let res: Response | null = null;
+    for (const path of balancePaths(t)) {
+      res = await fetch(HOST + path, { headers: { Authorization: t, Accept: "application/json" }, cache: "no-store" });
+      if (res.status !== 404 && res.status !== 405) break;
+    }
+    if (!res) return { balance: null, error: "No balance address." };
     const b = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) return { balance: null, error: `NextSMS refused the login (${b?.message || b?.error || "Not Authorized"}). Check the username and password.` };
     const n = Number(b?.sms_balance ?? b?.sms_remaining ?? b?.data?.sms_balance ?? b?.data?.sms_remaining ?? b?.balance ?? b?.data?.balance);
