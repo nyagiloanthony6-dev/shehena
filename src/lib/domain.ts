@@ -398,7 +398,7 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
   const payLine = noPrice(s)
     ? (sw ? "Malipo: kiasi kitathibitishwa na ofisi." : "Payment: the amount will be confirmed by our office.")
     : s.pay === "paid"
-    ? (sw ? "Malipo: IMELIPWA." : "Payment: PAID.")
+    ? (sw ? `Malipo: TZS ${tzs(s.charge)} - IMELIPWA.` : `Payment: TZS ${tzs(s.charge)} - PAID.`)
     : s.pay === "bill" ? (sw ? `Malipo: kwenye bili ya mwezi - TZS ${tzs(s.charge)}.` : `Payment: on your monthly bill - TZS ${tzs(s.charge)}.`)
     : isPart(s)
       ? (sw ? `Malipo: UMELIPA TZS ${tzs(paidOf(s))}, BAKI TZS ${tzs(balanceOf(s))} ilipwe wakati wa kuchukua.` : `Payment: TZS ${tzs(paidOf(s))} PAID, balance TZS ${tzs(balanceOf(s))} due on collection.`)
@@ -455,8 +455,8 @@ export function message(s: Shipment, kind: NoticeKind, to: NoticeTo, company: Co
     ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Kiasi cha kulipa ni ${due}.${how ? ` Tafadhali lipia kupitia: ${how}.` : " Tafadhali lipia ofisini."} Baada ya kulipa, fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. ${whereSw}${co}${dph ? ", simu: " + dph : ""}`
     : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. Amount due: ${due}.${how ? ` Please pay via: ${how}.` : " Please pay at our office."} Once paid, come to our office with ID and this waybill number to collect. ${whereEn}${co}${dph ? ", tel: " + dph : ""}`;
   return sw
-    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Malipo yamekamilika. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${whereSw}${co}${dph ? ", simu: " + dph : ""}`
-    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. Payment is complete. Please come to our office with ID and this number to collect. ${whereEn}${co}${dph ? ", tel: " + dph : ""}`;
+    ? `Habari ${s.r_name}, mzigo wako namba ${s.no} (${items}) umefika ${D}${plate ? ` kwa ${veh} ` + plate : ""}. Malipo ya TZS ${tzs(s.charge)} yamekamilika. Tafadhali fika ofisini kuuchukua ukiwa na kitambulisho na namba hii. ${whereSw}${co}${dph ? ", simu: " + dph : ""}`
+    : `Hello ${s.r_name}, your goods, waybill ${s.no} (${items}), have arrived in ${D}${plate ? ` on ${veh} ` + plate : ""}. Payment of TZS ${tzs(s.charge)} is complete. Please come to our office with ID and this number to collect. ${whereEn}${co}${dph ? ", tel: " + dph : ""}`;
 }
 
 export function niceStep(max: number) {
@@ -643,8 +643,8 @@ export const SMS_TEMPLATES: { key: string; kind: NoticeKind; to: NoticeTo; label
     sw: "Habari {receiver}, mzigo wako namba {waybill} ({goods}) umepakiwa kwenye gari {truck} na umeondoka {from} {departed} kuelekea {to}. Tutakujulisha ukifika. {company}, simu: {phone}",
     en: "Hello {receiver}, your goods, waybill {waybill} ({goods}), are loaded on vehicle {truck} and left {from} on {departed} for {to}. We will notify you on arrival. {company}, tel: {phone}" },
   { key: "arrived_receiver", kind: "arrived", to: "receiver", label: "Goods arrived → receiver",
-    sw: "Habari {receiver}, mzigo wako namba {waybill} ({goods}) umefika {to}. Kiasi cha kulipa: {due}. Fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. Ofisi yetu {to}: {office}. {company}, simu: {office_phone}",
-    en: "Hello {receiver}, your goods, waybill {waybill} ({goods}), have arrived in {to}. Amount due: {due}. Come to our office with ID and this waybill number to collect. Our {to} office: {office}. {company}, tel: {office_phone}" },
+    sw: "Habari {receiver}, mzigo wako namba {waybill} ({goods}) umefika {to}. {payment} Fika ofisini na kitambulisho na namba ya mzigo ili kuuchukua. Ofisi yetu {to}: {office}. {company}, simu: {office_phone}",
+    en: "Hello {receiver}, your goods, waybill {waybill} ({goods}), have arrived in {to}. {payment} Come to our office with ID and this waybill number to collect. Our {to} office: {office}. {company}, tel: {office_phone}" },
   { key: "reminder_receiver", kind: "reminder", to: "receiver", label: "Reminder → receiver",
     sw: "Kumbusho: Habari {receiver}, mzigo wako namba {waybill} ({goods}) upo ofisini {to} tangu {arrived}. Kiasi cha kulipa ni {due}. Fika na kitambulisho kuuchukua. {company}, simu: {office_phone}",
     en: "Reminder: Hello {receiver}, your goods, waybill {waybill} ({goods}), have been waiting at our {to} office since {arrived}. Amount due: {due}. Come with ID to collect. {company}, tel: {office_phone}" },
