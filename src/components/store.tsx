@@ -109,13 +109,14 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   const [hasV9, setHasV9] = useState(false);
   const [staff, setStaff] = useState<Profile[]>([]);
   const [ready, setReady] = useState(false);
-  const [toastMsg, setToastMsg] = useState<{ m: string; e?: boolean } | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [toasts, setToasts] = useState<{ id: number; m: string; e?: boolean }[]>([]);
+  const toastId = useRef(0);
 
+  // Messages stack, so "Saved" and "SMS sent" can both be read.
   const toast = useCallback((m: string, e?: boolean) => {
-    setToastMsg({ m, e });
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToastMsg(null), e ? 5000 : 2800);
+    const id = ++toastId.current;
+    setToasts((L) => [...L.filter((t) => t.m !== m).slice(-2), { id, m, e }]);
+    setTimeout(() => setToasts((L) => L.filter((t) => t.id !== id)), e ? 6000 : 4000);
   }, []);
 
   const setters = useMemo(() => ({
@@ -312,7 +313,7 @@ export function StoreProvider({ me: initialMe, initialCompany, children }: { me:
   return (
     <Ctx.Provider value={value}>
       {children}
-      {toastMsg && <div className={`toast${toastMsg.e ? " err" : ""}`} role="status">{toastMsg.m}</div>}
+      {toasts.length > 0 && <div className="toasts" role="status">{toasts.map((t) => <div key={t.id} className={`toast${t.e ? " err" : ""}`}>{t.m}</div>)}</div>}
     </Ctx.Provider>
   );
 }

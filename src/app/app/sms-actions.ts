@@ -30,7 +30,7 @@ async function shipmentsFor(sb: Awaited<ReturnType<typeof supabaseServer>>, ids:
  * Automatic SMS after something happens in the app (goods saved, truck departed or arrived, goods collected).
  * Only the messages the company switched on are sent. Never throws: SMS must not block the work.
  */
-export async function autoSms(ids: string[], kind: NoticeKind): Promise<{ sent: number; noCredit: number; failed: number }> {
+export async function autoSms(ids: string[], kind: NoticeKind): Promise<{ sent: number; noCredit: number; failed: number; noPhone?: number; notConfigured?: number }> {
   const none = { sent: 0, noCredit: 0, failed: 0 };
   try {
     if (!ids.length) return none;
@@ -44,7 +44,8 @@ export async function autoSms(ids: string[], kind: NoticeKind): Promise<{ sent: 
     const already = (s: Shipment, to: NoticeTo) => (s.notices || []).some((n) => n.kind === kind && n.to === to && (n as { auto?: boolean }).auto);
     const jobs = L.flatMap((s) => wanted.filter((to) => !already(s, to)).map((to) => ({ shipment: s, kind, to, auto: true, by: me.full_name, plate: s.trip_id ? plates[s.trip_id] : "" })));
     const r = await sendNotices(company, jobs);
-    return { sent: r.filter((x) => x.status === "sent").length, noCredit: r.filter((x) => x.status === "no_credit").length, failed: r.filter((x) => x.status === "failed").length };
+    const n = (st: string) => r.filter((x) => x.status === st).length;
+    return { sent: n("sent"), noCredit: n("no_credit"), failed: n("failed"), noPhone: n("skipped"), notConfigured: n("not_configured") };
   } catch { return none; }
 }
 

@@ -6,7 +6,7 @@ import { RegionOptions } from "../RegionOptions";
 import { useStore } from "../store";
 import { useUi } from "../CargoApp";
 import { FoundPicker, Slip, smsAfter } from "../parts";
-import { METHODS, REGIONS, INTL, canRecordFound, chargeableKg, isAir, kgFmt, terms, volumeKg, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment, type EditEntry, officesOf, isPart, customerRows, prettyPhone, fmtDay } from "@/lib/domain";
+import { METHODS, REGIONS, INTL, canRecordFound, chargeableKg, isAir, kgFmt, terms, volumeKg, type Pay, fmtDate, intlPhone, regShort, tzs, validPhone, ymd, type Item, type Shipment, type EditEntry, officesOf, isPart, customerRows, prettyPhone, fmtDay, type SmsAuto } from "@/lib/domain";
 
 type Line = { name: string; pkgs: string; kg: string; unit: string; charge: string; l: string; w: string; h: string; rate: string };
 const blankLine = (rate = ""): Line => ({ name: "", pkgs: "1", kg: "", unit: "", charge: "", l: "", w: "", h: "", rate });
@@ -398,9 +398,18 @@ export default function Receive() {
             <button className="btn" type="button" onClick={() => { setF(blank(home, firstDest)); setLines([blankLine(defRate)]); setErr(""); }}>Clear</button>
             </>}
           </div>
+          {!ui.editId && <SmsOnSave auto={company.sms_auto} admin={me.role === "admin"} toR={!!f.r_phone.trim()} toS={!!f.s_phone.trim()} />}
         </div>
         <aside className="preview"><div className="lbl" style={{ marginBottom: 8 }}>Receipt preview</div><Slip s={preview} company={company} account={account?.name} /></aside>
       </form>
     </section>
   );
+}
+
+/** Under the Save button: which SMS go out automatically when the goods are saved. */
+function SmsOnSave({ auto, admin, toR, toS }: { auto?: SmsAuto | null; admin: boolean; toR: boolean; toS: boolean }) {
+  const r = !!auto?.received_receiver, sd = !!auto?.received_sender;
+  if (!r && !sd) return <p className="note sms-on-save">📩 Automatic SMS on save is off.{admin ? " Switch on “Goods received” in Settings › SMS to text the receiver when you save." : " Ask the Admin to switch it on in Settings › SMS."}</p>;
+  const who = [r && (toR ? "receiver" : "receiver (add phone)"), sd && (toS ? "sender" : "sender (add phone)")].filter(Boolean).join(" and ");
+  return <p className="note sms-on-save">📩 When you save, an SMS goes to the <b>{who}</b> automatically.</p>;
 }

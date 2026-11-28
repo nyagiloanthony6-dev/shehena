@@ -367,6 +367,8 @@ details.panel[open]>summary{margin-bottom:10px}
 .auth-links a:hover{text-decoration:underline}
 .loading-screen{min-height:100%;display:grid;place-items:center;color:var(--muted)}
 .toast.err{background:var(--bad);color:#fff}
+.toasts{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;align-items:center;gap:6px;width:max-content;max-width:calc(100% - 32px)}
+.toasts .toast{position:static;transform:none;max-width:100%}
 .pwrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .panel > .nrow:first-child{border-top:0;padding-top:0}
 /* ===== owner console ===== */
