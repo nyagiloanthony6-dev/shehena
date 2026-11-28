@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
-import { providerBalance, smsConfigured } from "@/lib/sms-server";
+import { providerBalance, smsConfigured, smsSource } from "@/lib/sms-server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isOwnerEmail } from "@/lib/owner";
 import { billingSettings, refreshStatuses, tripsByMonth, usage } from "@/lib/billing-server";
@@ -67,7 +67,7 @@ export default async function OwnerPage() {
     payouts: n(payouts.data, ["amount"]) as never,
     audit: audit.data || [],
     leads: leads.data || [],
-    sms: { configured: smsConfigured(), balance: smsProvider.balance, error: smsProvider.error, test: process.env.NEXTSMS_TEST === "1", sender: process.env.NEXTSMS_SENDER_ID || "SHEHENA" },
+    sms: { source: await smsSource(), configured: await smsConfigured(), balance: smsProvider.balance, error: smsProvider.error, test: process.env.NEXTSMS_TEST === "1", sender: process.env.NEXTSMS_SENDER_ID || "SHEHENA" },
     siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "https://www.shehenacargo.co.tz",
     error: [companies, accounts, stats, staff].some((r) => r.error) ? "Some figures couldn't load. Check that migration 0003 has been run in Supabase."
       : payments.error ? "Billing isn't set up yet. Run migration 0006_billing.sql in Supabase." : "",

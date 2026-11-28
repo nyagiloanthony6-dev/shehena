@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Mark, Wordmark } from "./Icon";
 import {
   addAgentLine, assignAgent, deleteAgentLine, deletePayout, recordPayout, saveAgent,
-  addSmsBundle, setSmsSender, saveSmsPrice, ownerTestSms, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
+  addSmsBundle, setSmsSender, saveSmsPrice, ownerTestSms, connectNextSms, disconnectNextSms, createCompany, deletePayment, recordPayment, resetStaffPassword, savePricing, saveBillingSettings, setAccountBilling, setAnnouncement,
   setAutoStatus, setCompanyNotes, setCompanyStatus, setLeadStatus, setSignupOpen, truckActivity, deleteCompany, type TruckRow,
 } from "@/app/owner/actions";
 import {
@@ -24,7 +24,7 @@ type Staff = { id: string; company_id: string; full_name: string; email: string;
 type Lead = { id: number; created_at: string; name: string; company: string; phone: string; email: string; region: string; trucks: string; message: string; source: string; status: string };
 type Audit = { id: number; at: string; owner_email: string; company_id: string | null; action: string; detail: Record<string, unknown> };
 export interface OwnerData {
-  sms?: { configured: boolean; balance: number | null; error?: string; test: boolean; sender: string };
+  sms?: { source?: "owner" | "vercel" | null; configured: boolean; balance: number | null; error?: string; test: boolean; sender: string };
   me: string; hasCompany: boolean; error: string;
   companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[]; leads: Lead[]; siteUrl: string;
   settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null } & BillingSettings;
@@ -370,8 +370,9 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
               ? <><div className="big">{data.sms.balance != null ? data.sms.balance.toLocaleString("en-US") : "—"}<small>SMS left</small></div>
                   {data.sms.error ? <div className="err" style={{ margin: "4px 0" }}>{data.sms.error}</div> : data.sms.balance != null ? <div className="sub" style={{ color: "var(--good)" }}>✓ Login accepted by NextSMS</div> : null}
                   <div className="sub">Sender name {data.sms.sender || "not set (NEXTSMS_SENDER_ID)"}{data.sms.test ? " · TEST MODE: nothing is delivered" : ""} · clients hold {rows.reduce((a, r) => a + Number(r.acc.sms_balance || 0), 0).toLocaleString("en-US")} SMS in bundles</div></>
-              : <div className="sub">Not connected. In Vercel, add NEXTSMS_USERNAME, NEXTSMS_PASSWORD and NEXTSMS_SENDER_ID, then redeploy.</div>}
-            <TestSms busy={pending} run={run} sender={data.sms?.sender} />
+              : <div className="sub">Not connected yet. Enter your NextSMS login below.</div>}
+            <ConnectSms busy={pending} run={run} sms={data.sms} />
+            {data.sms?.configured && <TestSms busy={pending} run={run} sender={data.sms?.sender} />}
           </div>
           <div className="oc-card" style={{ marginTop: 14 }}>
             <div className="oc-hd"><h2>Payments received</h2><span className="sub">Newest first · record new payments from a client&apos;s details</span></div>
@@ -1000,6 +1001,35 @@ function Pricing({ settings, rows, busy, run }: { settings: OwnerData["settings"
 }
 
 const SMS_PACKS = [500, 1000, 2000, 5000];
+/** Connect NextSMS with the normal NextSMS login (saved on the server only). */
+function ConnectSms({ busy, run, sms }: { busy: boolean; run: Run; sms?: OwnerData["sms"] }) {
+  const [open, setOpen] = useState(!sms?.configured || !!sms?.error);
+  const [u, setU] = useState("");
+  const [p, setP] = useState("");
+  const [show, setShow] = useState(false);
+  if (!open) return (
+    <div className="testsms" style={{ alignItems: "center" }}>
+      <span className="sub">Login {sms?.source === "owner" ? "saved here in the owner console" : "from Vercel settings"}.</span>
+      <button className="btn sm" onClick={() => setOpen(true)}>Change login</button>
+      {sms?.source === "owner" && <button className="btn sm" disabled={busy} onClick={() => run(() => disconnectNextSms())}>Disconnect</button>}
+    </div>
+  );
+  return (
+    <form className="connect-sms" noValidate onSubmit={(e) => { e.preventDefault(); run(() => connectNextSms(u, p), () => { setP(""); setOpen(false); }); }}>
+      <b>Connect NextSMS</b>
+      <span className="sub">Use the same username and password you use to log in on the NextSMS website. Shehena checks it with NextSMS before saving. Only the server can read it; clients and staff never see it.</span>
+      <div className="testsms">
+        <input value={u} onChange={(e) => setU(e.target.value)} placeholder="NextSMS username" autoComplete="off" aria-label="NextSMS username" />
+        <input value={p} onChange={(e) => setP(e.target.value)} type={show ? "text" : "password"} placeholder="NextSMS password" autoComplete="new-password" aria-label="NextSMS password" />
+        <button type="button" className="btn sm" onClick={() => setShow(!show)}>{show ? "Hide" : "Show"}</button>
+        <button className="btn sm primary" type="submit" disabled={busy || !u.trim() || !p}>Test & connect</button>
+        {sms?.configured && <button type="button" className="btn sm" onClick={() => setOpen(false)}>Cancel</button>}
+      </div>
+      <span className="sub">Refused? Try the username shown in your NextSMS dashboard instead of your email, and ask NextSMS to enable API access on your account.</span>
+    </form>
+  );
+}
+
 /** Send a test SMS to your own phone to check the connection and a sender name. */
 function TestSms({ busy, run, sender }: { busy: boolean; run: Run; sender?: string }) {
   const [phone, setPhone] = useState("");

@@ -1,7 +1,7 @@
 "use server";
 import { allRows } from "@/lib/all-rows";
 import { cleanSender, intlPhone } from "@/lib/domain";
-import { sendTestSms } from "@/lib/sms-server";
+import { clearSmsLogin, sendTestSms, testSmsLogin } from "@/lib/sms-server";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { currentOwner, type AccountStatus } from "@/lib/owner";
@@ -556,5 +556,33 @@ export async function ownerTestSms(phone: string, sender?: string): Promise<Resu
     const r = await sendTestSms(p, `Shehena test SMS ${new Date().toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" })}: the SMS connection works.`, from || undefined);
     if (!r.ok) return { error: `Not sent: ${r.error}` };
     return { ok: `Test SMS sent to ${phone}${process.env.NEXTSMS_TEST === "1" ? " (TEST MODE: NextSMS accepts it but doesn't deliver it)" : ""}. It should arrive within a minute.` };
+  } catch (e) { return fail(e); }
+}
+
+/** Connect NextSMS from the owner console: test the login, then save it (server-only table). */
+export async function connectNextSms(username: string, password: string): Promise<Result> {
+  try {
+    const by = await owner();
+    const u = username.trim();
+    if (!u || !password) return { error: "Enter the NextSMS username and password." };
+    const t = await testSmsLogin(u, password);
+    if (t.error || t.balance === null) return { error: t.error || "NextSMS did not accept this login." };
+    const { error } = await supabaseAdmin().from("sms_provider").upsert({ id: 1, username: u, password, connected_at: new Date().toISOString(), connected_by: by });
+    if (error) return { error: /sms_provider/.test(error.message) ? "Run migration 0031_sms_provider.sql in Supabase first." : "Login works, but it could not be saved." };
+    clearSmsLogin();
+    await audit(by, "sms_connect", null, { username: u });
+    revalidatePath("/owner");
+    return { ok: `Connected to NextSMS · ${t.balance.toLocaleString("en-US")} SMS left.` };
+  } catch (e) { return fail(e); }
+}
+/** Remove the login saved in the owner console (Shehena then uses Vercel's, if any). */
+export async function disconnectNextSms(): Promise<Result> {
+  try {
+    const by = await owner();
+    await supabaseAdmin().from("sms_provider").delete().eq("id", 1);
+    clearSmsLogin();
+    await audit(by, "sms_disconnect", null, {});
+    revalidatePath("/owner");
+    return { ok: "NextSMS login removed." };
   } catch (e) { return fail(e); }
 }

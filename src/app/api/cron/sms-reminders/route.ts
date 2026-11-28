@@ -14,7 +14,7 @@ export const maxDuration = 60;
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
-  if (!smsConfigured()) return NextResponse.json({ ok: true, skipped: "SMS not configured" });
+  if (!(await smsConfigured())) return NextResponse.json({ ok: true, skipped: "SMS not configured" });
   const admin = supabaseAdmin();
   const { data: cos, error } = await admin.from("companies").select("*");
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
