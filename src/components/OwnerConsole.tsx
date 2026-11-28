@@ -24,7 +24,7 @@ type Staff = { id: string; company_id: string; full_name: string; email: string;
 type Lead = { id: number; created_at: string; name: string; company: string; phone: string; email: string; region: string; trucks: string; message: string; source: string; status: string };
 type Audit = { id: number; at: string; owner_email: string; company_id: string | null; action: string; detail: Record<string, unknown> };
 export interface OwnerData {
-  sms?: { configured: boolean; balance: number | null; test: boolean; sender: string };
+  sms?: { configured: boolean; balance: number | null; error?: string; test: boolean; sender: string };
   me: string; hasCompany: boolean; error: string;
   companies: Company[]; accounts: Account[]; stats: Stat[]; staff: Staff[]; audit: Audit[]; leads: Lead[]; siteUrl: string;
   settings: { signup_open: boolean; announcement: string; announcement_updated_at: string | null } & BillingSettings;
@@ -368,6 +368,7 @@ export default function OwnerConsole({ data }: { data: OwnerData }) {
             <div className="lbl">NextSMS account</div>
             {data.sms?.configured
               ? <><div className="big">{data.sms.balance != null ? data.sms.balance.toLocaleString("en-US") : "—"}<small>SMS left</small></div>
+                  {data.sms.error ? <div className="err" style={{ margin: "4px 0" }}>{data.sms.error}</div> : data.sms.balance != null ? <div className="sub" style={{ color: "var(--good)" }}>✓ Login accepted by NextSMS</div> : null}
                   <div className="sub">Sender name {data.sms.sender || "not set (NEXTSMS_SENDER_ID)"}{data.sms.test ? " · TEST MODE: nothing is delivered" : ""} · clients hold {rows.reduce((a, r) => a + Number(r.acc.sms_balance || 0), 0).toLocaleString("en-US")} SMS in bundles</div></>
               : <div className="sub">Not connected. In Vercel, add NEXTSMS_USERNAME, NEXTSMS_PASSWORD and NEXTSMS_SENDER_ID, then redeploy.</div>}
             <TestSms busy={pending} run={run} sender={data.sms?.sender} />

@@ -10,10 +10,16 @@ import { intlPhone, message, smsParts, type Company, type NoticeKind, type Notic
  *   NEXTSMS_TEST=1                      - optional: use NextSMS test mode (nothing is delivered)
  */
 const BASE = process.env.NEXTSMS_BASE_URL || "https://messaging-service.co.tz/api/sms/v1";
-export const smsConfigured = () => !!(process.env.NEXTSMS_USERNAME && process.env.NEXTSMS_PASSWORD);
-const auth = () => "Basic " + Buffer.from(`${process.env.NEXTSMS_USERNAME}:${process.env.NEXTSMS_PASSWORD}`).toString("base64");
+/** Values pasted into Vercel often carry spaces, quotes or a line break: remove them. */
+const env = (k: string) => (process.env[k] || "").trim().replace(/^["']|["']$/g, "").trim();
+export const smsConfigured = () => !!(env("NEXTSMS_TOKEN") || (env("NEXTSMS_USERNAME") && env("NEXTSMS_PASSWORD")));
+/** NextSMS login: either the ready-made token from the NextSMS dashboard (NEXTSMS_TOKEN), or username + password. */
+const auth = () => {
+  const t = env("NEXTSMS_TOKEN").replace(/^Basic\s+/i, "");
+  return "Basic " + (t || Buffer.from(`${env("NEXTSMS_USERNAME")}:${env("NEXTSMS_PASSWORD")}`).toString("base64"));
+};
 /** The company's own approved sender name, or the shared one. */
-export const senderFor = (c?: Pick<Company, "sms_sender"> | null) => c?.sms_sender?.trim() || process.env.NEXTSMS_SENDER_ID || "SHEHENA";
+export const senderFor = (c?: Pick<Company, "sms_sender"> | null) => c?.sms_sender?.trim() || env("NEXTSMS_SENDER_ID") || "SHEHENA";
 
 type Sent = { ok: boolean; id: string; error: string };
 /** Clients see Serengeti Labs, never the SMS supplier: strip its name from error texts they can read. */
@@ -21,7 +27,7 @@ const neutral = (t: string) => t.replace(/next\s*-?\s*sms|messaging-service\.co\
 
 /** Send one SMS. Phone in 255XXXXXXXXX form. */
 async function nextSms(from: string, phone: string, text: string, reference: string): Promise<Sent> {
-  const url = `${BASE}/${process.env.NEXTSMS_TEST === "1" ? "test/" : ""}text/single`;
+  const url = `${BASE}/${env("NEXTSMS_TEST") === "1" ? "test/" : ""}text/single`;
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -48,14 +54,15 @@ export async function sendTestSms(phone: string, text: string, from?: string) {
 }
 
 /** The NextSMS account balance (SMS left), for the owner console. */
-export async function providerBalance(): Promise<number | null> {
-  if (!smsConfigured()) return null;
+export async function providerBalance(): Promise<{ balance: number | null; error: string }> {
+  if (!smsConfigured()) return { balance: null, error: "" };
   try {
     const res = await fetch(`${BASE}/balance`, { headers: { Authorization: auth(), Accept: "application/json" }, cache: "no-store" });
-    const b = await res.json();
+    const b = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) return { balance: null, error: `NextSMS refused the login (${b?.message || b?.error || "Not Authorized"}). Check NEXTSMS_USERNAME / NEXTSMS_PASSWORD in Vercel.` };
     const n = Number(b?.sms_balance ?? b?.balance ?? b?.data?.sms_balance);
-    return Number.isFinite(n) ? n : null;
-  } catch { return null; }
+    return Number.isFinite(n) ? { balance: n, error: "" } : { balance: null, error: res.ok ? "" : `NextSMS answered ${res.status}` };
+  } catch (e) { return { balance: null, error: `Could not reach NextSMS: ${(e as Error).message}` }; }
 }
 
 export type SmsJob = { shipment: Shipment; kind: NoticeKind; to: NoticeTo; auto: boolean; by: string; plate?: string };
