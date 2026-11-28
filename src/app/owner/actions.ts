@@ -563,12 +563,14 @@ export async function ownerTestSms(phone: string, sender?: string): Promise<Resu
 export async function connectNextSms(username: string, password: string, apiKey?: string): Promise<Result> {
   try {
     const by = await owner();
-    const key = (apiKey || "").trim().replace(/^Basic\s+/i, "");
+    const key = (apiKey || "").trim();
     const u = username.trim();
     if (!key && (!u || !password)) return { error: "Enter the NextSMS username and password, or an API key." };
     const t = key ? await testSmsKey(key) : await testSmsLogin(u, password);
     if (t.error || t.balance === null) return { error: (t.error || "NextSMS did not accept this login.").replace("Check the username and password.", key ? "Check the API key." : "Check the username and password.") };
-    const { error } = await supabaseAdmin().from("sms_provider").upsert({ id: 1, username: key ? "__key__" : u, password: key || password, connected_at: new Date().toISOString(), connected_by: by });
+    const scheme = key && "scheme" in t ? (t as { scheme: string }).scheme : "";
+    const stored = key ? key.replace(/^(basic|bearer)\s+/i, "") : password;
+    const { error } = await supabaseAdmin().from("sms_provider").upsert({ id: 1, username: key ? (scheme === "basic" ? "__key__" : "__bearer__") : u, password: stored, connected_at: new Date().toISOString(), connected_by: by });
     if (error) return { error: /sms_provider/.test(error.message) ? "Run migration 0031_sms_provider.sql in Supabase first." : "Login works, but it could not be saved." };
     clearSmsLogin();
     await audit(by, "sms_connect", null, { method: key ? "api key" : "login", username: key ? "" : u });

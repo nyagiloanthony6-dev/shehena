@@ -13,7 +13,7 @@ const BASE = process.env.NEXTSMS_BASE_URL || "https://messaging-service.co.tz/ap
 /** Values pasted into Vercel often carry spaces, quotes or a line break: remove them. */
 const env = (k: string) => (process.env[k] || "").trim().replace(/^["']|["']$/g, "").trim();
 const b64 = (u: string, p: string) => Buffer.from(`${u.trim()}:${p}`).toString("base64");
-type Creds = { token: string; source: "owner" | "vercel" };
+type Creds = { header: string; source: "owner" | "vercel" };
 let cache: { at: number; c: Creds | null } | null = null;
 /** Forget the cached login (after connecting or disconnecting in the owner console). */
 export const clearSmsLogin = () => { cache = null; };
@@ -24,12 +24,15 @@ async function creds(): Promise<Creds | null> {
   let c: Creds | null = null;
   try {
     const { data } = await supabaseAdmin().from("sms_provider").select("username,password").eq("id", 1).maybeSingle();
-    if (data?.username && data?.password) c = { token: data.username === "__key__" ? data.password : b64(data.username, data.password), source: "owner" };
+    if (data?.username && data?.password) c = {
+      header: data.username === "__bearer__" ? "Bearer " + data.password : data.username === "__key__" ? "Basic " + data.password : "Basic " + b64(data.username, data.password),
+      source: "owner",
+    };
   } catch { /* table not created yet */ }
   if (!c) {
-    const t = env("NEXTSMS_TOKEN").replace(/^Basic\s+/i, "");
-    if (t) c = { token: t, source: "vercel" };
-    else if (env("NEXTSMS_USERNAME") && env("NEXTSMS_PASSWORD")) c = { token: b64(env("NEXTSMS_USERNAME"), env("NEXTSMS_PASSWORD")), source: "vercel" };
+    const t = env("NEXTSMS_TOKEN");
+    if (t) c = { header: /^(basic|bearer)\s/i.test(t) ? t : "Bearer " + t, source: "vercel" };
+    else if (env("NEXTSMS_USERNAME") && env("NEXTSMS_PASSWORD")) c = { header: "Basic " + b64(env("NEXTSMS_USERNAME"), env("NEXTSMS_PASSWORD")), source: "vercel" };
   }
   cache = { at: Date.now(), c };
   return c;
@@ -51,7 +54,7 @@ async function nextSms(from: string, phone: string, text: string, reference: str
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { Authorization: "Basic " + c.token, "Content-Type": "application/json", Accept: "application/json" },
+      headers: { Authorization: c.header, "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ from, to: phone, text, reference }),
       cache: "no-store",
     });
@@ -74,11 +77,11 @@ export async function sendTestSms(phone: string, text: string, from?: string) {
 }
 
 /** The NextSMS account balance (SMS left), for the owner console. */
-export async function providerBalance(token?: string): Promise<{ balance: number | null; error: string }> {
-  const t = token || (await creds())?.token;
+export async function providerBalance(header?: string): Promise<{ balance: number | null; error: string }> {
+  const t = header || (await creds())?.header;
   if (!t) return { balance: null, error: "" };
   try {
-    const res = await fetch(`${BASE}/balance`, { headers: { Authorization: "Basic " + t, Accept: "application/json" }, cache: "no-store" });
+    const res = await fetch(`${BASE}/balance`, { headers: { Authorization: t, Accept: "application/json" }, cache: "no-store" });
     const b = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) return { balance: null, error: `NextSMS refused the login (${b?.message || b?.error || "Not Authorized"}). Check the username and password.` };
     const n = Number(b?.sms_balance ?? b?.sms_remaining ?? b?.data?.sms_balance ?? b?.data?.sms_remaining ?? b?.balance ?? b?.data?.balance);
@@ -127,6 +130,17 @@ export async function sendNotices(company: Company, jobs: SmsJob[]): Promise<Sms
 }
 
 /** Test a NextSMS username and password (owner console). */
-export const testSmsLogin = (username: string, password: string) => providerBalance(b64(username, password));
+export const testSmsLogin = (username: string, password: string) => providerBalance("Basic " + b64(username, password));
 /** Test a NextSMS API key (the Base64 "Basic" key some NextSMS accounts are given). */
-export const testSmsKey = (key: string) => providerBalance(key.trim().replace(/^Basic\s+/i, ""));
+export async function testSmsKey(key: string): Promise<{ balance: number | null; error: string; scheme: "bearer" | "basic" }> {
+  const k = key.trim().replace(/^(basic|bearer)\s+/i, "");
+  const asked = /^basic\s/i.test(key.trim()) ? "basic" : "bearer";
+  // Try the style NextSMS shows in the dashboard first (Bearer), then the older Basic style.
+  const order: ("bearer" | "basic")[] = asked === "basic" ? ["basic", "bearer"] : ["bearer", "basic"];
+  let last = { balance: null as number | null, error: "" };
+  for (const sc of order) {
+    last = await providerBalance((sc === "bearer" ? "Bearer " : "Basic ") + k);
+    if (!last.error && last.balance !== null) return { ...last, scheme: sc };
+  }
+  return { ...last, scheme: order[0] };
+}

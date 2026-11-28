@@ -1019,11 +1019,11 @@ function ConnectSms({ busy, run, sms }: { busy: boolean; run: Run; sms?: OwnerDa
   return (
     <form className="connect-sms" noValidate onSubmit={(e) => { e.preventDefault(); run(() => connectNextSms(u, p, useKey ? key : ""), () => { setP(""); setKey(""); setOpen(false); }); }}>
       <b>Connect NextSMS</b>
-      <div className="chips"><button type="button" className="chip" aria-pressed={!useKey} onClick={() => setUseKey(false)}>Username + password</button><button type="button" className="chip" aria-pressed={useKey} onClick={() => setUseKey(true)}>API key</button></div>
-      <span className="sub">{useKey ? "Paste the API key NextSMS gave you (a long code, sometimes starting with \"Basic\")." : "Use the same username and password you use to log in on the NextSMS website."} Shehena checks it with NextSMS before saving. Only the server can read it; clients and staff never see it.</span>
+      <div className="chips"><button type="button" className="chip" aria-pressed={!useKey} onClick={() => setUseKey(false)}>Username + password</button><button type="button" className="chip" aria-pressed={useKey} onClick={() => setUseKey(true)}>API token</button></div>
+      <span className="sub">{useKey ? "Paste the API token from your NextSMS dashboard (the code shown after \"Bearer\")." : "Use the same username and password you use to log in on the NextSMS website."} Shehena checks it with NextSMS before saving. Only the server can read it; clients and staff never see it.</span>
       <div className="testsms">
         {useKey
-          ? <input value={key} onChange={(e) => setKey(e.target.value)} type={show ? "text" : "password"} placeholder="NextSMS API key" autoComplete="off" aria-label="NextSMS API key" />
+          ? <input value={key} onChange={(e) => setKey(e.target.value)} type={show ? "text" : "password"} placeholder="NextSMS API token" autoComplete="off" aria-label="NextSMS API key" />
           : <>
               <input value={u} onChange={(e) => setU(e.target.value)} placeholder="NextSMS username" autoComplete="off" aria-label="NextSMS username" />
               <input value={p} onChange={(e) => setP(e.target.value)} type={show ? "text" : "password"} placeholder="NextSMS password" autoComplete="new-password" aria-label="NextSMS password" />
