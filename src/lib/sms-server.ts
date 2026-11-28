@@ -81,7 +81,7 @@ export async function providerBalance(token?: string): Promise<{ balance: number
     const res = await fetch(`${BASE}/balance`, { headers: { Authorization: "Basic " + t, Accept: "application/json" }, cache: "no-store" });
     const b = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) return { balance: null, error: `NextSMS refused the login (${b?.message || b?.error || "Not Authorized"}). Check the username and password.` };
-    const n = Number(b?.sms_balance ?? b?.balance ?? b?.data?.sms_balance);
+    const n = Number(b?.sms_balance ?? b?.sms_remaining ?? b?.data?.sms_balance ?? b?.data?.sms_remaining ?? b?.balance ?? b?.data?.balance);
     return Number.isFinite(n) ? { balance: n, error: "" } : { balance: null, error: res.ok ? "" : `NextSMS answered ${res.status}` };
   } catch (e) { return { balance: null, error: `Could not reach NextSMS: ${(e as Error).message}` }; }
 }
